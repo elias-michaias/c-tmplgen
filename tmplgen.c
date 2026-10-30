@@ -115,6 +115,12 @@ typedef struct {
 typedef struct { char *name; char *canonical; } TypeAlias;
 typedef struct {
     char *name;
+    int is_union;
+    char **fields;
+    size_t field_count, field_cap;
+} StructuralSchema;
+typedef struct {
+    char *name;
     char *path;
     unsigned offset;
     size_t line;
@@ -139,6 +145,8 @@ static GenericUse *g_generic_uses;
 static size_t g_generic_use_count, g_generic_use_cap;
 static TypeAlias *g_aliases;
 static size_t g_alias_count, g_alias_cap;
+static StructuralSchema *g_structural_schemas;
+static size_t g_structural_schema_count, g_structural_schema_cap;
 static char *g_source_root;
 static char *g_template_dir;
 static char *g_output_path;
@@ -1283,8 +1291,19 @@ typedef struct {
 } TemplateArgument;
 
 typedef struct {
+    char *parameter_name;
+    char **required_types;
+    size_t required_type_count, required_type_cap;
+    char **expressions;
+    size_t expression_count, expression_cap;
+    size_t line;
+} TemplateConstraint;
+
+typedef struct {
     char **parameter_names;
     size_t parameter_count, parameter_cap;
+    TemplateConstraint *constraints;
+    size_t constraint_count, constraint_cap;
     size_t line;
     unsigned offset;
     int used;
@@ -1294,6 +1313,8 @@ typedef struct {
     char *name;
     char **declared_parameters;
     size_t declared_parameter_count, declared_parameter_cap;
+    TemplateConstraint *constraints;
+    size_t constraint_count, constraint_cap;
     TemplateArgument *parameters;
     size_t parameter_count;
     char *return_type;
@@ -1315,6 +1336,8 @@ typedef struct {
     char *name;
     char **declared_parameters;
     size_t declared_parameter_count, declared_parameter_cap;
+    TemplateConstraint *constraints;
+    size_t constraint_count, constraint_cap;
     char **parameter_names;
     size_t parameter_count, parameter_cap;
     unsigned start_offset, end_offset;
@@ -1356,8 +1379,11 @@ static size_t g_function_call_dependency_cap;
 
 static const TemplateType *find_template_type(const TemplateInfo *ti,
                                               const char *name);
+static const StructuralSchema *find_structural_schema(const char *name,
+                                                       int *ambiguous);
 static const TemplateFunction *find_template_function(const TemplateInfo *ti,
                                                        const char *name);
+static void register_structural_schema(CXCursor cursor);
 static char *specialize_function_calls(const char *fragment,
                                        const TemplateInfo *ti,
                                        const GenInstance *instance,
@@ -1418,6 +1444,30 @@ static void emit_preamble(Buf *out, const char *guard,
                           const char *current_stem, StringSet *includes);
 static void emit_type_functors(Buf *out, const TemplateInfo *ti);
 
+static int template_requires_constraint(const TemplateInfo *ti, const char *name)
+{
+    size_t i, j;
+    for (i = 0U; i < ti->annotation_count; ++i) {
+        for (j = 0U; j < ti->annotations[i].constraint_count; ++j) {
+            size_t k;
+            const TemplateConstraint *constraint = &ti->annotations[i].constraints[j];
+            for (k = 0U; k < constraint->required_type_count; ++k) {
+                if (str_eq(constraint->required_types[k], name)) return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static int any_template_requires_constraint(const char *name)
+{
+    size_t i;
+    for (i = 0U; i < g_all_template_info_count; ++i) {
+        if (template_requires_constraint(&g_all_template_infos[i], name)) return 1;
+    }
+    return 0;
+}
+
 static void template_info_init(TemplateInfo *ti)
 {
     memset(ti, 0, sizeof(*ti));
@@ -1431,6 +1481,104 @@ static void template_application_free(TemplateApplication *application)
     memset(application, 0, sizeof(*application));
 }
 
+static void template_constraint_free(TemplateConstraint *constraint)
+{
+    free(constraint->parameter_name);
+    list_free(constraint->required_types, constraint->required_type_count);
+    list_free(constraint->expressions, constraint->expression_count);
+    memset(constraint, 0, sizeof(*constraint));
+}
+
+static void template_constraint_array_free(TemplateConstraint *constraints,
+                                           size_t count)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) template_constraint_free(&constraints[i]);
+    free(constraints);
+}
+
+static void template_constraint_add(TemplateConstraint **constraints,
+                                    size_t *constraint_count,
+                                    size_t *constraint_cap,
+                                    const char *parameter_name,
+                                    const char *required_type,
+                                    size_t line)
+{
+    size_t i;
+    TemplateConstraint *constraint = NULL;
+    for (i = 0U; i < *constraint_count; ++i) {
+        if (str_eq((*constraints)[i].parameter_name, parameter_name)) {
+            constraint = &(*constraints)[i];
+            break;
+        }
+    }
+    if (constraint == NULL) {
+        if (*constraint_count == *constraint_cap) {
+            size_t new_cap = *constraint_cap == 0U ? 2U : *constraint_cap * 2U;
+            TemplateConstraint *next;
+            if (new_cap < *constraint_cap ||
+                new_cap > (size_t)-1 / sizeof(**constraints)) {
+                die("too many template constraints");
+            }
+            next = (TemplateConstraint *)realloc(*constraints,
+                                                  new_cap * sizeof(**constraints));
+            if (next == NULL) die("out of memory");
+            *constraints = next;
+            *constraint_cap = new_cap;
+        }
+        constraint = &(*constraints)[(*constraint_count)++];
+        memset(constraint, 0, sizeof(*constraint));
+        constraint->parameter_name = copy_string(parameter_name);
+        constraint->line = line;
+    }
+    if (!list_contains(constraint->required_types,
+                       constraint->required_type_count, required_type)) {
+        list_add(&constraint->required_types, &constraint->required_type_count,
+                 &constraint->required_type_cap, required_type);
+    }
+}
+
+static void template_constraint_add_expression(TemplateConstraint **constraints,
+                                              size_t *constraint_count,
+                                              size_t *constraint_cap,
+                                              const char *parameter_name,
+                                              const char *expression,
+                                              size_t line)
+{
+    size_t i;
+    TemplateConstraint *constraint = NULL;
+    for (i = 0U; i < *constraint_count; ++i) {
+        if (str_eq((*constraints)[i].parameter_name, parameter_name)) {
+            constraint = &(*constraints)[i];
+            break;
+        }
+    }
+    if (constraint == NULL) {
+        if (*constraint_count == *constraint_cap) {
+            size_t new_cap = *constraint_cap == 0U ? 2U : *constraint_cap * 2U;
+            TemplateConstraint *next;
+            if (new_cap < *constraint_cap ||
+                new_cap > (size_t)-1 / sizeof(**constraints)) {
+                die("too many template constraints");
+            }
+            next = (TemplateConstraint *)realloc(*constraints,
+                                                  new_cap * sizeof(**constraints));
+            if (next == NULL) die("out of memory");
+            *constraints = next;
+            *constraint_cap = new_cap;
+        }
+        constraint = &(*constraints)[(*constraint_count)++];
+        memset(constraint, 0, sizeof(*constraint));
+        constraint->parameter_name = copy_string(parameter_name);
+        constraint->line = line;
+    }
+    if (!list_contains(constraint->expressions, constraint->expression_count,
+                       expression)) {
+        list_add(&constraint->expressions, &constraint->expression_count,
+                 &constraint->expression_cap, expression);
+    }
+}
+
 static void template_info_free(TemplateInfo *ti)
 {
     size_t i;
@@ -1440,6 +1588,10 @@ static void template_info_free(TemplateInfo *ti)
         free(ti->functions[i].name);
         list_free(ti->functions[i].declared_parameters,
                   ti->functions[i].declared_parameter_count);
+        for (j = 0U; j < ti->functions[i].constraint_count; ++j) {
+            template_constraint_free(&ti->functions[i].constraints[j]);
+        }
+        free(ti->functions[i].constraints);
         for (j = 0U; j < ti->functions[i].parameter_count; ++j) {
             free(ti->functions[i].parameters[j].type);
             free(ti->functions[i].parameters[j].name);
@@ -1458,16 +1610,26 @@ static void template_info_free(TemplateInfo *ti)
     }
     free(ti->functions);
     for (i = 0U; i < ti->constructor_count; ++i) {
+        size_t j;
         free(ti->constructors[i].name);
         list_free(ti->constructors[i].declared_parameters,
                   ti->constructors[i].declared_parameter_count);
+        for (j = 0U; j < ti->constructors[i].constraint_count; ++j) {
+            template_constraint_free(&ti->constructors[i].constraints[j]);
+        }
+        free(ti->constructors[i].constraints);
         list_free(ti->constructors[i].parameter_names,
                   ti->constructors[i].parameter_count);
     }
     free(ti->constructors);
     for (i = 0U; i < ti->annotation_count; ++i) {
+        size_t j;
         list_free(ti->annotations[i].parameter_names,
                   ti->annotations[i].parameter_count);
+        for (j = 0U; j < ti->annotations[i].constraint_count; ++j) {
+            template_constraint_free(&ti->annotations[i].constraints[j]);
+        }
+        free(ti->annotations[i].constraints);
     }
     free(ti->annotations);
     list_free(ti->includes, ti->include_count);
@@ -1493,8 +1655,48 @@ static int template_name_in_path(const char *path, const char *expected)
     return matches;
 }
 
+static void copy_template_constraints(TemplateConstraint **target,
+                                     size_t *target_count, size_t *target_cap,
+                                     const TemplateConstraint *source,
+                                     size_t source_count)
+{
+    size_t i, j;
+    for (i = 0U; i < source_count; ++i) {
+        TemplateConstraint *constraint;
+        TemplateConstraint *next;
+        if (*target_count == *target_cap) {
+            size_t new_cap = *target_cap == 0U ? 2U : *target_cap * 2U;
+            if (new_cap < *target_cap ||
+                new_cap > (size_t)-1 / sizeof(**target)) {
+                die("too many template constraints");
+            }
+            next = (TemplateConstraint *)realloc(*target,
+                                                 new_cap * sizeof(**target));
+            if (next == NULL) die("out of memory");
+            *target = next;
+            *target_cap = new_cap;
+        }
+        constraint = &(*target)[(*target_count)++];
+        memset(constraint, 0, sizeof(*constraint));
+        constraint->parameter_name = copy_string(source[i].parameter_name);
+        constraint->line = source[i].line;
+        for (j = 0U; j < source[i].required_type_count; ++j) {
+            list_add(&constraint->required_types,
+                     &constraint->required_type_count,
+                     &constraint->required_type_cap,
+                     source[i].required_types[j]);
+        }
+        for (j = 0U; j < source[i].expression_count; ++j) {
+            list_add(&constraint->expressions, &constraint->expression_count,
+                     &constraint->expression_cap, source[i].expressions[j]);
+        }
+    }
+}
+
 static void add_template_type(TemplateInfo *ti, const char *name,
                               char **declared_parameters, size_t declared_count,
+                              const TemplateConstraint *constraints,
+                              size_t constraint_count,
                               char **parameters, size_t parameter_count,
                               unsigned start_offset, unsigned end_offset,
                               unsigned start_line, int is_struct_tag,
@@ -1525,6 +1727,9 @@ static void add_template_type(TemplateInfo *ti, const char *name,
     ti->constructors[ti->constructor_count].declared_parameters = NULL;
     ti->constructors[ti->constructor_count].declared_parameter_count = 0U;
     ti->constructors[ti->constructor_count].declared_parameter_cap = 0U;
+    ti->constructors[ti->constructor_count].constraints = NULL;
+    ti->constructors[ti->constructor_count].constraint_count = 0U;
+    ti->constructors[ti->constructor_count].constraint_cap = 0U;
     ti->constructors[ti->constructor_count].parameter_names = NULL;
     ti->constructors[ti->constructor_count].parameter_count = 0U;
     ti->constructors[ti->constructor_count].parameter_cap = 0U;
@@ -1539,6 +1744,10 @@ static void add_template_type(TemplateInfo *ti, const char *name,
                  &ti->constructors[ti->constructor_count].declared_parameter_cap,
                  declared_parameters[i]);
     }
+    copy_template_constraints(&ti->constructors[ti->constructor_count].constraints,
+        &ti->constructors[ti->constructor_count].constraint_count,
+        &ti->constructors[ti->constructor_count].constraint_cap,
+        constraints, constraint_count);
     for (i = 0U; i < parameter_count; ++i) {
         list_add(&ti->constructors[ti->constructor_count].parameter_names,
                  &ti->constructors[ti->constructor_count].parameter_count,
@@ -1751,6 +1960,18 @@ typedef struct {
     int failed;
 } TemplateAnalysis;
 
+static unsigned template_line_at_offset(const TemplateInfo *ti, unsigned offset)
+{
+    size_t i;
+    unsigned line = 1U;
+    size_t end = offset;
+    if (end > ti->body.len) end = ti->body.len;
+    for (i = 0U; i < end; ++i) {
+        if (ti->body.p[i] == '\n') ++line;
+    }
+    return line;
+}
+
 static int parse_text_type_arguments(const char *source, size_t open,
                                      char ***arguments, size_t *argument_count,
                                      size_t *end_out);
@@ -1889,6 +2110,15 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
     clang_getExpansionLocation(location, &file, &line, &column, &offset);
     if (file == NULL) return CXChildVisit_Recurse;
     path = copy_cx_string(clang_getFileName(file));
+    if ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl) &&
+        clang_isCursorDefinition(cursor) != 0U) {
+        char *record_name = copy_cx_string(clang_getCursorSpelling(cursor));
+        if (template_name_in_path(path, analysis->absolute_path) ||
+            template_requires_constraint(ti, record_name)) {
+            register_structural_schema(cursor);
+        }
+        free(record_name);
+    }
     if (!template_name_in_path(path, analysis->absolute_path)) {
         free(path);
         return CXChildVisit_Recurse;
@@ -1911,6 +2141,7 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
         if (declaration_end >= analysis->offset_bias) {
             declaration_end -= analysis->offset_bias;
         }
+        declaration_line = template_line_at_offset(ti, declaration_start);
         if (valid_identifier(name) && template_parameter_index(ti, name) < 0) {
             annotation = take_template_annotation(analysis, declaration_start);
             collect_cursor_template_parameters(analysis->tu, cursor, ti,
@@ -1945,6 +2176,8 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 add_template_type(ti, name,
                                   annotation != NULL ? annotation->parameter_names : NULL,
                                   annotation != NULL ? annotation->parameter_count : 0U,
+                                  annotation != NULL ? annotation->constraints : NULL,
+                                  annotation != NULL ? annotation->constraint_count : 0U,
                                   parameters, parameter_count, declaration_start,
                                   declaration_end, declaration_line, 0, 0);
                 list_free(parameters, parameter_count);
@@ -1971,6 +2204,7 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
         if (declaration_end >= analysis->offset_bias) {
             declaration_end -= analysis->offset_bias;
         }
+        declaration_line = template_line_at_offset(ti, declaration_start);
         if (valid_identifier(name) && template_parameter_index(ti, name) < 0) {
             annotation = take_template_annotation(analysis, declaration_start);
             collect_cursor_template_parameters(analysis->tu, cursor, ti,
@@ -2004,6 +2238,8 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 add_template_type(ti, name,
                     annotation != NULL ? annotation->parameter_names : NULL,
                     annotation != NULL ? annotation->parameter_count : 0U,
+                    annotation != NULL ? annotation->constraints : NULL,
+                    annotation != NULL ? annotation->constraint_count : 0U,
                     ordered_parameters, ordered_count, declaration_start,
                     declaration_end, declaration_line,
                     kind == CXCursor_StructDecl, kind == CXCursor_UnionDecl);
@@ -2024,6 +2260,7 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
             if (declaration_start >= analysis->offset_bias) {
                 declaration_start -= analysis->offset_bias;
             }
+            declaration_line = template_line_at_offset(ti, declaration_start);
             annotation = take_template_annotation(analysis, declaration_start);
             collect_cursor_template_parameters(analysis->tu, cursor, ti,
                                                &parameters, &parameter_count,
@@ -2062,12 +2299,18 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
         if (function.end_offset >= analysis->offset_bias) {
             function.end_offset -= analysis->offset_bias;
         }
+        function.start_line = template_line_at_offset(ti, function.start_offset);
         annotation = take_template_annotation(analysis, function.start_offset);
         function.has_template_annotation = annotation != NULL;
         if (annotation != NULL) {
             copy_declared_parameters(&function.declared_parameters,
                                      &function.declared_parameter_count,
                                      &function.declared_parameter_cap, annotation);
+            copy_template_constraints(&function.constraints,
+                                      &function.constraint_count,
+                                      &function.constraint_cap,
+                                      annotation->constraints,
+                                      annotation->constraint_count);
         }
         function.return_type = copy_cx_string(clang_getTypeSpelling(
             clang_getResultType(function_type)));
@@ -2419,6 +2662,8 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
         int expect_name = 1;
         char **names = NULL;
         size_t name_count = 0U, name_cap = 0U;
+        TemplateConstraint *constraints = NULL;
+        size_t constraint_count = 0U, constraint_cap = 0U;
         while (*p != '\0') {
             const char *name_start;
             char *name;
@@ -2428,6 +2673,7 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                 if (expect_name) {
                     report_error(ti->path, line_number, "expected a type parameter before ','");
                     list_free(names, name_count);
+                    template_constraint_array_free(constraints, constraint_count);
                     free(command);
                     return -1;
                 }
@@ -2439,6 +2685,7 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
             if (!is_ident_start(*p)) {
                 report_error(ti->path, line_number, "invalid @template parameter list");
                 list_free(names, name_count);
+                template_constraint_array_free(constraints, constraint_count);
                 free(command);
                 return -1;
             }
@@ -2449,16 +2696,148 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                 report_error(ti->path, line_number, "duplicate @template parameter '%s'", name);
                 free(name);
                 list_free(names, name_count);
+                template_constraint_array_free(constraints, constraint_count);
                 free(command);
                 return -1;
             }
             list_add(&names, &name_count, &name_cap, name);
-            free(name);
             expect_name = 0;
             while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+            if (*p == '<') {
+                if (p[1] != ':') {
+                    report_error(ti->path, line_number,
+                                 "expected '<:' before the structural constraint");
+                    free(name);
+                    list_free(names, name_count);
+                    template_constraint_array_free(constraints, constraint_count);
+                    free(command);
+                    return -1;
+                }
+                p += 2;
+                for (;;) {
+                    const char *constraint_start;
+                    char *constraint_name;
+                    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+                    if (!is_ident_start(*p)) {
+                        report_error(ti->path, line_number,
+                                     "expected a named struct/union after '<:' or '+'");
+                        free(name);
+                        list_free(names, name_count);
+                        template_constraint_array_free(constraints,
+                                                       constraint_count);
+                        free(command);
+                        return -1;
+                    }
+                    constraint_start = p++;
+                    while (is_ident_char(*p)) ++p;
+                    constraint_name = copy_range(constraint_start,
+                        (size_t)(p - constraint_start));
+                    template_constraint_add(&constraints, &constraint_count,
+                        &constraint_cap, name, constraint_name, line_number);
+                    free(constraint_name);
+                    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+                    if (*p != '+') break;
+                    ++p;
+                }
+                while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+            } else if (*p == '|') {
+                if (p[1] != '=') {
+                    report_error(ti->path, line_number,
+                                 "expected '|=' before the constraint expression");
+                    free(name);
+                    list_free(names, name_count);
+                    template_constraint_array_free(constraints, constraint_count);
+                    free(command);
+                    return -1;
+                }
+                p += 2;
+                for (;;) {
+                    const char *expression_start;
+                    const char *expression_end;
+                    size_t parens = 0U, brackets = 0U, braces = 0U;
+                    char quote = '\0';
+                    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+                    expression_start = p;
+                    while (*p != '\0') {
+                        if (quote != '\0') {
+                            if (*p == '\\' && p[1] != '\0') p += 2;
+                            else if (*p == quote) {
+                                quote = '\0';
+                                ++p;
+                            } else ++p;
+                            continue;
+                        }
+                        if ((*p == '"' || *p == '\'') ) {
+                            quote = *p++;
+                        } else if (p[0] == '/' && p[1] == '*') {
+                            p += 2;
+                            while (*p != '\0' && !(p[0] == '*' && p[1] == '/')) ++p;
+                            if (*p != '\0') p += 2;
+                        } else if (p[0] == '/' && p[1] == '/') {
+                            while (*p != '\0') ++p;
+                        } else if (*p == '(') {
+                            ++parens;
+                            ++p;
+                        } else if (*p == ')') {
+                            if (parens == 0U) break;
+                            --parens;
+                            ++p;
+                        } else if (*p == '[') {
+                            ++brackets;
+                            ++p;
+                        } else if (*p == ']') {
+                            if (brackets == 0U) break;
+                            --brackets;
+                            ++p;
+                        } else if (*p == '{') {
+                            ++braces;
+                            ++p;
+                        } else if (*p == '}') {
+                            if (braces == 0U) break;
+                            --braces;
+                            ++p;
+                        } else if (parens == 0U && brackets == 0U && braces == 0U &&
+                                   (*p == '+' || *p == ',')) {
+                            break;
+                        } else {
+                            ++p;
+                        }
+                    }
+                    expression_end = p;
+                    while (expression_start < expression_end &&
+                           isspace((unsigned char)*expression_start)) ++expression_start;
+                    while (expression_end > expression_start &&
+                           isspace((unsigned char)expression_end[-1])) --expression_end;
+                    if (expression_start == expression_end) {
+                        report_error(ti->path, line_number,
+                                     "expected an expression after '|=' or '+'");
+                        free(name);
+                        list_free(names, name_count);
+                        template_constraint_array_free(constraints,
+                                                       constraint_count);
+                        free(command);
+                        return -1;
+                    }
+                    {
+                        char *expression = copy_range(expression_start,
+                            (size_t)(expression_end - expression_start));
+                        template_constraint_add_expression(&constraints,
+                            &constraint_count, &constraint_cap, name, expression,
+                            line_number);
+                        free(expression);
+                    }
+                    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+                    if (*p != '+') break;
+                    ++p;
+                }
+                while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+            }
+            free(name);
             if (*p != '\0' && *p != ',') {
-                report_error(ti->path, line_number, "expected ',' between @template parameters");
+                report_error(ti->path, line_number,
+                             "expected ',' between @template parameters");
                 list_free(names, name_count);
+                template_constraint_array_free(constraints, constraint_count);
                 free(command);
                 return -1;
             }
@@ -2466,6 +2845,7 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
         if (expect_name && name_count != 0U) {
             report_error(ti->path, line_number, "expected a type parameter after ','");
             list_free(names, name_count);
+            template_constraint_array_free(constraints, constraint_count);
             free(command);
             return -1;
         }
@@ -2488,6 +2868,9 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
             annotation->parameter_names = names;
             annotation->parameter_count = name_count;
             annotation->parameter_cap = name_cap;
+            annotation->constraints = constraints;
+            annotation->constraint_count = constraint_count;
+            annotation->constraint_cap = constraint_cap;
             annotation->line = line_number;
             annotation->used = 0;
             for (i = 0U; i < name_count; ++i) {
@@ -3145,6 +3528,190 @@ static void emit_line_directive(Buf *out, unsigned long line, const char *path)
     buf_puts(out, "\"\n");
 }
 
+static char *substitute_template_identifier(const char *source,
+                                            const char *parameter,
+                                            const char *concrete_type)
+{
+    Buf output;
+    size_t i = 0U;
+    buf_init(&output);
+    while (source[i] != '\0') {
+        if (source[i] == '/' && source[i + 1U] == '/') {
+            size_t start = i;
+            while (source[i] != '\0' && source[i] != '\n') ++i;
+            buf_putn(&output, source + start, i - start);
+        } else if (source[i] == '/' && source[i + 1U] == '*') {
+            size_t start = i;
+            i += 2U;
+            while (source[i] != '\0' &&
+                   !(source[i] == '*' && source[i + 1U] == '/')) ++i;
+            if (source[i] != '\0') i += 2U;
+            buf_putn(&output, source + start, i - start);
+        } else if (source[i] == '"' || source[i] == '\'') {
+            char quote = source[i];
+            size_t start = i++;
+            while (source[i] != '\0' && source[i] != quote) {
+                if (source[i] == '\\' && source[i + 1U] != '\0') i += 2U;
+                else ++i;
+            }
+            if (source[i] != '\0') ++i;
+            buf_putn(&output, source + start, i - start);
+        } else if (is_ident_start(source[i])) {
+            size_t start = i++;
+            char *identifier;
+            while (is_ident_char(source[i])) ++i;
+            identifier = copy_range(source + start, i - start);
+            buf_puts(&output, str_eq(identifier, parameter) ? concrete_type : identifier);
+            free(identifier);
+        } else {
+            buf_putc(&output, source[i++]);
+        }
+    }
+    return output.p != NULL ? output.p : copy_string("");
+}
+
+static void emit_escaped_c_string(Buf *out, const char *text)
+{
+    size_t i;
+    for (i = 0U; text[i] != '\0'; ++i) {
+        if (text[i] == '\\' || text[i] == '"') buf_putc(out, '\\');
+        if (text[i] == '\n') buf_puts(out, "\\n");
+        else if (text[i] == '\r') buf_puts(out, "\\r");
+        else buf_putc(out, text[i]);
+    }
+}
+
+static void emit_template_static_assert(Buf *out, const char *expression,
+                                        const char *message,
+                                        const TemplateInfo *ti,
+                                        unsigned source_line)
+{
+    buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
+    emit_line_directive(out, source_line, ti->path);
+    buf_puts(out, "_Static_assert((");
+    buf_puts(out, expression);
+    buf_puts(out, "), \"");
+    emit_escaped_c_string(out, message);
+    buf_puts(out, "\");\n#elif defined(__GNUC__) || defined(__clang__)\n");
+    emit_line_directive(out, source_line, ti->path);
+    buf_puts(out, "__extension__ _Static_assert((");
+    buf_puts(out, expression);
+    buf_puts(out, "), \"");
+    emit_escaped_c_string(out, message);
+    buf_puts(out, "\");\n#endif\n");
+}
+
+static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
+                                      const GenInstance *instance,
+                                      const char *symbol, const char *output_path,
+                                      unsigned declaration_line)
+{
+    const TemplateConstraint *constraints = NULL;
+    size_t constraint_count = 0U;
+    const TemplateFunction *function = find_template_function(ti, symbol);
+    const TemplateType *type = function == NULL ? find_template_type(ti, symbol) : NULL;
+    size_t constraint_index;
+    int emitted = 0;
+    if (function != NULL) {
+        constraints = function->constraints;
+        constraint_count = function->constraint_count;
+    } else if (type != NULL) {
+        constraints = type->constraints;
+        constraint_count = type->constraint_count;
+    }
+    for (constraint_index = 0U; constraint_index < constraint_count;
+         ++constraint_index) {
+        const TemplateConstraint *constraint = &constraints[constraint_index];
+        int parameter = template_parameter_index(ti, constraint->parameter_name);
+        int argument = parameter >= 0 ? instance_parameter_position(
+            instance, (size_t)parameter) : -1;
+        size_t required_index;
+        if (argument < 0) continue;
+        emitted = 1;
+        for (required_index = 0U; required_index < constraint->required_type_count;
+             ++required_index) {
+            int ambiguous;
+            const StructuralSchema *schema = find_structural_schema(
+                constraint->required_types[required_index], &ambiguous);
+            size_t field_index;
+            if (schema == NULL) continue;
+            for (field_index = 0U; field_index < schema->field_count; ++field_index) {
+                const char *field = schema->fields[field_index];
+                buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
+                emit_line_directive(out, declaration_line, ti->path);
+                buf_puts(out, "_Static_assert(__builtin_types_compatible_p(__typeof__(((");
+                buf_puts(out, instance->arguments[argument].c_type);
+                buf_puts(out, " *)0)->");
+                buf_puts(out, field);
+                buf_puts(out, "), __typeof__(((");
+                buf_puts(out, schema->is_union ? "union " : "struct ");
+                buf_puts(out, schema->name);
+                buf_puts(out, " *)0)->");
+                buf_puts(out, field);
+                buf_puts(out, ")), \"tmplgen: ");
+                buf_puts(out, constraint->parameter_name);
+                buf_puts(out, " is not a subtype of ");
+                buf_puts(out, constraint->required_types[required_index]);
+                buf_puts(out, " (incompatible field ");
+                buf_puts(out, field);
+                buf_puts(out, ")\");");
+                buf_puts(out, "\n#elif defined(__GNUC__) || defined(__clang__)\n");
+                emit_line_directive(out, declaration_line, ti->path);
+                buf_puts(out, "__extension__ _Static_assert(__builtin_types_compatible_p(__typeof__(((");
+                buf_puts(out, instance->arguments[argument].c_type);
+                buf_puts(out, " *)0)->");
+                buf_puts(out, field);
+                buf_puts(out, "), __typeof__(((");
+                buf_puts(out, schema->is_union ? "union " : "struct ");
+                buf_puts(out, schema->name);
+                buf_puts(out, " *)0)->");
+                buf_puts(out, field);
+                buf_puts(out, ")), \"tmplgen: ");
+                buf_puts(out, constraint->parameter_name);
+                buf_puts(out, " is not a subtype of ");
+                buf_puts(out, constraint->required_types[required_index]);
+                buf_puts(out, " (incompatible field ");
+                buf_puts(out, field);
+                buf_puts(out, ")\");");
+                buf_puts(out, "\n#endif\n");
+            }
+        }
+    }
+    for (constraint_index = 0U; constraint_index < constraint_count;
+         ++constraint_index) {
+        const TemplateConstraint *constraint = &constraints[constraint_index];
+        int parameter = template_parameter_index(ti, constraint->parameter_name);
+        int argument = parameter >= 0 ? instance_parameter_position(
+            instance, (size_t)parameter) : -1;
+        size_t expression_index;
+        if (argument < 0) continue;
+        for (expression_index = 0U;
+             expression_index < constraint->expression_count;
+             ++expression_index) {
+            char *expression = substitute_template_identifier(
+                constraint->expressions[expression_index],
+                constraint->parameter_name,
+                instance->arguments[argument].c_type);
+            Buf message;
+            emitted = 1;
+            buf_init(&message);
+            buf_puts(&message, "tmplgen: ");
+            buf_puts(&message, constraint->parameter_name);
+            buf_puts(&message, " failed to satisfy ");
+            buf_puts(&message, constraint->expressions[expression_index]);
+            emit_template_static_assert(out, expression, message.p, ti,
+                                        declaration_line);
+            buf_free(&message);
+            free(expression);
+        }
+    }
+    if (emitted) {
+        unsigned long resume_line = (unsigned long)out->newlines + 2UL;
+        emit_line_directive(out, resume_line, output_path);
+    }
+    return emitted;
+}
+
 static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *instance,
                           const char *output_path, const char *stem, const char *symbol,
                           unsigned start_offset, unsigned end_offset,
@@ -3184,6 +3751,8 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
         buf_puts(out, instance->name);
     }
     buf_puts(out, " ---- */\n");
+    (void)emit_structural_assertions(out, ti, instance, symbol,
+                                     output_path, start_line);
     if (g_emit_line) {
         buf_puts(&path, g_template_dir);
         buf_putc(&path, '/');
@@ -3606,17 +4175,21 @@ static void emit_dispatch_macro(Buf *out, const char *name,
     if (g_dispatch_backend == GEN_DISPATCH_AUTO) {
         buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
         emit_function_signature(out, ti, function, NULL, name, 1);
+        emit_line_directive(out, (unsigned long)function->start_line, ti->path);
         emit_generic_macro(out, name, assocs);
         buf_puts(out, "#elif defined(__GNUC__) || defined(__clang__)\n");
         emit_function_signature(out, ti, function, NULL, name, 1);
+        emit_line_directive(out, (unsigned long)function->start_line, ti->path);
         emit_gnu_macro(out, name, assocs);
         buf_puts(out, "#else\n#error \"GEN_DISPATCH_AUTO requires C11 or GNU-compatible C\"\n#endif\n\n");
     } else {
         if (g_dispatch_backend == GEN_DISPATCH_GENERIC) {
             emit_function_signature(out, ti, function, NULL, name, 1);
+            emit_line_directive(out, (unsigned long)function->start_line, ti->path);
             emit_generic_macro(out, name, assocs);
         } else if (g_dispatch_backend == GEN_DISPATCH_GNU) {
             emit_function_signature(out, ti, function, NULL, name, 1);
+            emit_line_directive(out, (unsigned long)function->start_line, ti->path);
             emit_gnu_macro(out, name, assocs);
         }
     }
@@ -3632,6 +4205,8 @@ static void emit_dispatch(Buf *out, const TemplateInfo *ti)
         build_associations(ti->functions[i].name, &assocs);
         if (assocs.count != 0U) {
             size_t j;
+            emit_line_directive(out,
+                (unsigned long)ti->functions[i].start_line, ti->path);
             for (j = 0U; j < assocs.count; ++j) {
                 GenInstance *instance = find_function_instance_for_symbol(
                     ti, &ti->functions[i], assocs.items[j].function_name);
@@ -4180,6 +4755,140 @@ static char *copy_cx_string(CXString value)
     return copy;
 }
 
+static enum CXChildVisitResult collect_structural_schema_field(CXCursor cursor,
+                                                               CXCursor parent,
+                                                               CXClientData client_data)
+{
+    StructuralSchema *schema = (StructuralSchema *)client_data;
+    if (clang_getCursorKind(cursor) == CXCursor_FieldDecl) {
+        char *name = copy_cx_string(clang_getCursorSpelling(cursor));
+        if (valid_identifier(name) &&
+            !list_contains(schema->fields, schema->field_count, name)) {
+            list_add(&schema->fields, &schema->field_count, &schema->field_cap, name);
+        }
+        free(name);
+    }
+    (void)parent;
+    return CXChildVisit_Continue;
+}
+
+static void register_structural_schema(CXCursor cursor)
+{
+    enum CXCursorKind kind = clang_getCursorKind(cursor);
+    char *name = copy_cx_string(clang_getCursorSpelling(cursor));
+    StructuralSchema *schema = NULL;
+    StructuralSchema *next;
+    size_t i;
+    int is_union = kind == CXCursor_UnionDecl;
+    if (!valid_identifier(name)) {
+        free(name);
+        return;
+    }
+    for (i = 0U; i < g_structural_schema_count; ++i) {
+        if (g_structural_schemas[i].is_union == is_union &&
+            str_eq(g_structural_schemas[i].name, name)) {
+            schema = &g_structural_schemas[i];
+            break;
+        }
+    }
+    if (schema == NULL) {
+        if (g_structural_schema_count == g_structural_schema_cap) {
+            size_t new_cap = g_structural_schema_cap == 0U ? 8U :
+                             g_structural_schema_cap * 2U;
+            if (new_cap < g_structural_schema_cap ||
+                new_cap > (size_t)-1 / sizeof(*g_structural_schemas)) {
+                die("too many structural schemas");
+            }
+            next = (StructuralSchema *)realloc(g_structural_schemas,
+                new_cap * sizeof(*g_structural_schemas));
+            if (next == NULL) die("out of memory");
+            g_structural_schemas = next;
+            g_structural_schema_cap = new_cap;
+        }
+        schema = &g_structural_schemas[g_structural_schema_count++];
+        memset(schema, 0, sizeof(*schema));
+        schema->name = copy_string(name);
+        schema->is_union = is_union;
+    }
+    free(name);
+    clang_visitChildren(cursor, collect_structural_schema_field, schema);
+}
+
+static const StructuralSchema *find_structural_schema(const char *name,
+                                                       int *ambiguous)
+{
+    const StructuralSchema *found = NULL;
+    size_t i;
+    *ambiguous = 0;
+    for (i = 0U; i < g_structural_schema_count; ++i) {
+        if (!str_eq(g_structural_schemas[i].name, name)) continue;
+        if (found != NULL && found->is_union != g_structural_schemas[i].is_union) {
+            *ambiguous = 1;
+            return NULL;
+        }
+        found = &g_structural_schemas[i];
+    }
+    return found;
+}
+
+static int validate_structural_constraints(const TemplateInfo *infos,
+                                           size_t template_count)
+{
+    size_t i;
+    int okay = 1;
+    for (i = 0U; i < template_count; ++i) {
+        size_t j;
+        for (j = 0U; j < infos[i].constructor_count; ++j) {
+            const TemplateType *type = &infos[i].constructors[j];
+            size_t constraint_index;
+            for (constraint_index = 0U; constraint_index < type->constraint_count;
+                 ++constraint_index) {
+                const TemplateConstraint *constraint = &type->constraints[constraint_index];
+                size_t required_index;
+                for (required_index = 0U;
+                     required_index < constraint->required_type_count;
+                     ++required_index) {
+                    int ambiguous;
+                    if (find_structural_schema(
+                            constraint->required_types[required_index],
+                            &ambiguous) == NULL) {
+                        report_error(infos[i].path, constraint->line,
+                            ambiguous ? "structural schema '%s' is ambiguous between struct and union tags" :
+                                        "structural schema '%s' is not a visible named struct or union",
+                            constraint->required_types[required_index]);
+                        okay = 0;
+                    }
+                }
+            }
+        }
+        for (j = 0U; j < infos[i].function_count; ++j) {
+            const TemplateFunction *function = &infos[i].functions[j];
+            size_t constraint_index;
+            for (constraint_index = 0U; constraint_index < function->constraint_count;
+                 ++constraint_index) {
+                const TemplateConstraint *constraint =
+                    &function->constraints[constraint_index];
+                size_t required_index;
+                for (required_index = 0U;
+                     required_index < constraint->required_type_count;
+                     ++required_index) {
+                    int ambiguous;
+                    if (find_structural_schema(
+                            constraint->required_types[required_index],
+                            &ambiguous) == NULL) {
+                        report_error(infos[i].path, constraint->line,
+                            ambiguous ? "structural schema '%s' is ambiguous between struct and union tags" :
+                                        "structural schema '%s' is not a visible named struct or union",
+                            constraint->required_types[required_index]);
+                        okay = 0;
+                    }
+                }
+            }
+        }
+    }
+    return okay;
+}
+
 static void source_variable_add(SourceVariableList *variables, const char *name,
                                 const char *path, const char *type_spelling,
                                 const char *canonical_spelling, unsigned offset)
@@ -4506,6 +5215,15 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
     clang_getExpansionLocation(location, &source_file, &line, &column, &offset);
     if (source_file == NULL) return CXChildVisit_Recurse;
     path = copy_cx_string(clang_getFileName(source_file));
+    if ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl) &&
+        clang_isCursorDefinition(cursor) != 0U) {
+        char *record_name = copy_cx_string(clang_getCursorSpelling(cursor));
+        if (path_is_scanned(context->files, path) ||
+            any_template_requires_constraint(record_name)) {
+            register_structural_schema(cursor);
+        }
+        free(record_name);
+    }
     if (!path_is_scanned(context->files, path)) {
         free(path);
         return CXChildVisit_Recurse;
@@ -6216,6 +6934,15 @@ static void clear_discovery_state(void)
     g_function_call_dependencies = NULL;
     g_function_call_dependency_count = 0U;
     g_function_call_dependency_cap = 0U;
+    for (i = 0U; i < g_structural_schema_count; ++i) {
+        free(g_structural_schemas[i].name);
+        list_free(g_structural_schemas[i].fields,
+                  g_structural_schemas[i].field_count);
+    }
+    free(g_structural_schemas);
+    g_structural_schemas = NULL;
+    g_structural_schema_count = 0U;
+    g_structural_schema_cap = 0U;
 }
 
 static int generate(GeneratedFileList *out)
@@ -6281,6 +7008,7 @@ static int generate(GeneratedFileList *out)
     }
     if (!validate_template_info(infos, gen_template_count())) goto failed;
     if (!discover_source_usages(infos, gen_template_count(), &source_files)) goto failed;
+    if (!validate_structural_constraints(infos, gen_template_count())) goto failed;
     if (g_error_count != 0U) goto failed;
     for (i = 0U; i < gen_template_count(); ++i) {
         Buf module;

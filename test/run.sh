@@ -78,6 +78,9 @@ fi
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/tagged_struct.c -o "$BUILD/tagged-struct"
 "$BUILD/tagged-struct"
+"$CC" -std=gnu99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/tagged_struct.c -o "$BUILD/tagged-struct-gnu"
+"$BUILD/tagged-struct-gnu"
 
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/function_recursion.c -o "$BUILD/function-recursion"
@@ -97,6 +100,10 @@ if ! grep -q '^#include "result.gen.h"$' gen/math.gen.h; then
 fi
 if ! grep -q '^static inline TestInt cross_helper_TestInt(TestInt value);$' gen/math.gen.h; then
     printf '%s\n' 'cross-template helper prototype was not emitted before its caller' >&2
+    exit 1
+fi
+if ! grep -q '^#line [0-9][0-9]* "tmpl/math.tmpl.h"$' gen/math.gen.h; then
+    printf '%s\n' 'dispatch diagnostics are not mapped back to their template source' >&2
     exit 1
 fi
 
@@ -121,6 +128,7 @@ fi
 NEWTYPE="$BUILD/newtype"
 mkdir -p "$NEWTYPE"
 cp -R gen "$NEWTYPE/gen"
+cp physics.h "$NEWTYPE/physics.h"
 printf 'typedef double Fresh;\n' > "$NEWTYPE/fresh.h"
 cat > "$NEWTYPE/main.c" <<'EOF'
 #include "fresh.h"
@@ -145,7 +153,7 @@ fi
     "$NEWTYPE/main.c" -o "$NEWTYPE/main"
 "$NEWTYPE/main"
 
-if "$CC" -x c -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+if "$CC" -x c -I . -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/negative/unmatched_dispatch.c.in -o "$BUILD/unmatched" \
     >"$BUILD/unmatched.log" 2>&1; then
     printf '%s\n' 'unmatched dispatch unexpectedly compiled' >&2
@@ -156,7 +164,7 @@ if ! grep -q 'struct tmplgen_no_association_for_push_argument' "$BUILD/unmatched
     exit 1
 fi
 
-if "$CC" -x c -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+if "$CC" -x c -I . -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/negative/unmatched_pair.c.in -o "$BUILD/unmatched-pair" \
     >"$BUILD/unmatched-pair.log" 2>&1; then
     printf '%s\n' 'unmatched pair dispatch unexpectedly compiled' >&2
@@ -168,7 +176,7 @@ if ! grep -q 'struct tmplgen_no_association_for_result_make_argument' \
     exit 1
 fi
 
-if "$CC" -x c -std=c11 -Wall -Wextra -Werror=incompatible-pointer-types \
+if "$CC" -x c -I . -std=c11 -Wall -Wextra -Werror=incompatible-pointer-types \
     test/negative/unmatched_option_pair.c.in -o "$BUILD/unmatched-option-pair" \
     >"$BUILD/unmatched-option-pair.log" 2>&1; then
     printf '%s\n' 'same-type constructor constraint unexpectedly accepted a mismatched pair' >&2
@@ -176,6 +184,45 @@ if "$CC" -x c -std=c11 -Wall -Wextra -Werror=incompatible-pointer-types \
 fi
 if ! grep -q 'Option_TestInt' "$BUILD/unmatched-option-pair.log"; then
     printf '%s\n' 'same-type constructor mismatch did not show the specialized types' >&2
+    exit 1
+fi
+
+SUBTYPE="$BUILD/subtyping"
+mkdir -p "$SUBTYPE/gen"
+cp physics.h "$SUBTYPE/physics.h"
+cp test/negative/unmatched_structural_rows.c.in "$SUBTYPE/main.c"
+"$BUILD/tmplgen" --source-root "$SUBTYPE" --output "$SUBTYPE/gen/all.gen.h" \
+    --clang-arg=-std=c11
+if "$CC" -std=c11 -Wall -Wextra -pedantic "$SUBTYPE/main.c" \
+    -o "$SUBTYPE/main" >"$BUILD/subtyping.log" 2>&1; then
+    printf '%s\n' 'incompatible structural field type unexpectedly compiled' >&2
+    exit 1
+fi
+if ! grep -q 'tmplgen: TP is not a subtype of Physics' "$BUILD/subtyping.log"; then
+    cat "$BUILD/subtyping.log" >&2
+    printf '%s\n' 'structural constraint failure did not identify its row constraint' >&2
+    exit 1
+fi
+if ! grep -q 'tmplgen: UE is not a subtype of Named' "$BUILD/subtyping.log"; then
+    printf '%s\n' 'combined structural constraint failure did not identify the missing row' >&2
+    exit 1
+fi
+if ! grep -q 'tmplgen: AI failed to satisfy NAMED_INT_ALIGNMENT(Physics, AI)' \
+    "$BUILD/subtyping.log"; then
+    printf '%s\n' 'arbitrary constraint failure did not include its expression' >&2
+    exit 1
+fi
+if ! grep -q 'tmpl/result.tmpl.h' "$BUILD/subtyping.log"; then
+    printf '%s\n' 'structural constraint diagnostics were not mapped to the template' >&2
+    exit 1
+fi
+if ! grep -q 'tmpl/result.tmpl.h:57:' "$BUILD/subtyping.log" ||
+   ! grep -q 'tmpl/result.tmpl.h:59:' "$BUILD/subtyping.log"; then
+    printf '%s\n' 'structural constraint diagnostics did not point at the constrained functions' >&2
+    exit 1
+fi
+if ! grep -q 'tmpl/result.tmpl.h:66:' "$BUILD/subtyping.log"; then
+    printf '%s\n' 'expression constraint diagnostics did not point at the constrained function' >&2
     exit 1
 fi
 

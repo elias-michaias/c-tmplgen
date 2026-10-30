@@ -75,6 +75,7 @@ static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_Inferre
 #define GEN_ARG2_(arg0, arg1, arg2, ...) arg2
 #endif
 
+#line 16 "tmpl/triple.tmpl.h"
 /// static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third)
 static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third);
 /// static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third)
@@ -88,6 +89,7 @@ extern void triple_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef triple_make
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Triple(A, B, C) triple_make(A first, B second, C third)
+#line 16 "tmpl/triple.tmpl.h"
 #define triple_make(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt:     _Generic((GEN_ARG1(__VA_ARGS__)), \
         ErrorCode:         _Generic((GEN_ARG2(__VA_ARGS__)), \
@@ -108,6 +110,7 @@ extern void triple_make__no_match_for_argument_type(struct tmplgen_no_associatio
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Triple(A, B, C) triple_make(A first, B second, C third)
+#line 16 "tmpl/triple.tmpl.h"
 #define triple_make(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), ErrorCode) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), Tag)), \
@@ -124,6 +127,7 @@ extern void triple_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 23 "tmpl/triple.tmpl.h"
 /// static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value)
 static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value);
 /// static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value)
@@ -135,6 +139,7 @@ extern void triple_first__no_match_for_argument_type(struct tmplgen_no_associati
 #undef triple_first
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline A triple_first(Triple(A, B, C) * value)
+#line 23 "tmpl/triple.tmpl.h"
 #define triple_first(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Triple_TestInt_ErrorCode_Tag *: triple_first_TestInt_ErrorCode_Tag, \
     Triple_Tag_InferredError_InferredLong *: triple_first_Tag_InferredError_InferredLong, \
@@ -142,6 +147,7 @@ extern void triple_first__no_match_for_argument_type(struct tmplgen_no_associati
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline A triple_first(Triple(A, B, C) * value)
+#line 23 "tmpl/triple.tmpl.h"
 #define triple_first(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Triple_TestInt_ErrorCode_Tag *)), \

@@ -95,6 +95,7 @@ static inline TestInt cross_root_TestInt(TestInt value)
 #define GEN_ARG2_(arg0, arg1, arg2, ...) arg2
 #endif
 
+#line 12 "tmpl/math.tmpl.h"
 /// static inline TestInt max_TestInt(TestInt a, TestInt b)
 static inline TestInt max_TestInt(TestInt a, TestInt b);
 /// static inline double max_double(double a, double b)
@@ -108,6 +109,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 #undef max
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T max(T a, T b)
+#line 12 "tmpl/math.tmpl.h"
 #define max(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: max_TestInt, \
     double: max_double, \
@@ -116,6 +118,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T max(T a, T b)
+#line 12 "tmpl/math.tmpl.h"
 #define max(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -132,6 +135,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 20 "tmpl/math.tmpl.h"
 /// static inline TestInt chain_root_TestInt(TestInt value)
 static inline TestInt chain_root_TestInt(TestInt value);
 /* No dispatch association yet: either the argument type is wrong,
@@ -141,12 +145,14 @@ extern void chain_root__no_match_for_argument_type(struct tmplgen_no_association
 #undef chain_root
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T chain_root(T value)
+#line 20 "tmpl/math.tmpl.h"
 #define chain_root(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: chain_root_TestInt, \
     default: chain_root__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T chain_root(T value)
+#line 20 "tmpl/math.tmpl.h"
 #define chain_root(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -157,6 +163,7 @@ extern void chain_root__no_match_for_argument_type(struct tmplgen_no_association
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 22 "tmpl/math.tmpl.h"
 /// static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count)
 static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count);
 /* No dispatch association yet: either the argument type is wrong,
@@ -166,12 +173,14 @@ extern void recursive_value__no_match_for_argument_type(struct tmplgen_no_associ
 #undef recursive_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T recursive_value(T value, unsigned int count)
+#line 22 "tmpl/math.tmpl.h"
 #define recursive_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: recursive_value_TestInt, \
     default: recursive_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T recursive_value(T value, unsigned int count)
+#line 22 "tmpl/math.tmpl.h"
 #define recursive_value(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -182,6 +191,7 @@ extern void recursive_value__no_match_for_argument_type(struct tmplgen_no_associ
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 30 "tmpl/math.tmpl.h"
 /// static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count)
 static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count);
 /* No dispatch association yet: either the argument type is wrong,
@@ -191,12 +201,14 @@ extern void mutual_first__no_match_for_argument_type(struct tmplgen_no_associati
 #undef mutual_first
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T mutual_first(T value, unsigned int count)
+#line 30 "tmpl/math.tmpl.h"
 #define mutual_first(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: mutual_first_TestInt, \
     default: mutual_first__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T mutual_first(T value, unsigned int count)
+#line 30 "tmpl/math.tmpl.h"
 #define mutual_first(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -207,6 +219,7 @@ extern void mutual_first__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 48 "tmpl/math.tmpl.h"
 /// static inline void reorder_call_TestInt_double(TestInt first, double second)
 static inline void reorder_call_TestInt_double(TestInt first, double second);
 /* No dispatch association yet: either the argument type is wrong,
@@ -216,6 +229,7 @@ extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_associati
 #undef reorder_call
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline void reorder_call(T first, U second)
+#line 48 "tmpl/math.tmpl.h"
 #define reorder_call(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt:     _Generic((GEN_ARG1(__VA_ARGS__)), \
         double: reorder_call_TestInt_double, \
@@ -224,6 +238,7 @@ extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_associati
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline void reorder_call(T first, U second)
+#line 48 "tmpl/math.tmpl.h"
 #define reorder_call(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), double)), \
@@ -234,6 +249,7 @@ extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 53 "tmpl/math.tmpl.h"
 /// static inline TestInt cross_root_TestInt(TestInt value)
 static inline TestInt cross_root_TestInt(TestInt value);
 /* No dispatch association yet: either the argument type is wrong,
@@ -243,12 +259,14 @@ extern void cross_root__no_match_for_argument_type(struct tmplgen_no_association
 #undef cross_root
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T cross_root(T value)
+#line 53 "tmpl/math.tmpl.h"
 #define cross_root(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: cross_root_TestInt, \
     default: cross_root__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T cross_root(T value)
+#line 53 "tmpl/math.tmpl.h"
 #define cross_root(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \

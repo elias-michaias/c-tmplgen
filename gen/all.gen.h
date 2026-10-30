@@ -45,6 +45,7 @@
 #define GEN_ARG2_(arg0, arg1, arg2, ...) arg2
 #endif
 
+#line 12 "tmpl/math.tmpl.h"
 /// static inline TestInt max_TestInt(TestInt a, TestInt b)
 static inline TestInt max_TestInt(TestInt a, TestInt b);
 /// static inline double max_double(double a, double b)
@@ -58,6 +59,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 #undef max
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T max(T a, T b)
+#line 12 "tmpl/math.tmpl.h"
 #define max(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: max_TestInt, \
     double: max_double, \
@@ -66,6 +68,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T max(T a, T b)
+#line 12 "tmpl/math.tmpl.h"
 #define max(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -82,6 +85,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 20 "tmpl/math.tmpl.h"
 /// static inline TestInt chain_root_TestInt(TestInt value)
 static inline TestInt chain_root_TestInt(TestInt value);
 /* No dispatch association yet: either the argument type is wrong,
@@ -91,12 +95,14 @@ extern void chain_root__no_match_for_argument_type(struct tmplgen_no_association
 #undef chain_root
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T chain_root(T value)
+#line 20 "tmpl/math.tmpl.h"
 #define chain_root(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: chain_root_TestInt, \
     default: chain_root__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T chain_root(T value)
+#line 20 "tmpl/math.tmpl.h"
 #define chain_root(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -107,6 +113,7 @@ extern void chain_root__no_match_for_argument_type(struct tmplgen_no_association
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 22 "tmpl/math.tmpl.h"
 /// static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count)
 static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count);
 /* No dispatch association yet: either the argument type is wrong,
@@ -116,12 +123,14 @@ extern void recursive_value__no_match_for_argument_type(struct tmplgen_no_associ
 #undef recursive_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T recursive_value(T value, unsigned int count)
+#line 22 "tmpl/math.tmpl.h"
 #define recursive_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: recursive_value_TestInt, \
     default: recursive_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T recursive_value(T value, unsigned int count)
+#line 22 "tmpl/math.tmpl.h"
 #define recursive_value(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -132,6 +141,7 @@ extern void recursive_value__no_match_for_argument_type(struct tmplgen_no_associ
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 30 "tmpl/math.tmpl.h"
 /// static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count)
 static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count);
 /* No dispatch association yet: either the argument type is wrong,
@@ -141,12 +151,14 @@ extern void mutual_first__no_match_for_argument_type(struct tmplgen_no_associati
 #undef mutual_first
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T mutual_first(T value, unsigned int count)
+#line 30 "tmpl/math.tmpl.h"
 #define mutual_first(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: mutual_first_TestInt, \
     default: mutual_first__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T mutual_first(T value, unsigned int count)
+#line 30 "tmpl/math.tmpl.h"
 #define mutual_first(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -157,6 +169,7 @@ extern void mutual_first__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 48 "tmpl/math.tmpl.h"
 /// static inline void reorder_call_TestInt_double(TestInt first, double second)
 static inline void reorder_call_TestInt_double(TestInt first, double second);
 /* No dispatch association yet: either the argument type is wrong,
@@ -166,6 +179,7 @@ extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_associati
 #undef reorder_call
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline void reorder_call(T first, U second)
+#line 48 "tmpl/math.tmpl.h"
 #define reorder_call(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt:     _Generic((GEN_ARG1(__VA_ARGS__)), \
         double: reorder_call_TestInt_double, \
@@ -174,6 +188,7 @@ extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_associati
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline void reorder_call(T first, U second)
+#line 48 "tmpl/math.tmpl.h"
 #define reorder_call(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), double)), \
@@ -184,6 +199,7 @@ extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 53 "tmpl/math.tmpl.h"
 /// static inline TestInt cross_root_TestInt(TestInt value)
 static inline TestInt cross_root_TestInt(TestInt value);
 /* No dispatch association yet: either the argument type is wrong,
@@ -193,12 +209,14 @@ extern void cross_root__no_match_for_argument_type(struct tmplgen_no_association
 #undef cross_root
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T cross_root(T value)
+#line 53 "tmpl/math.tmpl.h"
 #define cross_root(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: cross_root_TestInt, \
     default: cross_root__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T cross_root(T value)
+#line 53 "tmpl/math.tmpl.h"
 #define cross_root(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -209,6 +227,7 @@ extern void cross_root__no_match_for_argument_type(struct tmplgen_no_association
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 16 "tmpl/vec.tmpl.h"
 /// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
 static inline void push_TestInt(Vec_TestInt * v, TestInt x);
 /// static inline void push_int(Vec_int * v, int x)
@@ -220,6 +239,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 #undef push
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline void push(Vec(T) * v, T x)
+#line 16 "tmpl/vec.tmpl.h"
 #define push(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Vec_TestInt *: push_TestInt, \
     Vec_int *: push_int, \
@@ -227,6 +247,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline void push(Vec(T) * v, T x)
+#line 16 "tmpl/vec.tmpl.h"
 #define push(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_TestInt *)), \
@@ -240,6 +261,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 51 "tmpl/result.tmpl.h"
 /// static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 /// static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError * result)
@@ -255,6 +277,7 @@ extern void result_value__no_match_for_argument_type(struct tmplgen_no_associati
 #undef result_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T result_value(Result(T, E) * result)
+#line 51 "tmpl/result.tmpl.h"
 #define result_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Result_TestInt_ErrorCode *: result_value_TestInt_ErrorCode, \
     Result_InferredLong_InferredError *: result_value_InferredLong_InferredError, \
@@ -264,6 +287,7 @@ extern void result_value__no_match_for_argument_type(struct tmplgen_no_associati
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T result_value(Result(T, E) * result)
+#line 51 "tmpl/result.tmpl.h"
 #define result_value(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_TestInt_ErrorCode *)), \
@@ -283,6 +307,7 @@ extern void result_value__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 53 "tmpl/result.tmpl.h"
 /// static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 /// static inline InferredError result_error_InferredLong_InferredError(Result_InferredLong_InferredError * result)
@@ -298,6 +323,7 @@ extern void result_error__no_match_for_argument_type(struct tmplgen_no_associati
 #undef result_error
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline E result_error(Result(T, E) * result)
+#line 53 "tmpl/result.tmpl.h"
 #define result_error(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Result_TestInt_ErrorCode *: result_error_TestInt_ErrorCode, \
     Result_InferredLong_InferredError *: result_error_InferredLong_InferredError, \
@@ -307,6 +333,7 @@ extern void result_error__no_match_for_argument_type(struct tmplgen_no_associati
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline E result_error(Result(T, E) * result)
+#line 53 "tmpl/result.tmpl.h"
 #define result_error(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_TestInt_ErrorCode *)), \
@@ -326,6 +353,7 @@ extern void result_error__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 55 "tmpl/result.tmpl.h"
 /// static inline TestInt result_identity_TestInt(TestInt value)
 static inline TestInt result_identity_TestInt(TestInt value);
 /* No dispatch association yet: either the argument type is wrong,
@@ -335,12 +363,14 @@ extern void result_identity__no_match_for_argument_type(struct tmplgen_no_associ
 #undef result_identity
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T result_identity(T value)
+#line 55 "tmpl/result.tmpl.h"
 #define result_identity(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt: result_identity_TestInt, \
     default: result_identity__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T result_identity(T value)
+#line 55 "tmpl/result.tmpl.h"
 #define result_identity(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
@@ -351,6 +381,121 @@ extern void result_identity__no_match_for_argument_type(struct tmplgen_no_associ
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 57 "tmpl/result.tmpl.h"
+/// static inline int physics_sum_PhysicsBody(PhysicsBody * value)
+static inline int physics_sum_PhysicsBody(PhysicsBody * value);
+/* No dispatch association yet: either the argument type is wrong,
+   or generated headers need regeneration after requesting this type. */
+struct tmplgen_no_association_for_physics_sum_argument { int unused; };
+extern void physics_sum__no_match_for_argument_type(struct tmplgen_no_association_for_physics_sum_argument, ...);
+#undef physics_sum
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+/// static inline int physics_sum(TP * value)
+#line 57 "tmpl/result.tmpl.h"
+#define physics_sum(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
+    PhysicsBody *: physics_sum_PhysicsBody, \
+    default: physics_sum__no_match_for_argument_type)(__VA_ARGS__)
+
+#elif defined(__GNUC__) || defined(__clang__)
+/// static inline int physics_sum(TP * value)
+#line 57 "tmpl/result.tmpl.h"
+#define physics_sum(...) \
+    __builtin_choose_expr( \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), PhysicsBody *)), \
+        physics_sum_PhysicsBody, \
+        physics_sum__no_match_for_argument_type)(__VA_ARGS__)
+
+#else
+#error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
+#endif
+
+#line 59 "tmpl/result.tmpl.h"
+/// static inline int named_actor_id_NamedActor(NamedActor * value)
+static inline int named_actor_id_NamedActor(NamedActor * value);
+/* No dispatch association yet: either the argument type is wrong,
+   or generated headers need regeneration after requesting this type. */
+struct tmplgen_no_association_for_named_actor_id_argument { int unused; };
+extern void named_actor_id__no_match_for_argument_type(struct tmplgen_no_association_for_named_actor_id_argument, ...);
+#undef named_actor_id
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+/// static inline int named_actor_id(UE * value)
+#line 59 "tmpl/result.tmpl.h"
+#define named_actor_id(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
+    NamedActor *: named_actor_id_NamedActor, \
+    default: named_actor_id__no_match_for_argument_type)(__VA_ARGS__)
+
+#elif defined(__GNUC__) || defined(__clang__)
+/// static inline int named_actor_id(UE * value)
+#line 59 "tmpl/result.tmpl.h"
+#define named_actor_id(...) \
+    __builtin_choose_expr( \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), NamedActor *)), \
+        named_actor_id_NamedActor, \
+        named_actor_id__no_match_for_argument_type)(__VA_ARGS__)
+
+#else
+#error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
+#endif
+
+#line 61 "tmpl/result.tmpl.h"
+/// static inline int structural_pair_PhysicsBody_NamedActor(PhysicsBody * physics, NamedActor * entity)
+static inline int structural_pair_PhysicsBody_NamedActor(PhysicsBody * physics, NamedActor * entity);
+/* No dispatch association yet: either the argument type is wrong,
+   or generated headers need regeneration after requesting this type. */
+struct tmplgen_no_association_for_structural_pair_argument { int unused; };
+extern void structural_pair__no_match_for_argument_type(struct tmplgen_no_association_for_structural_pair_argument, ...);
+#undef structural_pair
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+/// static inline int structural_pair(TP * physics, UE * entity)
+#line 61 "tmpl/result.tmpl.h"
+#define structural_pair(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
+    PhysicsBody *:     _Generic((GEN_ARG1(__VA_ARGS__)), \
+        NamedActor *: structural_pair_PhysicsBody_NamedActor, \
+        default: structural_pair__no_match_for_argument_type), \
+    default: structural_pair__no_match_for_argument_type)(__VA_ARGS__)
+
+#elif defined(__GNUC__) || defined(__clang__)
+/// static inline int structural_pair(TP * physics, UE * entity)
+#line 61 "tmpl/result.tmpl.h"
+#define structural_pair(...) \
+    __builtin_choose_expr( \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), PhysicsBody *) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), NamedActor *)), \
+        structural_pair_PhysicsBody_NamedActor, \
+        structural_pair__no_match_for_argument_type)(__VA_ARGS__)
+
+#else
+#error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
+#endif
+
+#line 66 "tmpl/result.tmpl.h"
+/// static inline int alignment_ok_PhysicsBody(PhysicsBody * value)
+static inline int alignment_ok_PhysicsBody(PhysicsBody * value);
+/* No dispatch association yet: either the argument type is wrong,
+   or generated headers need regeneration after requesting this type. */
+struct tmplgen_no_association_for_alignment_ok_argument { int unused; };
+extern void alignment_ok__no_match_for_argument_type(struct tmplgen_no_association_for_alignment_ok_argument, ...);
+#undef alignment_ok
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+/// static inline int alignment_ok(AI * value)
+#line 66 "tmpl/result.tmpl.h"
+#define alignment_ok(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
+    PhysicsBody *: alignment_ok_PhysicsBody, \
+    default: alignment_ok__no_match_for_argument_type)(__VA_ARGS__)
+
+#elif defined(__GNUC__) || defined(__clang__)
+/// static inline int alignment_ok(AI * value)
+#line 66 "tmpl/result.tmpl.h"
+#define alignment_ok(...) \
+    __builtin_choose_expr( \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), PhysicsBody *)), \
+        alignment_ok_PhysicsBody, \
+        alignment_ok__no_match_for_argument_type)(__VA_ARGS__)
+
+#else
+#error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
+#endif
+
+#line 74 "tmpl/result.tmpl.h"
 /// static inline TestInt result_pointer_TestInt(TestInt * value)
 static inline TestInt result_pointer_TestInt(TestInt * value);
 /* No dispatch association yet: either the argument type is wrong,
@@ -360,12 +505,14 @@ extern void result_pointer__no_match_for_argument_type(struct tmplgen_no_associa
 #undef result_pointer
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T result_pointer(T * value)
+#line 74 "tmpl/result.tmpl.h"
 #define result_pointer(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt *: result_pointer_TestInt, \
     default: result_pointer__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T result_pointer(T * value)
+#line 74 "tmpl/result.tmpl.h"
 #define result_pointer(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt *)), \
@@ -376,6 +523,7 @@ extern void result_pointer__no_match_for_argument_type(struct tmplgen_no_associa
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 76 "tmpl/result.tmpl.h"
 /// static inline TestInt option_value_TestInt(Option_TestInt * option)
 static inline TestInt option_value_TestInt(Option_TestInt * option);
 /* No dispatch association yet: either the argument type is wrong,
@@ -385,12 +533,14 @@ extern void option_value__no_match_for_argument_type(struct tmplgen_no_associati
 #undef option_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T option_value(Option(T) * option)
+#line 76 "tmpl/result.tmpl.h"
 #define option_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Option_TestInt *: option_value_TestInt, \
     default: option_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T option_value(Option(T) * option)
+#line 76 "tmpl/result.tmpl.h"
 #define option_value(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Option_TestInt *)), \
@@ -401,6 +551,7 @@ extern void option_value__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 78 "tmpl/result.tmpl.h"
 /// static inline TestInt tagged_box_value_TestInt(struct TaggedBox_TestInt * box)
 static inline TestInt tagged_box_value_TestInt(struct TaggedBox_TestInt * box);
 /* No dispatch association yet: either the argument type is wrong,
@@ -410,12 +561,14 @@ extern void tagged_box_value__no_match_for_argument_type(struct tmplgen_no_assoc
 #undef tagged_box_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T tagged_box_value( TaggedBox(T) * box)
+#line 78 "tmpl/result.tmpl.h"
 #define tagged_box_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     struct TaggedBox_TestInt *: tagged_box_value_TestInt, \
     default: tagged_box_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T tagged_box_value( TaggedBox(T) * box)
+#line 78 "tmpl/result.tmpl.h"
 #define tagged_box_value(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), struct TaggedBox_TestInt *)), \
@@ -426,6 +579,7 @@ extern void tagged_box_value__no_match_for_argument_type(struct tmplgen_no_assoc
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 80 "tmpl/result.tmpl.h"
 /// static inline TestInt tagged_choice_value_TestInt(union TaggedChoice_TestInt * choice)
 static inline TestInt tagged_choice_value_TestInt(union TaggedChoice_TestInt * choice);
 /* No dispatch association yet: either the argument type is wrong,
@@ -435,12 +589,14 @@ extern void tagged_choice_value__no_match_for_argument_type(struct tmplgen_no_as
 #undef tagged_choice_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T tagged_choice_value( TaggedChoice(T) * choice)
+#line 80 "tmpl/result.tmpl.h"
 #define tagged_choice_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     union TaggedChoice_TestInt *: tagged_choice_value_TestInt, \
     default: tagged_choice_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T tagged_choice_value( TaggedChoice(T) * choice)
+#line 80 "tmpl/result.tmpl.h"
 #define tagged_choice_value(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), union TaggedChoice_TestInt *)), \
@@ -451,6 +607,7 @@ extern void tagged_choice_value__no_match_for_argument_type(struct tmplgen_no_as
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 82 "tmpl/result.tmpl.h"
 /// static inline TestInt option_pair_TestInt(Option_TestInt * left, Option_TestInt * right)
 static inline TestInt option_pair_TestInt(Option_TestInt * left, Option_TestInt * right);
 /* No dispatch association yet: either the argument type is wrong,
@@ -460,12 +617,14 @@ extern void option_pair__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef option_pair
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T option_pair(Option(T) * left, Option(T) * right)
+#line 82 "tmpl/result.tmpl.h"
 #define option_pair(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Option_TestInt *: option_pair_TestInt, \
     default: option_pair__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T option_pair(Option(T) * left, Option(T) * right)
+#line 82 "tmpl/result.tmpl.h"
 #define option_pair(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Option_TestInt *)), \
@@ -476,6 +635,7 @@ extern void option_pair__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 87 "tmpl/result.tmpl.h"
 /// static inline Box_double box_select_TestInt_double(Box_TestInt * first, Box_double * second)
 static inline Box_double box_select_TestInt_double(Box_TestInt * first, Box_double * second);
 /* No dispatch association yet: either the argument type is wrong,
@@ -485,6 +645,7 @@ extern void box_select__no_match_for_argument_type(struct tmplgen_no_association
 #undef box_select
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Box(U) box_select(Box(T) * first, Box(U) * second)
+#line 87 "tmpl/result.tmpl.h"
 #define box_select(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Box_TestInt *:     _Generic((GEN_ARG1(__VA_ARGS__)), \
         Box_double *: box_select_TestInt_double, \
@@ -493,6 +654,7 @@ extern void box_select__no_match_for_argument_type(struct tmplgen_no_association
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Box(U) box_select(Box(T) * first, Box(U) * second)
+#line 87 "tmpl/result.tmpl.h"
 #define box_select(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Box_TestInt *) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), Box_double *)), \
@@ -503,6 +665,7 @@ extern void box_select__no_match_for_argument_type(struct tmplgen_no_association
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 94 "tmpl/result.tmpl.h"
 /// static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(TestInt value, ErrorCode error)
 static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(TestInt value, ErrorCode error);
 /// static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(InferredLong value, InferredError error)
@@ -518,6 +681,7 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef result_make
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Result(T, E) result_make(T value, E error)
+#line 94 "tmpl/result.tmpl.h"
 #define result_make(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt:     _Generic((GEN_ARG1(__VA_ARGS__)), \
         ErrorCode: result_make_TestInt_ErrorCode, \
@@ -535,6 +699,7 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Result(T, E) result_make(T value, E error)
+#line 94 "tmpl/result.tmpl.h"
 #define result_make(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), ErrorCode)), \
@@ -554,6 +719,7 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 16 "tmpl/triple.tmpl.h"
 /// static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third)
 static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third);
 /// static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third)
@@ -567,6 +733,7 @@ extern void triple_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef triple_make
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Triple(A, B, C) triple_make(A first, B second, C third)
+#line 16 "tmpl/triple.tmpl.h"
 #define triple_make(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TestInt:     _Generic((GEN_ARG1(__VA_ARGS__)), \
         ErrorCode:         _Generic((GEN_ARG2(__VA_ARGS__)), \
@@ -587,6 +754,7 @@ extern void triple_make__no_match_for_argument_type(struct tmplgen_no_associatio
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Triple(A, B, C) triple_make(A first, B second, C third)
+#line 16 "tmpl/triple.tmpl.h"
 #define triple_make(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), ErrorCode) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), Tag)), \
@@ -603,6 +771,7 @@ extern void triple_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+#line 23 "tmpl/triple.tmpl.h"
 /// static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value)
 static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value);
 /// static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value)
@@ -614,6 +783,7 @@ extern void triple_first__no_match_for_argument_type(struct tmplgen_no_associati
 #undef triple_first
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline A triple_first(Triple(A, B, C) * value)
+#line 23 "tmpl/triple.tmpl.h"
 #define triple_first(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Triple_TestInt_ErrorCode_Tag *: triple_first_TestInt_ErrorCode_Tag, \
     Triple_Tag_InferredError_InferredLong *: triple_first_Tag_InferredError_InferredLong, \
@@ -621,6 +791,7 @@ extern void triple_first__no_match_for_argument_type(struct tmplgen_no_associati
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline A triple_first(Triple(A, B, C) * value)
+#line 23 "tmpl/triple.tmpl.h"
 #define triple_first(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Triple_TestInt_ErrorCode_Tag *)), \

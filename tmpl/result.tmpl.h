@@ -1,8 +1,19 @@
 // clang-format off
+#include "../physics.h"
 #ifndef TMPLGEN
 typedef int T;
 typedef int E;
 typedef int U;
+typedef struct {
+    int x;
+    int y;
+} TP;
+typedef struct {
+    int id;
+    const char *name;
+    unsigned flags;
+} UE;
+typedef int AI;
 #define Result(type0, type1) Result
 #define Option(type) Option
 #define TaggedBox(type) struct TaggedBox
@@ -42,6 +53,21 @@ static inline T result_value(Result(T, E) *result) { return result->value; }
 static inline E result_error(Result(T, E) *result) { return result->error; }
 // @template T
 static inline T result_identity(T value) { return value; }
+// @template TP <: Physics
+static inline int physics_sum(TP *value) { return value->x + value->y; }
+// @template UE <: Entity + Named
+static inline int named_actor_id(UE *value) { return value->id; }
+// @template TP <: Physics, UE <: Entity + Named
+static inline int structural_pair(TP *physics, UE *entity)
+{
+    return physics->x + entity->id;
+}
+// @template AI |= NAMED_INT_ALIGNMENT(Physics, AI) + INT_ALIGNMENT(AI)
+static inline int alignment_ok(AI *value)
+{
+    (void)value;
+    return NAMED_INT_ALIGNMENT(Physics, AI);
+}
 // @template U
 static inline U cross_helper(U value) { return value + 2; }
 // @template T
