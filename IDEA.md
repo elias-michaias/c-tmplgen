@@ -78,19 +78,13 @@ Reproduce this block near-verbatim, with the comments, and adjust only for synta
    type headers here. */
 #define GEN_PREAMBLE "#include <stddef.h>\n#include <stdlib.h>\n"
 
-/* Template table. Types are discovered from source-file usages. */
-typedef struct { const char *stem; } GenTemplate;
-static const GenTemplate GEN_TEMPLATES[] = {
-    { "math" },
-    { "vec"  },
-    { "result" },
-    { "triple" }
-};
+/* Top-level *.tmpl.h files in GEN_TMPL_DIR are discovered and sorted by stem.
+   Types are discovered from source-file usages. */
 
 /* =================== END OF CONFIGURATION ================== */
 ```
 
-Static array sizes are derived with `sizeof(a)/sizeof((a)[0])`. All other limits (line length, name length, and so on) must be either `#define`d here with comments or handled with dynamically grown buffers. Prefer dynamic buffers.
+Template files are discovered from the selected directory at runtime. All other limits (line length, name length, and so on) must be either `#define`d here with comments or handled with dynamically grown buffers. Prefer dynamic buffers.
 
 ---
 
@@ -279,7 +273,7 @@ For each template, write `gen/<stem>.gen.h` with:
 
 Before each dispatch macro, emit navigation prototypes for its concrete targets, then a `///` comment containing the original template function signature. The macro associations refer to those concrete function names; go-to-definition on a target name can navigate to its generated definition in that template's module.
 
-`gen/all.gen.h` has its own include guard, includes every generated module in `GEN_TEMPLATES` order, then emits all constructor and dispatch macros after every declaration. While included through the aggregate, modules suppress their local macro section to prevent an earlier module's macro from rewriting a later module body. A module included directly emits its own constructor and dispatch macros. Sources should normally include the aggregate; editors can open a specific module to navigate within that template's generated output.
+`gen/all.gen.h` has its own include guard, includes every generated module in sorted template-stem order, then emits all constructor and dispatch macros after every declaration. While included through the aggregate, modules suppress their local macro section to prevent an earlier module's macro from rewriting a later module body. A module included directly emits its own constructor and dispatch macros. Sources should normally include the aggregate; editors can open a specific module to navigate within that template's generated output.
 
 ### Dedup rule for `_Generic`
 
@@ -332,13 +326,13 @@ Each function should have a one-line comment saying what it does. Keep functions
 
 Fail early with messages of the form `tmplgen: tmpl/math.tmpl.h: <problem>` and exit code 1, for:
 
-- Template file missing or unreadable.
+- A discovered template file is unreadable or malformed.
 - Missing declaration-scoped `@template` directives, unused directives, duplicate parameters, unlisted variables, and malformed constructor applications (wrong arity or unsupported type-argument tokens).
 - A generic call whose input types do not determine all type variables used by that function (warn and omit that dispatch association).
 - A dependent function or type constructor name declared by more than one template.
 - Colliding generated suffixes for distinct type-argument tuples.
 
-An empty `GEN_TEMPLATES` is valid and produces a header with only the guard and preamble.
+An empty template directory is valid and produces an aggregate header with only the guard and preamble.
 
 ---
 

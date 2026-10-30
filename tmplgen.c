@@ -50,19 +50,6 @@
    type headers here. */
 #define GEN_PREAMBLE "#include <stddef.h>\n#include <stdlib.h>\n"
 
-/* Template table. Each row enables one template file.
-   stem : file is GEN_TMPL_DIR "/" stem GEN_TMPL_SUFFIX, e.g. tmpl/math.tmpl.h.
-   Template parameters and dependent declarations are discovered from each file. */
-typedef struct { const char *stem; } GenTemplate;
-static const GenTemplate GEN_TEMPLATES[] = {
-    { "math" },
-    { "vec"  },
-    { "result" },
-    { "triple" },
-    { 0 }
-};
-
-/* The final zero row is a sentinel, so an empty template table is valid C99. */
 /* =================== END OF CONFIGURATION ================== */
 
 #if GEN_ENABLE_WATCH && !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
@@ -133,6 +120,7 @@ typedef struct {
 } ClangUse;
 typedef struct { ClangUse *items; size_t count, cap; } ClangUseList;
 typedef struct { char **items; size_t count, cap; } StringSet;
+typedef struct { char *stem; } GenTemplate;
 
 typedef struct { char *text; size_t line; int kind; } CToken;
 typedef struct { CToken *items; size_t count, cap; } TokenList;
@@ -149,6 +137,8 @@ static StructuralSchema *g_structural_schemas;
 static size_t g_structural_schema_count, g_structural_schema_cap;
 static char *g_source_root;
 static char *g_template_dir;
+static GenTemplate *g_templates;
+static size_t g_template_count, g_template_cap;
 static char *g_output_path;
 static char *g_generated_dir;
 static int g_dispatch_backend;
@@ -482,7 +472,7 @@ static int type_use_matches(const char *functor, const char *type_name)
 
 static size_t gen_template_count(void)
 {
-    return sizeof(GEN_TEMPLATES) / sizeof(GEN_TEMPLATES[0]) - 1U;
+    return g_template_count;
 }
 
 /* ====================== DYNAMIC BUFFER ===================== */
@@ -789,6 +779,127 @@ static const char *path_leaf(const char *path)
     const char *backslash = strrchr(path, '\\');
     if (backslash != NULL && (slash == NULL || backslash > slash)) slash = backslash;
     return slash != NULL ? slash + 1 : path;
+}
+
+static void clear_template_registry(void)
+{
+    size_t i;
+    for (i = 0U; i < g_template_count; ++i) free(g_templates[i].stem);
+    free(g_templates);
+    g_templates = NULL;
+    g_template_count = 0U;
+    g_template_cap = 0U;
+}
+
+static int template_stem_compare(const void *left, const void *right)
+{
+    const GenTemplate *a = (const GenTemplate *)left;
+    const GenTemplate *b = (const GenTemplate *)right;
+    return strcmp(a->stem, b->stem);
+}
+
+static int template_registry_add(const char *filename)
+{
+    size_t filename_length = strlen(filename);
+    size_t suffix_length = strlen(GEN_TMPL_SUFFIX);
+    size_t stem_length;
+    size_t i;
+    GenTemplate *next;
+    size_t new_cap;
+    if (filename_length < suffix_length ||
+        strcmp(filename + filename_length - suffix_length, GEN_TMPL_SUFFIX) != 0) {
+        return 1;
+    }
+    stem_length = filename_length - suffix_length;
+    if (stem_length == 0U) {
+        report_error(g_template_dir, 0U, "template filename has an empty stem: %s",
+                     filename);
+        return 0;
+    }
+    for (i = 0U; i < g_template_count; ++i) {
+        if (strlen(g_templates[i].stem) == stem_length &&
+            memcmp(g_templates[i].stem, filename, stem_length) == 0) {
+            report_error(g_template_dir, 0U, "duplicate template stem '%s'",
+                         g_templates[i].stem);
+            return 0;
+        }
+    }
+    if (g_template_count == g_template_cap) {
+        new_cap = g_template_cap == 0U ? 8U : g_template_cap * 2U;
+        if (new_cap < g_template_cap ||
+            new_cap > (size_t)-1 / sizeof(*g_templates)) {
+            die("too many template files");
+        }
+        next = (GenTemplate *)realloc(g_templates, new_cap * sizeof(*g_templates));
+        if (next == NULL) die("out of memory");
+        g_templates = next;
+        g_template_cap = new_cap;
+    }
+    g_templates[g_template_count].stem = copy_range(filename, stem_length);
+    ++g_template_count;
+    return 1;
+}
+
+static int discover_template_files(void)
+{
+    clear_template_registry();
+#if defined(_WIN32)
+    char *pattern = join_path(g_template_dir, "*");
+    WIN32_FIND_DATAA entry;
+    HANDLE handle = FindFirstFileA(pattern, &entry);
+    free(pattern);
+    if (handle == INVALID_HANDLE_VALUE) {
+        report_error(g_template_dir, 0U, "cannot scan template directory");
+        return 0;
+    }
+    do {
+        if ((entry.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0U &&
+            !template_registry_add(entry.cFileName)) {
+            (void)FindClose(handle);
+            return 0;
+        }
+    } while (FindNextFileA(handle, &entry) != 0);
+    (void)FindClose(handle);
+#else
+    DIR *directory = opendir(g_template_dir);
+    struct dirent *entry;
+    if (directory == NULL) {
+        report_error(g_template_dir, 0U, "cannot scan template directory: %s",
+                     strerror(errno));
+        return 0;
+    }
+    while ((entry = readdir(directory)) != NULL) {
+        size_t name_length = strlen(entry->d_name);
+        size_t suffix_length = strlen(GEN_TMPL_SUFFIX);
+        char *path;
+        struct stat info;
+        if (name_length < suffix_length ||
+            strcmp(entry->d_name + name_length - suffix_length,
+                   GEN_TMPL_SUFFIX) != 0) continue;
+        path = join_path(g_template_dir, entry->d_name);
+        if (stat(path, &info) != 0) {
+            report_error(path, 0U, "cannot inspect template file: %s", strerror(errno));
+            free(path);
+            (void)closedir(directory);
+            return 0;
+        }
+        free(path);
+        if (S_ISREG(info.st_mode) && !template_registry_add(entry->d_name)) {
+            (void)closedir(directory);
+            return 0;
+        }
+    }
+    if (closedir(directory) != 0) {
+        report_error(g_template_dir, 0U, "cannot close template directory: %s",
+                     strerror(errno));
+        return 0;
+    }
+#endif
+    if (g_template_count > 1U) {
+        qsort(g_templates, g_template_count, sizeof(*g_templates),
+              template_stem_compare);
+    }
+    return 1;
 }
 
 static char *path_parent(const char *path)
@@ -4792,7 +4903,7 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
     for (i = 0U; i < template_count; ++i) {
         Buf relative;
         buf_init(&relative);
-        buf_puts(&relative, GEN_TEMPLATES[i].stem);
+        buf_puts(&relative, g_templates[i].stem);
         buf_puts(&relative, ".gen.h");
         emit_include(out, relative.p);
         buf_free(&relative);
@@ -4822,8 +4933,6 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
 
 static int config_validate(void)
 {
-    size_t i;
-    size_t j;
     if (!valid_identifier(GEN_GUARD)) {
         report_error(NULL, 0U, "GEN_GUARD is not a valid identifier");
         return 0;
@@ -4842,19 +4951,6 @@ static int config_validate(void)
         g_dispatch_backend != GEN_DISPATCH_AUTO) {
         report_error(NULL, 0U, "unsupported dispatch backend");
         return 0;
-    }
-    for (i = 0U; i < gen_template_count(); ++i) {
-        if (GEN_TEMPLATES[i].stem == NULL || GEN_TEMPLATES[i].stem[0] == '\0') {
-            report_error(NULL, 0U, "invalid row in GEN_TEMPLATES");
-            return 0;
-        }
-        for (j = i + 1U; j < gen_template_count(); ++j) {
-            if (GEN_TEMPLATES[j].stem != NULL &&
-                str_eq(GEN_TEMPLATES[i].stem, GEN_TEMPLATES[j].stem)) {
-                report_error(NULL, 0U, "duplicate template stem '%s'", GEN_TEMPLATES[i].stem);
-                return 0;
-            }
-        }
     }
     return 1;
 }
@@ -4966,10 +5062,10 @@ static char *template_include_target(const char *header, const char *current_ste
         Buf template_path;
         char *template_absolute;
         buf_init(&template_path);
-        build_template_path(&template_path, GEN_TEMPLATES[i].stem);
+        build_template_path(&template_path, g_templates[i].stem);
         template_absolute = absolute_path(template_path.p);
         if (str_eq(candidate_absolute, template_absolute)) {
-            result = copy_string(GEN_TEMPLATES[i].stem);
+            result = copy_string(g_templates[i].stem);
             free(template_absolute);
             buf_free(&template_path);
             break;
@@ -5050,7 +5146,7 @@ static void emit_preamble(Buf *out, const char *guard,
         size_t j;
         for (j = 0U; j < infos[i].include_count; ++j) {
             const char *source_stem = current_stem != NULL ? current_stem :
-                GEN_TEMPLATES[infos[i].template_index].stem;
+                g_templates[infos[i].template_index].stem;
             char *target_stem = template_include_target(infos[i].includes[j],
                                                         source_stem);
             char *include_path = target_stem != NULL ?
@@ -5934,7 +6030,7 @@ static int parse_source_with_clang(CXIndex index, const SourceFile *source,
     unsaved_paths[0] = absolute_path(g_output_path);
     for (unsaved_index = 1U; unsaved_index < unsaved_count; ++unsaved_index) {
         unsaved_paths[unsaved_index] = generated_module_path(
-            GEN_TEMPLATES[unsaved_index - 1U].stem);
+            g_templates[unsaved_index - 1U].stem);
     }
     for (unsaved_index = 0U; unsaved_index < unsaved_count; ++unsaved_index) {
         unsaved[unsaved_index].Filename = unsaved_paths[unsaved_index];
@@ -6193,7 +6289,7 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
             const TemplateType *constructor = &infos[i].constructors[j];
             if (constructor->parameter_count == 0U) {
                 emit_instance(out, &infos[i], &empty_instance, g_output_path,
-                              GEN_TEMPLATES[i].stem, constructor->name,
+                              g_templates[i].stem, constructor->name,
                               constructor->start_offset, constructor->end_offset,
                               constructor->start_line);
             }
@@ -6202,7 +6298,7 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
             const TemplateFunction *function = &infos[i].functions[j];
             if (function->type_parameter_count == 0U) {
                 emit_instance(out, &infos[i], &empty_instance, g_output_path,
-                              GEN_TEMPLATES[i].stem, function->name,
+                              g_templates[i].stem, function->name,
                               function->start_offset, function->end_offset,
                               function->start_line);
             }
@@ -7394,6 +7490,7 @@ static int generate(GeneratedFileList *out)
     memset(out, 0, sizeof(*out));
     clear_discovery_state();
     g_error_count = 0U;
+    if (!discover_template_files()) return 0;
     if (!config_validate()) return 0;
     infos = (TemplateInfo *)calloc(gen_template_count() + 1U, sizeof(*infos));
     if (infos == NULL) die("out of memory");
@@ -7411,7 +7508,7 @@ static int generate(GeneratedFileList *out)
         char *absolute_aggregate_path;
         char *guard;
         buf_init(&path);
-        build_template_path(&path, GEN_TEMPLATES[i].stem);
+        build_template_path(&path, g_templates[i].stem);
         if (!parse_template(&infos[i], path.p)) {
             buf_free(&path);
             goto failed;
@@ -7421,7 +7518,7 @@ static int generate(GeneratedFileList *out)
             goto failed;
         }
         buf_free(&path);
-        module_path = generated_module_path(GEN_TEMPLATES[i].stem);
+        module_path = generated_module_path(g_templates[i].stem);
         absolute_module_path = absolute_path(module_path);
         absolute_aggregate_path = absolute_path(g_output_path);
         if (str_eq(absolute_module_path, absolute_aggregate_path)) {
@@ -7435,7 +7532,7 @@ static int generate(GeneratedFileList *out)
         free(absolute_module_path);
         free(absolute_aggregate_path);
         free(module_path);
-        guard = generated_module_guard(GEN_TEMPLATES[i].stem);
+        guard = generated_module_guard(g_templates[i].stem);
         if (string_set_has(&emitted_guards, guard)) {
             report_error(infos[i].path, 0U,
                          "template stem collides with another generated include guard");
@@ -7451,10 +7548,10 @@ static int generate(GeneratedFileList *out)
     if (g_error_count != 0U) goto failed;
     for (i = 0U; i < gen_template_count(); ++i) {
         Buf module;
-        char *path = generated_module_path(GEN_TEMPLATES[i].stem);
-        char *guard = generated_module_guard(GEN_TEMPLATES[i].stem);
+        char *path = generated_module_path(g_templates[i].stem);
+        char *guard = generated_module_guard(g_templates[i].stem);
         buf_init(&module);
-        emit_template_module(&module, i, &infos[i], GEN_TEMPLATES[i].stem,
+        emit_template_module(&module, i, &infos[i], g_templates[i].stem,
                              path, guard);
         generated_file_list_add(out, path, &module);
         buf_free(&module);
@@ -7577,7 +7674,7 @@ static void usage(FILE *out)
             "  --watch    regenerate when sources or templates change (poll %u ms)\n"
             "  --verbose  report reads and writes to stderr\n"
             "  --source-root DIR   recursively scan this project tree\n"
-            "  --template-dir DIR  read templates from this directory\n"
+            "  --template-dir DIR  discover *.tmpl.h templates in this directory\n"
             "  --output FILE       write the aggregate header here (modules beside it)\n"
             "  --dispatch MODE     auto, generic, gnu, or none\n"
             "  --clang-arg ARG     pass one argument to libclang (repeatable)\n"

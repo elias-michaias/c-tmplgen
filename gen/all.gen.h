@@ -6,16 +6,13 @@
 #define TMPLGEN_AGGREGATING_LOCAL
 #endif
 #include "math.gen.h"
-#include "vec.gen.h"
 #include "result.gen.h"
 #include "triple.gen.h"
+#include "vec.gen.h"
 #ifdef TMPLGEN_AGGREGATING_LOCAL
 #undef TMPLGEN_AGGREGATING_LOCAL
 #undef TMPLGEN_AGGREGATING
 #endif
-
-#undef Vec
-#define Vec(type0) Vec_##type0
 
 #undef ResultPayload
 #define ResultPayload(type0, type1) ResultPayload_##type0##_##type1
@@ -34,6 +31,9 @@
 
 #undef Triple
 #define Triple(type0, type1, type2) Triple_##type0##_##type1##_##type2
+
+#undef Vec
+#define Vec(type0) Vec_##type0
 
 /* Dispatch macros for all generated template functions. */
 #ifndef GEN_ARG0
@@ -226,40 +226,6 @@ extern void cross_root__no_match_for_argument_type(struct tmplgen_no_association
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
         cross_root_TestInt, \
         cross_root__no_match_for_argument_type)(__VA_ARGS__)
-
-#else
-#error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
-#endif
-
-#line 16 "tmpl/vec.tmpl.h"
-/// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
-static inline void push_TestInt(Vec_TestInt * v, TestInt x);
-/// static inline void push_int(Vec_int * v, int x)
-static inline void push_int(Vec_int * v, int x);
-/* No dispatch association yet: either the argument type is wrong,
-   or generated headers need regeneration after requesting this type. */
-struct tmplgen_no_association_for_push_argument { int unused; };
-extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_push_argument, ...);
-#undef push
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
-/// static inline void push(Vec(T) * v, T x)
-#line 16 "tmpl/vec.tmpl.h"
-#define push(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
-    Vec_TestInt *: push_TestInt, \
-    Vec_int *: push_int, \
-    default: push__no_match_for_argument_type)(__VA_ARGS__)
-
-#elif defined(__GNUC__) || defined(__clang__)
-/// static inline void push(Vec(T) * v, T x)
-#line 16 "tmpl/vec.tmpl.h"
-#define push(...) \
-    __builtin_choose_expr( \
-        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_TestInt *)), \
-        push_TestInt, \
-        __builtin_choose_expr( \
-            (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_int *)), \
-            push_int, \
-            push__no_match_for_argument_type))(__VA_ARGS__)
 
 #else
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
@@ -962,6 +928,40 @@ extern void triple_first__no_match_for_argument_type(struct tmplgen_no_associati
             (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Triple_Tag_InferredError_InferredLong *)), \
             triple_first_Tag_InferredError_InferredLong, \
             triple_first__no_match_for_argument_type))(__VA_ARGS__)
+
+#else
+#error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
+#endif
+
+#line 16 "tmpl/vec.tmpl.h"
+/// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
+static inline void push_TestInt(Vec_TestInt * v, TestInt x);
+/// static inline void push_int(Vec_int * v, int x)
+static inline void push_int(Vec_int * v, int x);
+/* No dispatch association yet: either the argument type is wrong,
+   or generated headers need regeneration after requesting this type. */
+struct tmplgen_no_association_for_push_argument { int unused; };
+extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_push_argument, ...);
+#undef push
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+/// static inline void push(Vec(T) * v, T x)
+#line 16 "tmpl/vec.tmpl.h"
+#define push(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
+    Vec_TestInt *: push_TestInt, \
+    Vec_int *: push_int, \
+    default: push__no_match_for_argument_type)(__VA_ARGS__)
+
+#elif defined(__GNUC__) || defined(__clang__)
+/// static inline void push(Vec(T) * v, T x)
+#line 16 "tmpl/vec.tmpl.h"
+#define push(...) \
+    __builtin_choose_expr( \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_TestInt *)), \
+        push_TestInt, \
+        __builtin_choose_expr( \
+            (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_int *)), \
+            push_int, \
+            push__no_match_for_argument_type))(__VA_ARGS__)
 
 #else
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
