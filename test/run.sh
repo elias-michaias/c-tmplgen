@@ -33,11 +33,11 @@ if ! grep -q 'Triple_Tag_InferredError_InferredLong' gen/triple.gen.h; then
     printf '%s\n' 'auto input inference did not generate the inferred triple' >&2
     exit 1
 fi
-if ! grep -q '^/// static inline Result(T, E) result_make(T value, E error)$' gen/result.gen.h ||
-   ! grep -q '^static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(TestInt value, ErrorCode error);$' \
-       gen/result.gen.h ||
-    ! grep -q '^/// static inline Result(T, E) result_make(T value, E error)$' gen/all.gen.h ||
-    ! grep -q '^static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(TestInt value, ErrorCode error);$' \
+if ! grep -q '^/// static inline Result(T, E) result_make(ResultTag tag, T value, E error)$' gen/result.gen.h ||
+   ! grep -q '^static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);$' \
+        gen/result.gen.h ||
+    ! grep -q '^/// static inline Result(T, E) result_make(ResultTag tag, T value, E error)$' gen/all.gen.h ||
+    ! grep -q '^static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);$' \
         gen/all.gen.h; then
     printf '%s\n' 'dispatch docs or navigation prototype was not generated' >&2
     exit 1
@@ -126,9 +126,9 @@ fi
 "$BUILD/gnu-dispatch"
 
 NEWTYPE="$BUILD/newtype"
-mkdir -p "$NEWTYPE"
+mkdir -p "$NEWTYPE/test/lib"
 cp -R gen "$NEWTYPE/gen"
-cp physics.h "$NEWTYPE/physics.h"
+cp test/lib/physics.h "$NEWTYPE/test/lib/physics.h"
 printf 'typedef double Fresh;\n' > "$NEWTYPE/fresh.h"
 cat > "$NEWTYPE/main.c" <<'EOF'
 #include "fresh.h"
@@ -188,8 +188,8 @@ if ! grep -q 'Option_TestInt' "$BUILD/unmatched-option-pair.log"; then
 fi
 
 SUBTYPE="$BUILD/subtyping"
-mkdir -p "$SUBTYPE/gen"
-cp physics.h "$SUBTYPE/physics.h"
+mkdir -p "$SUBTYPE/gen" "$SUBTYPE/test/lib"
+cp test/lib/physics.h "$SUBTYPE/test/lib/physics.h"
 cp test/negative/unmatched_structural_rows.c.in "$SUBTYPE/main.c"
 "$BUILD/tmplgen" --source-root "$SUBTYPE" --output "$SUBTYPE/gen/all.gen.h" \
     --clang-arg=-std=c11
@@ -216,12 +216,12 @@ if ! grep -q 'tmpl/result.tmpl.h' "$BUILD/subtyping.log"; then
     printf '%s\n' 'structural constraint diagnostics were not mapped to the template' >&2
     exit 1
 fi
-if ! grep -q 'tmpl/result.tmpl.h:57:' "$BUILD/subtyping.log" ||
-   ! grep -q 'tmpl/result.tmpl.h:59:' "$BUILD/subtyping.log"; then
+if ! grep -q 'tmpl/result.tmpl.h:101:' "$BUILD/subtyping.log" ||
+   ! grep -q 'tmpl/result.tmpl.h:104:' "$BUILD/subtyping.log"; then
     printf '%s\n' 'structural constraint diagnostics did not point at the constrained functions' >&2
     exit 1
 fi
-if ! grep -q 'tmpl/result.tmpl.h:66:' "$BUILD/subtyping.log"; then
+if ! grep -q 'tmpl/result.tmpl.h:112:' "$BUILD/subtyping.log"; then
     printf '%s\n' 'expression constraint diagnostics did not point at the constrained function' >&2
     exit 1
 fi

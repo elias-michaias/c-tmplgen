@@ -1,4 +1,4 @@
-#include "physics.h"
+#include "test/lib/physics.h"
 
 struct WrongPhysics {
     int x;

@@ -5,8 +5,11 @@ int main(void)
 {
     TestInt value = 1;
     double wrong_error_type = 2.0;
-    Result(TestInt, ErrorCode) seed = { value, ErrorNone };
+    Result(TestInt, ErrorCode) seed = {
+        .tag = RESULT_OK,
+        .payload.ok = value
+    };
     (void)seed;
-    (void)result_make(value, wrong_error_type);
+    (void)result_make(RESULT_OK, value, wrong_error_type);
     return 0;
 }

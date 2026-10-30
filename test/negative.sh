@@ -29,9 +29,9 @@ for fixture in "$ROOT"/test/negative/*.c.in; do
 done
 
 SUBTYPE="$BUILD/subtyping"
-mkdir -p "$SUBTYPE/tmpl" "$SUBTYPE/gen"
+mkdir -p "$SUBTYPE/tmpl" "$SUBTYPE/gen" "$SUBTYPE/test/lib"
 cp -R "$ROOT/tmpl/." "$SUBTYPE/tmpl/"
-cp "$ROOT/physics.h" "$SUBTYPE/physics.h"
+cp "$ROOT/test/lib/physics.h" "$SUBTYPE/test/lib/physics.h"
 cp "$ROOT/test/negative/unmatched_structural_rows.c.in" "$SUBTYPE/main.c"
 printf '\n===== unmatched_structural_rows.c.in =====\n'
 if ! (CDPATH= cd -- "$SUBTYPE" && "$BUILD/tmplgen" \

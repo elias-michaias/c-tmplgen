@@ -2890,6 +2890,53 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
     return 1;
 }
 
+static char *template_continuation_as_directive(const char *line)
+{
+    const char *p = line;
+    Buf directive;
+    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+    if (p[0] != '/' || p[1] != '/' || p[2] != ' ' || p[3] != '@' ||
+        !isspace((unsigned char)p[4])) return NULL;
+    p += 4;
+    buf_init(&directive);
+    buf_puts(&directive, "// @template");
+    buf_puts(&directive, p);
+    return directive.p != NULL ? directive.p : copy_string("// @template");
+}
+
+static void merge_template_annotations(TemplateInfo *ti, size_t target_index,
+                                       size_t source_index)
+{
+    TemplateAnnotation *target = &ti->annotations[target_index];
+    TemplateAnnotation *source = &ti->annotations[source_index];
+    size_t i, j;
+    for (i = 0U; i < source->parameter_count; ++i) {
+        if (!list_contains(target->parameter_names, target->parameter_count,
+                           source->parameter_names[i])) {
+            list_add(&target->parameter_names, &target->parameter_count,
+                     &target->parameter_cap, source->parameter_names[i]);
+        }
+    }
+    for (i = 0U; i < source->constraint_count; ++i) {
+        const TemplateConstraint *constraint = &source->constraints[i];
+        for (j = 0U; j < constraint->required_type_count; ++j) {
+            template_constraint_add(&target->constraints, &target->constraint_count,
+                &target->constraint_cap, constraint->parameter_name,
+                constraint->required_types[j], constraint->line);
+        }
+        for (j = 0U; j < constraint->expression_count; ++j) {
+            template_constraint_add_expression(&target->constraints,
+                &target->constraint_count, &target->constraint_cap,
+                constraint->parameter_name, constraint->expressions[j],
+                constraint->line);
+        }
+    }
+    list_free(source->parameter_names, source->parameter_count);
+    template_constraint_array_free(source->constraints, source->constraint_count);
+    memset(source, 0, sizeof(*source));
+    --ti->annotation_count;
+}
+
 static size_t identifier_line_in_code(const char *src, const char *name)
 {
     size_t i = 0U;
@@ -3038,6 +3085,8 @@ static int parse_template(TemplateInfo *ti, const char *path)
     size_t line_number = 1U;
     int in_block_comment = 0;
     size_t lsp_fallback_depth = 0U;
+    size_t pending_annotation_index = 0U;
+    int pending_annotation = 0;
     buf_init(&source);
     ti->path = copy_string(path);
     if (!read_file(path, &source)) {
@@ -3056,25 +3105,40 @@ static int parse_template(TemplateInfo *ti, const char *path)
         if (content_end > offset && source.p[content_end - 1U] == '\r') --content_end;
         line = copy_range(source.p + offset, content_end - offset);
         if (lsp_fallback_depth != 0U) {
+            pending_annotation = 0;
             if (is_preprocessor_open(line)) ++lsp_fallback_depth;
             else if (preprocessor_keyword(line, "endif") != NULL) --lsp_fallback_depth;
             buf_put_blanked_source(&ti->body, source.p, offset, next);
         } else if (!in_block_comment && is_lsp_fallback_start(line)) {
+            pending_annotation = 0;
             lsp_fallback_depth = 1U;
             buf_put_blanked_source(&ti->body, source.p, offset, next);
         } else {
             size_t body_offset = ti->body.len;
-            directive = in_block_comment ? 0 : parse_directive(ti, line, line_number);
+            char *continuation = pending_annotation ?
+                template_continuation_as_directive(line) : NULL;
+            const char *directive_line = continuation != NULL ? continuation : line;
+            directive = in_block_comment ? 0 :
+                        parse_directive(ti, directive_line, line_number);
+            free(continuation);
             if (directive < 0) {
                 free(line);
                 buf_free(&source);
                 return 0;
             }
             if (directive > 0) {
-                ti->annotations[ti->annotation_count - 1U].offset =
-                    (unsigned)body_offset;
+                size_t added_index = ti->annotation_count - 1U;
+                ti->annotations[added_index].offset = (unsigned)body_offset;
+                if (pending_annotation) {
+                    merge_template_annotations(ti, pending_annotation_index,
+                                               added_index);
+                } else {
+                    pending_annotation_index = added_index;
+                    pending_annotation = 1;
+                }
             }
             if (directive == 0) {
+                pending_annotation = 0;
                 int include_line = in_block_comment ? 0 :
                                    collect_include_line(ti, line, line_number);
                 if (include_line < 0) {

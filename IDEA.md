@@ -26,6 +26,7 @@ The generator is the entire build system. There is no Python, no Lua, and no ext
 ```
 project/
   tmplgen.c          <- the whole tool (this spec)
+  test/lib/          <- shared test/example headers (schema rows, test types)
   gen/                 <- GENERATED mirror of tmpl/, never hand-edited
     all.gen.h          <- aggregate include for all generated template headers
     math.gen.h
@@ -164,6 +165,19 @@ For an arbitrary compile-time expression, use `|=` instead. The variable name is
 
 Top-level `+` separates constraints, while commas inside a parenthesized macro call remain part of that expression. Failures report that the variable failed to satisfy the expression.
 
+Adjacent annotation lines are accumulated for the next declaration, allowing long parameter lists or constraints to wrap cleanly. Continuations may use either another `// @template` or the short `// @` form after an initial marker:
+
+```c
+// @template T <: MySubtype
+// @template T |= MyConstraint(T)
+// @template E <: OtherThing
+
+// @template
+// @ T <: MySubtype
+// @ T |= MyConstraint(T)
+// @ E <: OtherThing
+```
+
 For a multi-parameter type and its functions:
 
 ```c
@@ -171,20 +185,37 @@ For a multi-parameter type and its functions:
 typedef int T;
 typedef int E;
 #endif
+typedef enum { RESULT_OK, RESULT_ERROR } ResultTag;
+typedef enum { OPTION_NONE, OPTION_SOME } OptionTag;
+
 // @template T, E
-typedef struct { T value; E error; } Result;
+typedef union { T ok; E error; } ResultPayload;
+// @template T, E
+typedef struct {
+    ResultTag tag;
+    ResultPayload(T, E) payload;
+} Result;
 // @template T
-typedef struct { T value; } Option;
+typedef union { T some; } OptionPayload;
+// @template T
+typedef struct {
+    OptionTag tag;
+    OptionPayload(T) payload;
+} Option;
 // @template T, E
-static inline T result_value(Result(T, E) *r) { return r->value; }
+static inline T result_value(Result(T, E) *r) { return r->payload.ok; }
 // @template T, E
-static inline Result(T, E) result_make(T value, E error) {
-    Result r = { value, error };
+static inline Result(T, E) result_make(ResultTag tag, T value, E error) {
+    Result r = { .tag = tag };
+    if (tag == RESULT_OK) r.payload.ok = value;
+    else r.payload.error = error;
     return r;
 }
 ```
 
-`Result(Value, Error)` requests the type tuple. Calls to `result_value(&r)` infer both variables from the input `Result(T, E) *`; calls to `result_make(value, error)` infer them from its two input types. The resulting `T` return type is substituted from those inputs.
+`Result(Value, Error)` requests the type tuple. The tag selects which union member is active; consumers can `switch (r.tag)` on `RESULT_OK` and `RESULT_ERROR`. `Option(T)` similarly uses `OPTION_SOME` and `OPTION_NONE`. `result_value`, `result_error`, and `option_value` assert that the matching variant is active before reading its payload.
+
+Calls to `result_value(&r)` infer both variables from the input `Result(T, E) *`; calls to `result_make(RESULT_OK, value, error)` infer them from its two payload inputs. The tag is a monomorphic argument and does not contribute to the inferred type tuple.
 
 ---
 
@@ -316,17 +347,17 @@ An empty `GEN_TEMPLATES` is valid and produces a header with only the guard and 
 With `typedef int TestInt;` and `typedef enum { ErrorNone } ErrorCode;` visible before `gen/all.gen.h`, source such as:
 
 ```c
-Result(TestInt, ErrorCode) result = result_make(value, error);
+Result(TestInt, ErrorCode) result = result_make(RESULT_OK, value, error);
 TestInt value = result_value(&result);
 ```
 
-must generate the pair specialization `Result_TestInt_ErrorCode`, the functions `result_make_TestInt_ErrorCode` and `result_value_TestInt_ErrorCode`, a two-input dispatch for `result_make`, and a dispatch on `Result_TestInt_ErrorCode *` for `result_value`. The returned `TestInt` type comes from matching the input `Result(TestInt, ErrorCode) *`.
+must generate the pair specialization `Result_TestInt_ErrorCode`, the functions `result_make_TestInt_ErrorCode` and `result_value_TestInt_ErrorCode`, a two-type-input dispatch for `result_make`, and a dispatch on `Result_TestInt_ErrorCode *` for `result_value`. The returned `TestInt` type comes from matching the input `Result(TestInt, ErrorCode) *`.
 
 `Triple(A, B, C)` and a function taking `A`, `B`, and `C` must likewise produce a three-input dispatch. A function in the same `@template T, E` file that only depends on `T` must produce a `..._T` instance rather than requiring an unrelated `E` type. Calls whose tuples appear only in inputs still work through inferred declarations:
 
 ```c
-auto result = result_make(long_value, error_code); /* C23 */
-__auto_type other = result_make(tag, inferred_error); /* compiler extension in C11 mode */
+auto result = result_make(RESULT_OK, long_value, error_code); /* C23 */
+__auto_type other = result_make(RESULT_ERROR, tag, inferred_error); /* compiler extension in C11 mode */
 ```
 
 The bootstrap used for the second libclang pass provides the concrete return type, allowing later uses such as `result_value(&result)` or `result_error(&other)` to recover the tuple.
