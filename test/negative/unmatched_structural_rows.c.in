@@ -18,6 +18,8 @@ int main(void)
     struct WrongPhysics physics = { 1, 2.0 };
     struct WrongActor actor = { 3, 4, 5U };
     char tiny = 0;
+    int narrow = 1;
+    long long wide = 7LL;
     return physics_sum(&physics) + named_actor_id(&actor) +
-           alignment_ok(&tiny);
+           alignment_ok(&tiny) + same_size(narrow, wide);
 }

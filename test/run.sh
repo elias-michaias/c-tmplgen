@@ -207,9 +207,14 @@ if ! grep -q 'tmplgen: UE is not a subtype of Named' "$BUILD/subtyping.log"; the
     printf '%s\n' 'combined structural constraint failure did not identify the missing row' >&2
     exit 1
 fi
-if ! grep -q 'tmplgen: AI failed to satisfy NAMED_INT_ALIGNMENT(Physics, AI)' \
+if ! grep -q 'tmplgen: AI failed to satisfy NAMED_INT_ALIGNMENT(Physics)' \
     "$BUILD/subtyping.log"; then
     printf '%s\n' 'arbitrary constraint failure did not include its expression' >&2
+    exit 1
+fi
+if ! grep -q 'tmplgen: @where failed to satisfy SAME_SIZE(T, U)' \
+    "$BUILD/subtyping.log"; then
+    printf '%s\n' '@where failure did not include its cross-variable expression' >&2
     exit 1
 fi
 if ! grep -q 'tmpl/result.tmpl.h' "$BUILD/subtyping.log"; then

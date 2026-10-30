@@ -6,6 +6,7 @@
 #define NAMED_INT_ALIGNMENT(Name, Type) \
     (__alignof__(Type) >= __alignof__(int) && sizeof(#Name) > 1)
 #define INT_ALIGNMENT(Type) (__alignof__(Type) >= __alignof__(int))
+#define SAME_SIZE(Left, Right) (sizeof(Left) == sizeof(Right))
 
 struct Physics {
     int x;

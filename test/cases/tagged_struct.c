@@ -16,11 +16,14 @@ int main(void)
     PhysicsBody body = { 5, 7, 1.25 };
     NamedActor actor = { 11, "hero", 3U };
     int is_empty = 0;
+    TestInt scalar = 9;
+    TestInt scalar2 = 10;
     if (tagged_box_value(&box) != 42) return 1;
     if (tagged_choice_value(&choice) != 11) return 2;
     if (structural_pair(&body, &actor) != 16) return 3;
     if (!alignment_ok(&body)) return 4;
-    if (option_pair(&first, &second) != 5) return 5;
+    if (!same_size(scalar, scalar2)) return 5;
+    if (option_pair(&first, &second) != 5) return 6;
     option_none(&empty);
     switch (empty.tag) {
     case OPTION_NONE:
@@ -30,7 +33,7 @@ int main(void)
         is_empty = 0;
         break;
     }
-    if (!is_empty) return 6;
+    if (!is_empty) return 7;
     (void)different;
     selected = box_select(&left, &right);
     return selected.value != 2.5 || physics_sum(&body) != 12 ||

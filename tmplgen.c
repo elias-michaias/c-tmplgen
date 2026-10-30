@@ -2084,6 +2084,44 @@ static int declaration_parameters_are_listed(TemplateAnalysis *analysis,
     return valid;
 }
 
+static void validate_where_constraint_bindings(TemplateAnalysis *analysis,
+                                               const char *declaration_name,
+                                               unsigned line,
+                                               const TemplateAnnotation *annotation,
+                                               char **dependencies,
+                                               size_t dependency_count)
+{
+    size_t i, j;
+    const TemplateInfo *ti = analysis->info;
+    if (annotation == NULL) return;
+    for (i = 0U; i < annotation->constraint_count; ++i) {
+        const TemplateConstraint *constraint = &annotation->constraints[i];
+        if (constraint->parameter_name[0] != '\0') continue;
+        for (j = 0U; j < constraint->expression_count; ++j) {
+            size_t parameter_index;
+            for (parameter_index = 0U; parameter_index < ti->parameter_count;
+                 ++parameter_index) {
+                const char *parameter = ti->parameter_names[parameter_index];
+                if (identifier_line_in_code(constraint->expressions[j], parameter) == 0U) {
+                    continue;
+                }
+                if (!list_contains(annotation->parameter_names,
+                                   annotation->parameter_count, parameter)) {
+                    report_error(ti->path, line,
+                        "@where on '%s' refers to '%s' which is not declared in its @template block",
+                        declaration_name, parameter);
+                    analysis->failed = 1;
+                } else if (!list_contains(dependencies, dependency_count, parameter)) {
+                    report_error(ti->path, line,
+                        "@where on '%s' refers to '%s', which cannot be inferred from the declaration's types",
+                        declaration_name, parameter);
+                    analysis->failed = 1;
+                }
+            }
+        }
+    }
+}
+
 static void copy_declared_parameters(char ***target, size_t *target_count,
                                      size_t *target_cap,
                                      const TemplateAnnotation *annotation)
@@ -2157,6 +2195,8 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 (void)declaration_parameters_are_listed(analysis, name,
                     declaration_line, annotation->parameter_names,
                     annotation->parameter_count, parameters, parameter_count);
+                validate_where_constraint_bindings(analysis, name,
+                    declaration_line, annotation, parameters, parameter_count);
             }
             {
                 size_t i;
@@ -2220,6 +2260,8 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 (void)declaration_parameters_are_listed(analysis, name,
                     declaration_line, annotation->parameter_names,
                     annotation->parameter_count, parameters, parameter_count);
+                validate_where_constraint_bindings(analysis, name,
+                    declaration_line, annotation, parameters, parameter_count);
             }
             {
                 char **ordered_parameters = NULL;
@@ -2274,6 +2316,8 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 (void)declaration_parameters_are_listed(analysis, name,
                     declaration_line, annotation->parameter_names,
                     annotation->parameter_count, parameters, parameter_count);
+                validate_where_constraint_bindings(analysis, name,
+                    declaration_line, annotation, parameters, parameter_count);
             }
             list_free(parameters, parameter_count);
             free(name);
@@ -2407,6 +2451,9 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 (void)declaration_parameters_are_listed(analysis, function.name,
                     function.start_line, annotation->parameter_names,
                     annotation->parameter_count, all_parameters,
+                    all_parameter_count);
+                validate_where_constraint_bindings(analysis, function.name,
+                    function.start_line, annotation, all_parameters,
                     all_parameter_count);
             } else if (all_parameter_count != 0U) {
                 report_error(ti->path, function.start_line,
@@ -2640,6 +2687,29 @@ static int analyze_template(TemplateInfo *ti)
     return !analysis.failed;
 }
 
+static TemplateAnnotation *append_template_annotation(TemplateInfo *ti,
+                                                      size_t line_number)
+{
+    TemplateAnnotation *next;
+    size_t new_cap;
+    if (ti->annotation_count == ti->annotation_cap) {
+        new_cap = ti->annotation_cap == 0U ? 8U : ti->annotation_cap * 2U;
+        if (new_cap < ti->annotation_cap ||
+            new_cap > (size_t)-1 / sizeof(*ti->annotations)) {
+            die("too many @template annotations");
+        }
+        next = (TemplateAnnotation *)realloc(ti->annotations,
+                                              new_cap * sizeof(*ti->annotations));
+        if (next == NULL) die("out of memory");
+        ti->annotations = next;
+        ti->annotation_cap = new_cap;
+    }
+    next = &ti->annotations[ti->annotation_count++];
+    memset(next, 0, sizeof(*next));
+    next->line = line_number;
+    return next;
+}
+
 static int parse_directive(TemplateInfo *ti, const char *line_text,
                            size_t line_number)
 {
@@ -2849,30 +2919,16 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
             free(command);
             return -1;
         }
-        if (ti->annotation_count == ti->annotation_cap) {
-            size_t new_cap = ti->annotation_cap == 0U ? 8U : ti->annotation_cap * 2U;
-            TemplateAnnotation *next;
-            if (new_cap < ti->annotation_cap ||
-                new_cap > (size_t)-1 / sizeof(*ti->annotations)) {
-                die("too many @template annotations");
-            }
-            next = (TemplateAnnotation *)realloc(ti->annotations,
-                                                  new_cap * sizeof(*ti->annotations));
-            if (next == NULL) die("out of memory");
-            ti->annotations = next;
-            ti->annotation_cap = new_cap;
-        }
         {
             size_t i;
-            TemplateAnnotation *annotation = &ti->annotations[ti->annotation_count++];
+            TemplateAnnotation *annotation = append_template_annotation(
+                ti, line_number);
             annotation->parameter_names = names;
             annotation->parameter_count = name_count;
             annotation->parameter_cap = name_cap;
             annotation->constraints = constraints;
             annotation->constraint_count = constraint_count;
             annotation->constraint_cap = constraint_cap;
-            annotation->line = line_number;
-            annotation->used = 0;
             for (i = 0U; i < name_count; ++i) {
                 if (!list_contains(ti->parameter_names, ti->parameter_count,
                                    names[i])) {
@@ -2881,6 +2937,112 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                 }
             }
         }
+    } else if (str_eq(command, "where")) {
+        TemplateConstraint *constraints = NULL;
+        size_t constraint_count = 0U, constraint_cap = 0U;
+        int saw_expression = 0;
+        for (;;) {
+            const char *expression_start;
+            const char *expression_end;
+            size_t parens = 0U, brackets = 0U, braces = 0U;
+            char quote = '\0';
+            while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+            expression_start = p;
+            while (*p != '\0') {
+                if (quote != '\0') {
+                    if (*p == '\\' && p[1] != '\0') p += 2;
+                    else if (*p == quote) {
+                        quote = '\0';
+                        ++p;
+                    } else ++p;
+                    continue;
+                }
+                if (*p == '"' || *p == '\'') {
+                    quote = *p++;
+                } else if (p[0] == '/' && p[1] == '*') {
+                    p += 2;
+                    while (*p != '\0' && !(p[0] == '*' && p[1] == '/')) ++p;
+                    if (*p != '\0') p += 2;
+                } else if (p[0] == '/' && p[1] == '/') {
+                    while (*p != '\0') ++p;
+                } else if (*p == '(') {
+                    ++parens;
+                    ++p;
+                } else if (*p == ')') {
+                    if (parens == 0U) break;
+                    --parens;
+                    ++p;
+                } else if (*p == '[') {
+                    ++brackets;
+                    ++p;
+                } else if (*p == ']') {
+                    if (brackets == 0U) break;
+                    --brackets;
+                    ++p;
+                } else if (*p == '{') {
+                    ++braces;
+                    ++p;
+                } else if (*p == '}') {
+                    if (braces == 0U) break;
+                    --braces;
+                    ++p;
+                } else if (parens == 0U && brackets == 0U && braces == 0U &&
+                           (*p == '+' || *p == ',')) {
+                    break;
+                } else {
+                    ++p;
+                }
+            }
+            expression_end = p;
+            while (expression_start < expression_end &&
+                   isspace((unsigned char)*expression_start)) ++expression_start;
+            while (expression_end > expression_start &&
+                   isspace((unsigned char)expression_end[-1])) --expression_end;
+            if (expression_start == expression_end) {
+                report_error(ti->path, line_number,
+                             "@where requires a non-empty expression after each '+'");
+                template_constraint_array_free(constraints, constraint_count);
+                free(command);
+                return -1;
+            }
+            {
+                char *expression = copy_range(expression_start,
+                    (size_t)(expression_end - expression_start));
+                template_constraint_add_expression(&constraints,
+                    &constraint_count, &constraint_cap, "", expression,
+                    line_number);
+                free(expression);
+            }
+            saw_expression = 1;
+            while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+            if (*p == '+') {
+                ++p;
+                continue;
+            }
+            if (*p == ',') {
+                report_error(ti->path, line_number,
+                             "commas in @where expressions must be inside parentheses");
+                template_constraint_array_free(constraints, constraint_count);
+                free(command);
+                return -1;
+            }
+            break;
+        }
+        if (!saw_expression) {
+            report_error(ti->path, line_number, "@where requires an expression");
+            template_constraint_array_free(constraints, constraint_count);
+            free(command);
+            return -1;
+        }
+        {
+            TemplateAnnotation *annotation = append_template_annotation(ti,
+                                                                         line_number);
+            annotation->constraints = constraints;
+            annotation->constraint_count = constraint_count;
+            annotation->constraint_cap = constraint_cap;
+        }
+        free(command);
+        return 2;
     } else {
         report_error(ti->path, line_number, "unknown directive '@%s'", command);
         free(command);
@@ -3126,6 +3288,20 @@ static int parse_template(TemplateInfo *ti, const char *path)
                 buf_free(&source);
                 return 0;
             }
+            if (directive == 2 && !pending_annotation) {
+                TemplateAnnotation *orphan =
+                    &ti->annotations[ti->annotation_count - 1U];
+                report_error(ti->path, line_number,
+                             "@where must be inside a preceding @template block");
+                list_free(orphan->parameter_names, orphan->parameter_count);
+                template_constraint_array_free(orphan->constraints,
+                                               orphan->constraint_count);
+                memset(orphan, 0, sizeof(*orphan));
+                --ti->annotation_count;
+                free(line);
+                buf_free(&source);
+                return 0;
+            }
             if (directive > 0) {
                 size_t added_index = ti->annotation_count - 1U;
                 ti->annotations[added_index].offset = (unsigned)body_offset;
@@ -3226,11 +3402,27 @@ static int parse_text_type_arguments(const char *source, size_t open,
     size_t start = open + 1U;
     size_t i = start;
     size_t depth = 1U;
+    size_t brackets = 0U, braces = 0U;
     size_t count = 0U, cap = 0U;
     char **items = NULL;
+    char quote = '\0';
     for (; source[i] != '\0'; ++i) {
-        if (source[i] == '(') ++depth;
+        if (quote != '\0') {
+            if (source[i] == '\\' && source[i + 1U] != '\0') ++i;
+            else if (source[i] == quote) quote = '\0';
+            continue;
+        }
+        if (source[i] == '"' || source[i] == '\'') quote = source[i];
+        else if (source[i] == '/' && source[i + 1U] == '*') {
+            i += 2U;
+            while (source[i] != '\0' &&
+                   !(source[i] == '*' && source[i + 1U] == '/')) ++i;
+            if (source[i] != '\0') ++i;
+        } else if (source[i] == '/' && source[i + 1U] == '/') {
+            while (source[i] != '\0' && source[i] != '\n') ++i;
+        } else if (source[i] == '(') ++depth;
         else if (source[i] == ')') {
+            if (brackets != 0U || braces != 0U) continue;
             --depth;
             if (depth == 0U) {
                 size_t left = start, right = i;
@@ -3249,7 +3441,12 @@ static int parse_text_type_arguments(const char *source, size_t open,
                 *end_out = i + 1U;
                 return count != 0U;
             }
-        } else if (source[i] == ',' && depth == 1U) {
+        } else if (source[i] == '[') ++brackets;
+        else if (source[i] == ']' && brackets != 0U) --brackets;
+        else if (source[i] == '{') ++braces;
+        else if (source[i] == '}' && braces != 0U) --braces;
+        else if (source[i] == ',' && depth == 1U &&
+                 brackets == 0U && braces == 0U) {
             size_t left = start, right = i;
             while (left < right && isspace((unsigned char)source[left])) ++left;
             while (right > left && isspace((unsigned char)source[right - 1U])) --right;
@@ -3267,6 +3464,58 @@ static int parse_text_type_arguments(const char *source, size_t open,
     }
     list_free(items, count);
     return 0;
+}
+
+static char *expand_short_constraint_call(const char *expression,
+                                          const char *parameter,
+                                          const char *concrete_type)
+{
+    size_t start = 0U, open, end = 0U, length;
+    char **arguments = NULL;
+    size_t argument_count = 0U;
+    Buf expanded;
+    while (isspace((unsigned char)expression[start])) ++start;
+    if (!is_ident_start(expression[start])) return NULL;
+    open = start + 1U;
+    while (is_ident_char(expression[open])) ++open;
+    {
+        size_t paren = open;
+        while (isspace((unsigned char)expression[paren])) ++paren;
+        if (expression[paren] != '(') return NULL;
+        open = paren;
+    }
+    (void)parse_text_type_arguments(expression, open, &arguments,
+                                    &argument_count, &end);
+    length = strlen(expression);
+    if (end == 0U) {
+        list_free(arguments, argument_count);
+        return NULL;
+    }
+    {
+        size_t tail = end;
+        while (tail < length && isspace((unsigned char)expression[tail])) ++tail;
+        if (tail != length) {
+            list_free(arguments, argument_count);
+            return NULL;
+        }
+    }
+    if (argument_count != 0U) {
+        char *last_argument = normalize_spaces(arguments[argument_count - 1U]);
+        int already_full = valid_identifier(last_argument) &&
+                           str_eq(last_argument, parameter);
+        free(last_argument);
+        if (already_full) {
+            list_free(arguments, argument_count);
+            return NULL;
+        }
+    }
+    buf_init(&expanded);
+    buf_putn(&expanded, expression, end - 1U);
+    if (argument_count != 0U) buf_puts(&expanded, ", ");
+    buf_puts(&expanded, concrete_type);
+    buf_putc(&expanded, ')');
+    list_free(arguments, argument_count);
+    return expanded.p != NULL ? expanded.p : copy_string("");
 }
 
 static char *application_suffix(const TemplateInfo *ti,
@@ -3634,6 +3883,54 @@ static char *substitute_template_identifier(const char *source,
     return output.p != NULL ? output.p : copy_string("");
 }
 
+static char *substitute_instance_parameters(const char *source,
+                                            const TemplateInfo *ti,
+                                            const GenInstance *instance)
+{
+    Buf output;
+    size_t i = 0U;
+    buf_init(&output);
+    while (source[i] != '\0') {
+        if (source[i] == '/' && source[i + 1U] == '/') {
+            size_t start = i;
+            while (source[i] != '\0' && source[i] != '\n') ++i;
+            buf_putn(&output, source + start, i - start);
+        } else if (source[i] == '/' && source[i + 1U] == '*') {
+            size_t start = i;
+            i += 2U;
+            while (source[i] != '\0' &&
+                   !(source[i] == '*' && source[i + 1U] == '/')) ++i;
+            if (source[i] != '\0') i += 2U;
+            buf_putn(&output, source + start, i - start);
+        } else if (source[i] == '"' || source[i] == '\'') {
+            char quote = source[i];
+            size_t start = i++;
+            while (source[i] != '\0' && source[i] != quote) {
+                if (source[i] == '\\' && source[i + 1U] != '\0') i += 2U;
+                else ++i;
+            }
+            if (source[i] != '\0') ++i;
+            buf_putn(&output, source + start, i - start);
+        } else if (is_ident_start(source[i])) {
+            size_t start = i++;
+            char *identifier;
+            int parameter;
+            int argument;
+            while (is_ident_char(source[i])) ++i;
+            identifier = copy_range(source + start, i - start);
+            parameter = template_parameter_index(ti, identifier);
+            argument = parameter >= 0 ? instance_parameter_position(
+                instance, (size_t)parameter) : -1;
+            if (argument >= 0) buf_puts(&output, instance->arguments[argument].c_type);
+            else buf_puts(&output, identifier);
+            free(identifier);
+        } else {
+            buf_putc(&output, source[i++]);
+        }
+    }
+    return output.p != NULL ? output.p : copy_string("");
+}
+
 static void emit_escaped_c_string(Buf *out, const char *text)
 {
     size_t i;
@@ -3686,12 +3983,14 @@ static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
     for (constraint_index = 0U; constraint_index < constraint_count;
          ++constraint_index) {
         const TemplateConstraint *constraint = &constraints[constraint_index];
-        int parameter = template_parameter_index(ti, constraint->parameter_name);
+        int where_constraint = constraint->parameter_name[0] == '\0';
+        int parameter = where_constraint ? -1 :
+            template_parameter_index(ti, constraint->parameter_name);
         int argument = parameter >= 0 ? instance_parameter_position(
             instance, (size_t)parameter) : -1;
         size_t required_index;
-        if (argument < 0) continue;
-        emitted = 1;
+        if (!where_constraint && argument < 0) continue;
+        if (constraint->required_type_count != 0U) emitted = 1;
         for (required_index = 0U; required_index < constraint->required_type_count;
              ++required_index) {
             int ambiguous;
@@ -3744,28 +4043,47 @@ static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
     for (constraint_index = 0U; constraint_index < constraint_count;
          ++constraint_index) {
         const TemplateConstraint *constraint = &constraints[constraint_index];
-        int parameter = template_parameter_index(ti, constraint->parameter_name);
+        int where_constraint = constraint->parameter_name[0] == '\0';
+        int parameter = where_constraint ? -1 :
+            template_parameter_index(ti, constraint->parameter_name);
         int argument = parameter >= 0 ? instance_parameter_position(
             instance, (size_t)parameter) : -1;
         size_t expression_index;
-        if (argument < 0) continue;
+        if (!where_constraint && argument < 0) continue;
         for (expression_index = 0U;
              expression_index < constraint->expression_count;
              ++expression_index) {
-            char *expression = substitute_template_identifier(
-                constraint->expressions[expression_index],
-                constraint->parameter_name,
-                instance->arguments[argument].c_type);
+            char *expanded = NULL;
+            char *expression;
+            if (where_constraint) {
+                expression = substitute_instance_parameters(
+                    constraint->expressions[expression_index], ti, instance);
+            } else {
+                expanded = expand_short_constraint_call(
+                    constraint->expressions[expression_index],
+                    constraint->parameter_name,
+                    instance->arguments[argument].c_type);
+                expression = substitute_template_identifier(
+                    expanded != NULL ? expanded :
+                        constraint->expressions[expression_index],
+                    constraint->parameter_name,
+                    instance->arguments[argument].c_type);
+            }
             Buf message;
             emitted = 1;
             buf_init(&message);
-            buf_puts(&message, "tmplgen: ");
-            buf_puts(&message, constraint->parameter_name);
-            buf_puts(&message, " failed to satisfy ");
+            if (where_constraint) {
+                buf_puts(&message, "tmplgen: @where failed to satisfy ");
+            } else {
+                buf_puts(&message, "tmplgen: ");
+                buf_puts(&message, constraint->parameter_name);
+                buf_puts(&message, " failed to satisfy ");
+            }
             buf_puts(&message, constraint->expressions[expression_index]);
             emit_template_static_assert(out, expression, message.p, ti,
                                         declaration_line);
             buf_free(&message);
+            free(expanded);
             free(expression);
         }
     }
