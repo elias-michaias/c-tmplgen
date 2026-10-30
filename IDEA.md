@@ -1,6 +1,6 @@
 # Spec: `tmplgen.c`, a single-file C99 generic-template generator
 
-Write **one C source file, `tmplgen.c`**, that compiles with any C99 compiler linked against the libclang C API. The executable reads `.tmpl.h` template files from a `tmpl/` directory and writes one include-guarded header, `tmpl.h`, at the project root. That header contains concrete instantiations of the templates plus type-dispatching macros so users can call plain names like `max(a, b)`.
+Write **one C source file, `tmplgen.c`**, that compiles with any C99 compiler linked against the libclang C API. The executable reads `.tmpl.h` template files from a `tmpl/` directory and writes a mirrored set of headers under `gen/` plus the aggregate `gen/all.gen.h`. Each template gets its own generated file containing its concrete declarations and dispatch macros; the aggregate includes all of them.
 
 The generator is the entire build system. There is no Python, no Lua, and no external config file; its only dependency is a C compiler plus `libclang` (used to parse the project and infer types accurately).
 
@@ -26,15 +26,20 @@ The generator is the entire build system. There is no Python, no Lua, and no ext
 ```
 project/
   tmplgen.c          <- the whole tool (this spec)
-  tmpl.h             <- GENERATED, never hand-edited, committed or not at the user's choice
+  gen/                 <- GENERATED mirror of tmpl/, never hand-edited
+    all.gen.h          <- aggregate include for all generated template headers
+    math.gen.h
+    vec.gen.h
+    result.gen.h
+    triple.gen.h
   .clangd            <- editor language modes for the dispatch test cases
   tmpl/
     math.tmpl.h      <- templates, plain C with declared type variables
     vec.tmpl.h
     result.tmpl.h
     triple.tmpl.h
-  test/cases/ ...    <- API and dispatch tests include `../../tmpl.h`
-  src/ ...           <- user code does `#include "tmpl.h"`
+  test/cases/ ...    <- API and dispatch tests include `../../gen/all.gen.h`
+  src/ ...           <- user code does `#include "gen/all.gen.h"`
 ```
 
 Typical use: `cc tmplgen.c -lclang -o tmplgen && ./tmplgen`
@@ -57,12 +62,12 @@ Reproduce this block near-verbatim, with the comments, and adjust only for synta
 #define GEN_TMPL_DIR    "tmpl"       /* directory holding the templates               */
 #define GEN_TMPL_SUFFIX ".tmpl.h"    /* appended to each template stem                */
 #define GEN_SCAN_ROOT  "."           /* recursively scan this tree for C source usages */
-#define GEN_OUTPUT      "tmpl.h"     /* the generated header, relative to cwd         */
-#define GEN_GUARD       "TMPL_H"     /* include-guard macro name in the output        */
+#define GEN_OUTPUT      "gen/all.gen.h" /* aggregate header, relative to cwd           */
+#define GEN_GUARD       "TMPL_H"     /* include guard for the aggregate header        */
 #define GEN_LSP_GUARD   "TMPLGEN"    /* #ifndef block stripped from template bodies  */
 #define GEN_DISPATCH    GEN_DISPATCH_AUTO
 #define GEN_EMIT_LINE   0            /* 1 maps locations to templates; 0 keeps
-                                        concrete definitions in tmpl.h                */
+                                        concrete definitions in generated headers      */
 #define GEN_ENABLE_WATCH     1       /* 1: compile --watch support; 0: disable --watch */
 #define GEN_WATCH_INTERVAL_MS 500    /* poll period for --watch                       */
 
@@ -88,7 +93,7 @@ Static array sizes are derived with `sizeof(a)/sizeof((a)[0])`. All other limits
 
 ## 4. Template format
 
-A template is ordinary C plus exactly one type-variable declaration. The generator analyzes declarations in the file with libclang; no per-type, per-function, or per-dispatch annotations are used.
+A template is ordinary C plus a declaration-scoped `@template` directive immediately above each dependent top-level typedef, struct/union definition, and function. The directive lists only the type variables that declaration is allowed to use. Ordinary non-generic declarations need no directive; an empty `// @template` is accepted when an explicit marker is useful.
 
 ```c
 // @template T
@@ -110,6 +115,7 @@ typedef int T;
 #endif
 // @template T
 static inline T max(T a, T b) { return a > b ? a : b; }
+// @template T
 static inline T clamp(T x, T lo, T hi) { return max(lo, x) > hi ? hi : max(lo, x); }
 ```
 
@@ -124,7 +130,8 @@ typedef int T;
 // @template T
 typedef struct { T *data; size_t len, cap; } Vec;
 
-static inline void push(Vec *v, T x) {
+// @template T
+static inline void push(Vec(T) *v, T x) {
     if (v->len == v->cap) {
         v->cap = v->cap ? v->cap * 2 : 8;
         v->data = (T *)realloc(v->data, v->cap * sizeof(T));
@@ -135,6 +142,8 @@ static inline void push(Vec *v, T x) {
 
 Users then write `Vec(MyType) v = {0}; push(&v, value);`. `Vec(MyType)` requests the specialization and expands to the concrete `Vec_MyType` type.
 
+Type applications can appear in template signatures. `Option(T)` means the concrete `Option` specialization whose payload is the function's `T`; the application is rewritten for each generated instance. Untypedef'd `struct` and `union` tags are also constructors, so `TaggedBox(T)` can denote a concrete `struct TaggedBox_TestInt`.
+
 For a multi-parameter type and its functions:
 
 ```c
@@ -144,14 +153,18 @@ typedef int E;
 #endif
 // @template T, E
 typedef struct { T value; E error; } Result;
-static inline T result_value(Result *r) { return r->value; }
-static inline Result result_make(T value, E error) {
+// @template T
+typedef struct { T value; } Option;
+// @template T, E
+static inline T result_value(Result(T, E) *r) { return r->value; }
+// @template T, E
+static inline Result(T, E) result_make(T value, E error) {
     Result r = { value, error };
     return r;
 }
 ```
 
-`Result(Value, Error)` requests the type tuple. Calls to `result_value(&r)` infer both variables from the input `Result(T, E) *`; calls to `result_make(value, error)` infer them from the two input argument types. The resulting `T` return type is substituted from those inputs.
+`Result(Value, Error)` requests the type tuple. Calls to `result_value(&r)` infer both variables from the input `Result(T, E) *`; calls to `result_make(value, error)` infer them from its two input types. The resulting `T` return type is substituted from those inputs.
 
 ---
 
@@ -159,28 +172,31 @@ static inline Result result_make(T value, E error) {
 
 libclang parses each template and records its dependent typedefs, function signatures, and source ranges. The generator emits each dependent declaration for the concrete subset of template parameters it uses. This lets one `@template T, E` file contain a type depending on both parameters, a function depending only on `T`, and another function depending on both.
 
-For each call to a dependent function, libclang supplies the argument-expression types. The generator structurally matches those input types against the function's parameter types to infer the template variables. For example:
+For each call to a dependent function, libclang supplies the argument-expression types. The generator structurally matches those input types against the function's parameter patterns to infer the template variables. Type applications preserve relationships rather than treating each constructor as an unrelated opaque type. For example:
 
 - `T *` matched with `TestInt *` gives `T = TestInt` and dispatches on `TestInt *`.
 - `T, E` matched with `TestInt, ErrorCode` gives the pair `(TestInt, ErrorCode)` and dispatches on both arguments.
-- `Result *` matched with `Result_TestInt_ErrorCode *` recovers both arguments from the known `Result(TestInt, ErrorCode)` constructor instance.
+- `Result(T, E) *` matched with `Result_TestInt_ErrorCode *` recovers both arguments from the constructor application.
+- Two `Option(T) *` inputs bind the same `T`, so both must use the same concrete `Option` specialization.
+- `Box(T) *` and `Box(U) *` inputs bind independent variables; a `Box(U)` return uses the type inferred for `U`.
 
 Return types are rewritten after resolving variables from input types; they are not used as dispatch inputs. If a function uses a variable that cannot be recovered from any input type, no automatic call dispatch can be formed for that use.
+
+After source calls seed specializations, the generator follows generic calls inside each instantiated function until the set of function and type instances stops growing. Instances are deduplicated by their concrete type tuple, so self-recursive and mutually recursive calls converge; concrete forward declarations are emitted before definitions so recursive bodies have prototypes.
 
 The source-range rewriter substitutes declared type variables and suffixes dependent declarations. It skips comments and literals, and preserves offsets so emitted `#line` directives map declarations back to their template locations.
 
 ---
 
-## 6. Output format of `tmpl.h`
+## 6. Generated output
 
-Order of emission:
+For each template, write `gen/<stem>.gen.h` with:
 
-1. `#ifndef GEN_GUARD` / `#define GEN_GUARD`
-2. A comment: `/* AUTO-GENERATED by tmplgen.c. DO NOT EDIT. */` (no timestamps)
-3. `GEN_PREAMBLE`, then the deduplicated normal `#include` lines found in templates
-4. Emit only dependent typedefs and functions requested by observed type-constructor uses and function calls. Each emitted declaration is rewritten for its own dependency subset.
-5. Emit a type-constructor macro for each used dependent typedef. For example, `Result(T, E)` maps to a concrete suffix such as `Result_TestInt_ErrorCode`.
-6. Emit argument helper macros through the greatest function argument index used by inferred dispatch, only when dispatch associations are emitted:
+1. A template-specific include guard and `/* AUTO-GENERATED by tmplgen.c. DO NOT EDIT. */` comment.
+2. `GEN_PREAMBLE` and that template's ordinary `#include` directives.
+3. Only the dependent typedefs and functions requested by observed type-constructor uses and function calls, each rewritten for its own dependency subset.
+4. Type-constructor macros for dependent typedefs and tagged types. For example, `Result(T, E)` maps to `Result_TestInt_ErrorCode`.
+5. Argument helper macros through the greatest function argument index used by that template's inferred dispatch:
    ```c
    #define GEN_ARG0(...) GEN_ARG0_(__VA_ARGS__, 0)
    #define GEN_ARG0_(a, ...) a
@@ -188,7 +204,7 @@ Order of emission:
    #define GEN_ARG1_(a, b, ...) b
    ```
    The trailing dummy values keep these `-pedantic`-clean in C99 when the call has few arguments.
-7. One dispatch macro per called dependent function, **after** all declarations so template bodies are not re-expanded. Associations contain only input-type combinations observed at calls:
+6. One dispatch macro per called dependent function, **after** declarations so template bodies are not re-expanded. Associations contain only input-type combinations observed at calls:
    - `GEN_DISPATCH_GENERIC`:
      ```c
      #define max(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
@@ -203,11 +219,14 @@ Order of emission:
          __builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), double), max_double, \
           max__no_match_for_argument_type))(__VA_ARGS__)
       ```
-    - `GEN_DISPATCH_AUTO`: emit `_Generic` under C11 or newer and GNU builtins under GNU-compatible C99. This lets one `tmpl.h` serve both dispatch test modes; `.clangd` assigns the corresponding standard to each test file.
-   - `GEN_DISPATCH_NONE`: emit nothing here.
-    - The `..._no_match_for_argument_type` identifier is intentionally **never defined**, so a bad call fails with a diagnostic that names it. It is declared as `extern void <fn>__no_match_for_argument_type(struct tmplgen_no_association_for_<fn>_argument, ...);` with a unique mismatched struct parameter: an unmatched first argument produces a hard Sema error naming the argument type and the missing association, instead of a confusing arity error. The generated header also comments that this can mean either a wrong argument type or a stale `tmpl.h` that needs regeneration. The default arm must not be the only thing keeping an unsupported call alive.
-     - For one type variable, dispatch uses one `_Generic` selection. For multiple independent input variables, selections nest over the corresponding argument positions.
-8. `#endif /* GEN_GUARD */`
+     - `GEN_DISPATCH_AUTO`: emit `_Generic` under C11 or newer and GNU builtins under GNU-compatible C99. This lets the generated modules serve both dispatch test modes; `.clangd` assigns the corresponding standard to each test file.
+    - `GEN_DISPATCH_NONE`: emit nothing here.
+      - The `..._no_match_for_argument_type` identifier is intentionally **never defined**, so a bad call fails with a diagnostic that names it. It is declared as `extern void <fn>__no_match_for_argument_type(struct tmplgen_no_association_for_<fn>_argument, ...);` with a unique mismatched struct parameter. The generated module comments that this can mean either a wrong argument type or stale generated headers that need regeneration.
+      - For one type variable, dispatch uses one `_Generic` selection. For multiple independent input variables, selections nest over the corresponding argument positions.
+
+Before each dispatch macro, emit navigation prototypes for its concrete targets, then a `///` comment containing the original template function signature. The macro associations refer to those concrete function names; go-to-definition on a target name can navigate to its generated definition in that template's module.
+
+`gen/all.gen.h` has its own include guard, includes every generated module in `GEN_TEMPLATES` order, then emits all constructor and dispatch macros after every declaration. While included through the aggregate, modules suppress their local macro section to prevent an earlier module's macro from rewriting a later module body. A module included directly emits its own constructor and dispatch macros. Sources should normally include the aggregate; editors can open a specific module to navigate within that template's generated output.
 
 ### Dedup rule for `_Generic`
 
@@ -218,8 +237,8 @@ Order of emission:
 ## 7. Command line
 
 ```
-tmplgen            generate tmpl.h (default)
-tmplgen --check    generate in memory, compare with the existing file; exit 1 if different (for CI)
+tmplgen            generate gen/<stem>.gen.h files and gen/all.gen.h (default)
+tmplgen --check    generate in memory, compare every generated file; exit 1 if any differ (for CI)
 tmplgen --watch    poll inputs every GEN_WATCH_INTERVAL_MS and regenerate on change
 tmplgen --verbose  print what was read/written to stderr (combinable with the others)
 tmplgen --help     usage
@@ -227,9 +246,11 @@ tmplgen --help     usage
 
 Exit codes: `0` success (including "unchanged"), `1` error or `--check` mismatch, `2` bad usage.
 
-On a normal run print one line: `tmpl.h: written` or `tmpl.h: unchanged`.
+On a normal run print one `path: written` or `path: unchanged` line for every generated module and the aggregate header.
 
 **Watch mode** fingerprints discovered source and template file contents on each poll, and runs full generation only when that fingerprint changes. This avoids repeated libclang parsing while inputs are idle; the pre-scan still reads the inputs at the configured interval. Errors print and the watcher continues. Since it reads from disk, it cannot see unsaved editor-buffer changes.
+
+Pass the project language mode to libclang when needed, for example `--clang-arg=-std=c23` for C23 `auto`, or `--clang-arg=-std=gnu11` for GNU extensions such as `__auto_type`.
 
 ---
 
@@ -243,10 +264,10 @@ Banner-commented sections, top to bottom:
 4. **Dynamic string buffer**: `typedef struct { char *p; size_t len, cap; } Buf;` with `buf_init`, `buf_putc`, `buf_puts`, `buf_putn`, `buf_printf_line_directive`, `buf_free`. All allocation failures call `die("out of memory")`.
 5. **Helpers**: `die(const char *fmt, ...)`, dynamic strings/lists, C tokenization, source-tree traversal, and file comparison.
 6. **Template analysis (libclang)**: parse each `@template` file, identify dependent typedefs and functions, and record the template variables used by each declaration and each function input.
-7. **Source scan (libclang)**: pass 1 captures type-constructor argument tuples and typedef aliases. Pass 2 supplies tuple-specific placeholder types, captures calls to dependent functions, and matches argument expression cursors to input parameters to infer each function's parameter tuple.
+7. **Source scan (libclang)**: pass 1 captures type-constructor uses, typedef aliases, and function-input tuples that can be inferred directly. Pass 2 supplies tuple-specific placeholder types and typed function prototypes/macros, so inferred declarations such as C23 `auto value = result_make(...)` carry the correct composite return type when later calls are analyzed.
 8. **Rewrite function**: substitute template variables and suffix each dependent declaration using only the variables it depends on.
 9. **Emitters**: preamble/includes, dependent declaration fragments, type-constructor macros, argument helpers, and inferred dispatch macros (including nested multi-input dispatch).
-10. **`generate(Buf *out)`**: orchestrates scanning and emission.
+10. **`generate(GeneratedFileList *out)`**: orchestrates scanning and emits each module plus the aggregate.
 11. **Platform section**: directory enumeration and optional watch sleeping.
 12. **`main`**: parse args, call `generate`, then write or compare.
 
@@ -259,7 +280,7 @@ Each function should have a one-line comment saying what it does. Keep functions
 Fail early with messages of the form `tmplgen: tmpl/math.tmpl.h: <problem>` and exit code 1, for:
 
 - Template file missing or unreadable.
-- Missing or repeated `@template` declarations, duplicate parameters, and malformed constructor calls (wrong arity or unsupported type-argument tokens).
+- Missing declaration-scoped `@template` directives, unused directives, duplicate parameters, unlisted variables, and malformed constructor applications (wrong arity or unsupported type-argument tokens).
 - A generic call whose input types do not determine all type variables used by that function (warn and omit that dispatch association).
 - A dependent function or type constructor name declared by more than one template.
 - Colliding generated suffixes for distinct type-argument tuples.
@@ -270,7 +291,7 @@ An empty `GEN_TEMPLATES` is valid and produces a header with only the guard and 
 
 ## 10. Examples the implementation must reproduce
 
-With `typedef int TestInt;` and `typedef enum { ErrorNone } ErrorCode;` visible before `tmpl.h`, source such as:
+With `typedef int TestInt;` and `typedef enum { ErrorNone } ErrorCode;` visible before `gen/all.gen.h`, source such as:
 
 ```c
 Result(TestInt, ErrorCode) result = result_make(value, error);
@@ -279,7 +300,14 @@ TestInt value = result_value(&result);
 
 must generate the pair specialization `Result_TestInt_ErrorCode`, the functions `result_make_TestInt_ErrorCode` and `result_value_TestInt_ErrorCode`, a two-input dispatch for `result_make`, and a dispatch on `Result_TestInt_ErrorCode *` for `result_value`. The returned `TestInt` type comes from matching the input `Result(TestInt, ErrorCode) *`.
 
-`Triple(A, B, C)` and a function taking `A`, `B`, and `C` must likewise produce a three-input dispatch. A function in the same `@template T, E` file that only depends on `T` must produce a `..._T` instance rather than requiring an unrelated `E` type.
+`Triple(A, B, C)` and a function taking `A`, `B`, and `C` must likewise produce a three-input dispatch. A function in the same `@template T, E` file that only depends on `T` must produce a `..._T` instance rather than requiring an unrelated `E` type. Calls whose tuples appear only in inputs still work through inferred declarations:
+
+```c
+auto result = result_make(long_value, error_code); /* C23 */
+__auto_type other = result_make(tag, inferred_error); /* compiler extension in C11 mode */
+```
+
+The bootstrap used for the second libclang pass provides the concrete return type, allowing later uses such as `result_value(&result)` or `result_error(&other)` to recover the tuple.
 
 The user owns typedefs such as `TestInt`, `ErrorCode`, and `Tag`; the generator does not invent aliases or emit typedef rows for them.
 
@@ -302,10 +330,10 @@ With `GEN_ENABLE_WATCH 0`, the watch sleep code and its platform headers are exc
 - No hand-rolled C type checker. libclang supplies declaration and expression types; the generator matches input types against template parameter patterns.
 - No raw return-type inference. Return types are substituted from template variables inferred from input types; a variable absent from all inputs cannot be selected by return type alone.
 - No inference through a macro that discards its dependent input before libclang can see the call argument. The association is skipped with a warning.
-- Type-constructor arguments are single-token typedef names or built-in type keywords (for example `int`). Use a typedef for qualified, pointer, or multi-token C type declarators.
+- At source use sites, type-constructor arguments are single-token typedef names or built-in type keywords (for example `int`). In template signatures, applications such as `Box(U)` use declared template-variable names or concrete single-token type names. Use a typedef for qualified, pointer, or multi-token type arguments.
 - A direct suffixed call to an n-ary function requires its type tuple to have been discovered from a constructor use or another inferable call; the suffix is not reverse-parsed into ambiguous underscore-separated type names.
 - No source-buffer integration with clangd; scanning observes files on disk.
-- Go-to-definition on a generic function-like macro may land on its dispatch association; use the suffixed function name when direct implementation navigation matters.
+- Go-to-definition on an unsuffixed generic call still lands on its macro. Each dispatch block has a `///` template-signature comment and adjacent prototypes for concrete suffixed targets; go-to-definition on one of those targets leads to its module implementation.
 - No CMake/Makefile generation.
 
 ---
@@ -313,29 +341,32 @@ With `GEN_ENABLE_WATCH 0`, the watch sleep code and its platform headers are exc
 ## 13. Acceptance checklist
 
 - [ ] Builds warning-free with `-std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow ... -lclang` on gcc and clang (MSVC is out of scope because libclang's C API is linked dynamically).
-- [ ] Running twice in a row prints `unchanged` the second time and does not touch the file.
+- [ ] Running twice in a row reports every generated module and the aggregate as `unchanged` the second time and does not touch them.
 - [ ] `--watch` regenerates after source/template content changes and skips full generation while inputs are unchanged.
 - [ ] `--check` exits 1 after editing a template and 0 after regenerating.
-- [ ] One-, two-, and three-parameter type constructors and free functions instantiate from observed uses.
+- [ ] Each dependent top-level type/function has its own `@template` directive; non-generic declarations need none.
+- [ ] One-, two-, and three-parameter constructors and free functions instantiate from observed uses, including direct struct/union tags.
+- [ ] `Option(T), Option(T)` enforces a shared type variable, while `Box(T), Box(U) -> Box(U)` supports distinct input types and a dependent return.
 - [ ] A `T`-only function in a `@template T, E` file specializes on `T` without requiring `E`.
 - [ ] A `Result(T, E) *` input infers both types and produces a function with a substituted `T` return type.
 - [ ] Direct `T *`, two-argument `T, E`, and three-argument `A, B, C` signatures generate matching dispatch keys.
+- [ ] C23 `auto` and GNU `__auto_type` preserve a generic call's composite return type, allowing a later call to infer its tuple even when no `Result(T, E)` use appears in source.
 - [ ] Template parameters inside comments, strings, character literals, and longer identifiers are untouched.
-- [ ] `tmpl.h` compiles under C11 and GNU99 with `GEN_DISPATCH_AUTO`; clangd gets matching standards from `.clangd` for the dispatch test files.
+- [ ] `gen/all.gen.h` and each per-template header compile under C11 and GNU99 with `GEN_DISPATCH_AUTO`; clangd gets matching standards from `.clangd` for the dispatch test files.
 - [ ] There is no manual type table or per-function dispatch annotation; types come from constructor uses and inferred function inputs.
 - [ ] `max(1, 2)` and `max(1.0, 2.0)` resolve to the right instance, and a call whose argument type has no discovered association fails with an error naming `max__no_match_for_argument_type`.
 - [ ] `Vec(TestInt) v = {0}; push(&v, value);` compiles, and `Vec(TestInt)` requests the `Vec_TestInt` specialization.
 - [ ] `Result(TestInt, ErrorCode)` and `Triple(TestInt, ErrorCode, Tag)` compile; `result_make` and `triple_make` dispatch on two and three input types.
 - [ ] clangd go-to-definition on `max_int` lands in `tmpl/math.tmpl.h` when `GEN_EMIT_LINE` is 1.
-- [ ] Source scanning excludes `tmpl/`, dot-directories, build output, and the generated `tmpl.h` itself.
-- [ ] A new `Vec(T)` / `push` or multi-argument constructor use is discovered from a stale `tmpl.h`, because discovery parses sources against an in-memory bootstrap header instead of the checked-in output.
+- [ ] Source scanning excludes `tmpl/`, `gen/`, dot-directories, and build output.
+- [ ] A new `Vec(T)` / `push` or multi-argument constructor use is discovered even when generated headers are stale, because discovery parses sources against an in-memory bootstrap header instead of checked-in output.
 
 ---
 
 ## 14. Instructions to the code generator (LLM)
 
 - Output the complete `tmplgen.c` in one code block, with no placeholders, "..." elisions, or TODOs.
-- Use only the unified `// @template T[, E, ...]` directive; do not add legacy per-function/type/dispatch directives.
+- Put `// @template T[, E, ...]` immediately above each dependent top-level declaration; non-generic declarations need no directive.
 - Infer function and type specialization from libclang declarations and observed inputs.
 - Prefer clear, boring code. No clever pointer tricks, and one concept per function.
 - After the code, give three short lines: the build command, a minimal run example, and how to switch the dispatch backend.

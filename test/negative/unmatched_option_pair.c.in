@@ -1,0 +1,9 @@
+#include "../cases/test_types.h"
+#include "../../gen/all.gen.h"
+
+int main(void)
+{
+    Option(TestInt) left = { 1 };
+    Option(double) right = { 2.0 };
+    return option_pair(&left, &right);
+}

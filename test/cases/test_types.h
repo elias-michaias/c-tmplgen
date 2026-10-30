@@ -10,4 +10,11 @@ typedef enum {
 
 typedef unsigned char Tag;
 
+typedef long InferredLong;
+typedef double InferredDouble;
+typedef enum {
+    InferredErrorNone,
+    InferredErrorFailed
+} InferredError;
+
 #endif /* TEST_TYPES_H */

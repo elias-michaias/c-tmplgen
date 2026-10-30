@@ -1,5 +1,5 @@
 #include "test_types.h"
-#include "../../tmpl.h"
+#include "../../gen/all.gen.h"
 
 /* Generic calls are convenience macros; use suffix_api.c for direct
  * implementation navigation. */

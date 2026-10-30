@@ -11,14 +11,40 @@ cd "$ROOT"
 
 "$CC" -std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     tmplgen.c -lclang -o "$BUILD/tmplgen"
-"$BUILD/tmplgen" --clang-arg=-std=c11
-"$BUILD/tmplgen" --check --clang-arg=-std=c11
-if grep -q 'typedef int int' tmpl.h; then
-    printf '%s\n' 'template LSP fallback leaked into generated code' >&2
+"$BUILD/tmplgen" --clang-arg=-std=c23
+"$BUILD/tmplgen" --check --clang-arg=-std=c23
+if grep -R -q 'typedef int int' gen; then
+    printf '%s\n' 'template LSP fallback leaked into generated output' >&2
     exit 1
 fi
-if grep -Eq 'max_long|Vec_double' tmpl.h; then
+if grep -Eq 'max_long' gen/math.gen.h || grep -q 'Vec_double' gen/vec.gen.h; then
     printf '%s\n' 'unrequested template specializations were generated' >&2
+    exit 1
+fi
+for inferred_tuple in Result_InferredLong_InferredError \
+                      Result_InferredDouble_ErrorCode \
+                      Result_Tag_InferredError; do
+    if ! grep -q "$inferred_tuple" gen/result.gen.h; then
+        printf 'auto input inference did not generate %s\n' "$inferred_tuple" >&2
+        exit 1
+    fi
+done
+if ! grep -q 'Triple_Tag_InferredError_InferredLong' gen/triple.gen.h; then
+    printf '%s\n' 'auto input inference did not generate the inferred triple' >&2
+    exit 1
+fi
+if ! grep -q '^/// static inline Result(T, E) result_make(T value, E error)$' gen/result.gen.h ||
+   ! grep -q '^static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(TestInt value, ErrorCode error);$' \
+       gen/result.gen.h ||
+    ! grep -q '^/// static inline Result(T, E) result_make(T value, E error)$' gen/all.gen.h ||
+    ! grep -q '^static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(TestInt value, ErrorCode error);$' \
+        gen/all.gen.h; then
+    printf '%s\n' 'dispatch docs or navigation prototype was not generated' >&2
+    exit 1
+fi
+if ! grep -q '^/// static inline T option_value(Option(T) \* option)$' gen/result.gen.h ||
+   ! grep -q '^/// static inline A triple_first(Triple(A, B, C) \* value)$' gen/triple.gen.h; then
+    printf '%s\n' 'constructor applications were lost from generated signatures' >&2
     exit 1
 fi
 
@@ -45,6 +71,32 @@ fi
     test/cases/builtin_types.c -o "$BUILD/builtin-types"
 "$BUILD/builtin-types"
 
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/module_include.c -o "$BUILD/module-include"
+"$BUILD/module-include"
+
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/tagged_struct.c -o "$BUILD/tagged-struct"
+"$BUILD/tagged-struct"
+
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/function_recursion.c -o "$BUILD/function-recursion"
+"$BUILD/function-recursion"
+if ! grep -q 'chain_leaf_TestInt' gen/math.gen.h ||
+   ! grep -q 'chain_middle_TestInt' gen/math.gen.h ||
+   ! grep -q 'recursive_value_TestInt' gen/math.gen.h ||
+   ! grep -q 'mutual_other_TestInt' gen/math.gen.h; then
+    printf '%s\n' 'nested or recursive generic function specialization was not emitted' >&2
+    exit 1
+fi
+
+"$CC" -std=c23 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/auto_c23.c -o "$BUILD/auto-c23"
+"$BUILD/auto-c23"
+"$CC" -std=c11 -Wall -Wextra -Wconversion -Wshadow \
+    test/cases/auto_type_c11.c -o "$BUILD/auto-type-c11"
+"$BUILD/auto-type-c11"
+
 "$CC" -std=gnu99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/result_dispatch.c -o "$BUILD/result-dispatch-gnu"
 "$BUILD/result-dispatch-gnu"
@@ -58,11 +110,12 @@ fi
 
 NEWTYPE="$BUILD/newtype"
 mkdir -p "$NEWTYPE"
-cp tmpl.h "$NEWTYPE/tmpl.h"
+cp -R gen "$NEWTYPE/gen"
 printf 'typedef double Fresh;\n' > "$NEWTYPE/fresh.h"
 cat > "$NEWTYPE/main.c" <<'EOF'
 #include "fresh.h"
-#include "tmpl.h"
+#include "gen/vec.gen.h"
+#include "gen/math.gen.h"
 
 int main(void)
 {
@@ -72,9 +125,9 @@ int main(void)
     return values.data[0] != 2.0;
 }
 EOF
-"$BUILD/tmplgen" --source-root "$NEWTYPE" --output "$NEWTYPE/tmpl.h" \
+"$BUILD/tmplgen" --source-root "$NEWTYPE" --output "$NEWTYPE/gen/all.gen.h" \
     --clang-arg=-std=c11
-if ! grep -q 'Vec_Fresh' "$NEWTYPE/tmpl.h"; then
+if ! grep -q 'Vec_Fresh' "$NEWTYPE/gen/vec.gen.h"; then
     printf '%s\n' 'generator did not discover a new type from a stale header' >&2
     exit 1
 fi
@@ -102,6 +155,17 @@ fi
 if ! grep -q 'struct tmplgen_no_association_for_result_make_argument' \
     "$BUILD/unmatched-pair.log"; then
     printf '%s\n' 'unmatched pair dispatch diagnostic was not clear' >&2
+    exit 1
+fi
+
+if "$CC" -x c -std=c11 -Wall -Wextra -Werror=incompatible-pointer-types \
+    test/negative/unmatched_option_pair.c.in -o "$BUILD/unmatched-option-pair" \
+    >"$BUILD/unmatched-option-pair.log" 2>&1; then
+    printf '%s\n' 'same-type constructor constraint unexpectedly accepted a mismatched pair' >&2
+    exit 1
+fi
+if ! grep -q 'Option_TestInt' "$BUILD/unmatched-option-pair.log"; then
+    printf '%s\n' 'same-type constructor mismatch did not show the specialized types' >&2
     exit 1
 fi
 

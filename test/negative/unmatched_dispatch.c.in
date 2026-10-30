@@ -1,6 +1,6 @@
 // clang-format off
 #include "../cases/test_types.h"
-#include "../../tmpl.h"
+#include "../../gen/all.gen.h"
 
 void foo(Vec(TestInt) *v, TestInt t)
 {

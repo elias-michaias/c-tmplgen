@@ -7,7 +7,24 @@ CompileFlags:
   Add: [-x, c]
 ---
 If:
-  PathMatch: test/cases/(generic_dispatch|string_dispatch|result_dispatch|triple_dispatch|builtin_types)[.]c
+  PathMatch: gen/.*[.]gen[.]h
+CompileFlags:
+  Add: [-x, c]
+---
+If:
+  PathMatch: test/cases/(generic_dispatch|string_dispatch|result_dispatch|triple_dispatch|builtin_types|module_include|tagged_struct|function_recursion)[.]c
+CompileFlags:
+  Remove: [-std=*]
+  Add: [-std=c11]
+---
+If:
+  PathMatch: test/cases/auto_c23[.]c
+CompileFlags:
+  Remove: [-std=*]
+  Add: [-std=c23]
+---
+If:
+  PathMatch: test/cases/auto_type_c11[.]c
 CompileFlags:
   Remove: [-std=*]
   Add: [-std=c11]
