@@ -1,92 +1,246 @@
-# The tmplgen paradigm and its trade-offs
+# Generic programming in C: where tmplgen fits
 
-`tmplgen` implements **source-aware, ahead-of-time specialization** for C. A
-template is ordinary C plus declaration-scoped type-variable annotations. The
-generator asks libclang what types appear at source call sites, infers concrete
-type tuples from function inputs and constructor uses, then emits concrete C
-declarations and functions for the observed cases. Dispatch macros map calls to
-those concrete functions during compilation.
+`tmplgen` is a **source-aware, ahead-of-time specialization tool**. Annotate
+ordinary C declarations with type variables; libclang analyzes the project’s
+source calls and constructor uses; the generator emits concrete C types,
+functions, and dispatch macros for the combinations it finds.
 
-For example, an annotated `max(T, T)` can produce a real `max_int` function
-when the project calls it with `int` values, and a real `max_double` when it is
-called with `double` values. A `Vec(T)` type use similarly requests a concrete
-`Vec_<type>` representation. Generated code is ordinary C; there is no runtime
-generic object, type registry, or reflection layer added by the specialization
-mechanism.
+For example, a template function `max(T, T)` can become concrete `max` functions
+for every type used at its call sites. A use of `Vec(MyType)` can request a
+concrete `Vec_MyType` type. Dispatch is selected at compile time, and the output
+is ordinary C that can be inspected and compiled separately.
 
-The key trade is that generic intent is written once, but specialization is
-driven by what the source tree actually uses. This can reduce handwritten
-boilerplate and keep concrete operations type-specific, while adding a code
-generation step and a dependency on libclang.
+The set of types does **not** need to be listed in a registry beforehand. Add a
+new source-visible type use, rerun the generator, and it can produce another
+specialization. The trade is a generation step and a libclang dependency during
+generation in exchange for inferred, concrete C output.
 
-## How it differs from related approaches
+## A map of the options
 
-| Approach | What it gives you | Advantages | Costs and boundaries |
+| Approach | Main mechanism | Strengths | Trade-offs |
 | --- | --- | --- | --- |
-| **tmplgen** | Concrete C types/functions inferred from observed project calls | Stays in C; creates real typed specializations; can emit only observed type tuples; source-aware inference and compile-time dispatch | Requires a generator step and libclang; compiler flags must match; generated output can grow; supported template/type patterns are narrower than a full language type system |
-| **Header-backed pointers (stb-style)** | A typed pointer API with metadata stored alongside or before the allocation | Lightweight, natural element access, few setup declarations; excellent for dynamic arrays and hash tables | The pointer does not describe the full container state to C’s type system; macros and allocation/reallocation rules matter; this is a container representation technique, not a general way to specialize arbitrary user functions and types |
-| **Encoded pointer handles (CC.h)** | A pointer type encodes container/type information used by macros and compile-time selection | Ergonomic generic container API without defining a new ordinary container struct for each element type | Relies on intricate type encodings and compiler features such as `typeof` and `_Generic` (or newer modes); behavior and handle rules are part of the API; it targets generic containers rather than source-driven specialization of arbitrary C templates |
-| **C-style C++ with templates** | Compiler-native type and function templates, often using a C-like coding style | Mature, expressive compile-time generic programming; no separate source generator; strong compiler integration | The code is still C++, not C; consumers need a C++ toolchain and must account for C++ language and ABI boundaries |
-| **Manual instantiation** | Handwritten concrete types/functions or wrappers for each supported type | Simple toolchain, explicit output, straightforward debugging; works in very restricted C environments | Repeated boilerplate and maintenance; adding a type requires edits; users must keep the supported set and dispatch code synchronized |
-| **`_Generic` or `void *` APIs** | C-native macro dispatch or runtime type-erased interfaces | No separate generator; `_Generic` is standardized in C11; `void *` can support open-ended runtime sets | `_Generic` associations are normally written and maintained by the library author; it does not generate arbitrary concrete struct definitions. `void *` APIs trade away some static type information and often need sizes, callbacks, or casts |
-| **Lua/Python or other code-generation scripts** | Arbitrary templating or programmatic source generation | Flexible, fast to prototype, and can use a rich scripting ecosystem | Adds a host-language runtime/tool to the build; plain text generation does not itself provide C type inference; maintaining parser, flags, generated files, and cross-build behavior becomes project work |
+| **tmplgen** | Analyze source uses and emit concrete C specializations | Keeps authored and generated code in C; infers actual type combinations; can generate arbitrary project types and functions | Adds a generation step and libclang; compiler flags must match; code size grows with requested combinations |
+| **Hidden/shadow metadata pointers** | Store runtime metadata alongside an allocation and expose a typed pointer | Natural indexing and convenient dynamic containers; little per-type boilerplate | Pointer/relocation/lifetime rules are part of the API; specializes storage access patterns rather than arbitrary type-level declarations |
+| **Pointer-fictions / encoded handles** | Encode type information in a special pointer type for macro dispatch | Powerful compile-time type encoding; can in principle describe more than containers | The interface must travel through a pointer-shaped handle; value-oriented APIs need wrappers or address-taking; implementation and optimizer interactions require care |
+| **`void *` type erasure** | Pass untyped storage plus runtime size/type operations | Supports runtime-selected and open-ended types through one implementation | Casts and metadata/callbacks move type checking to the API boundary; operations may require sizes, copy/destructor callbacks, or indirect calls |
+| **Handwritten `_Generic` API** | Select among explicitly supplied associations at compile time | Standard C11 facility; direct typed calls and no runtime type lookup | The ordinary association set is written and maintained by hand; it does not synthesize arbitrary struct or function definitions |
+| **C-style include templates** | Define macros such as `T`, then include a reusable `.inc` file once per type | Pure preprocessor workflow; no separate generator or parser required | Every instantiation is manually requested; macro cleanup, naming, repeated inclusion, and diagnostics take care |
+| **C-style C++** | Write C-like code as C++ and use language templates | Mature compiler-native generics, deduction, specialization, and constraints | The source and toolchain are C++; C consumers need an ABI boundary and cannot compile template declarations as C |
+| **Manual instantiation** | Write a concrete type/function or wrapper for each supported type | Minimal machinery; explicit and easy to debug | Boilerplate grows with types and combinations; every new type needs source edits |
+| **Lua/Python generation scripts** | Render source from scripts, templates, or a project-specific schema | Flexible and quick to prototype; general-purpose host language | Adds a generator runtime/tool; usage-driven type inference still needs compiler-aware parsing or a separate manifest |
 
-These are design families, not strict competitors: a project can combine them.
-For example, a library can use generated concrete algorithms and still use a
-header-backed dynamic array for storage.
+These are design families, not mutually exclusive choices. For example, a
+project could use `tmplgen` to specialize algorithms and use an stb-style
+dynamic array for storage.
 
-## Pointer-backed approaches
+## Hidden metadata: the stb-style approach
 
-“Pointer-backed generic container” covers more than one technique. The classic
-stb stretchy-buffer interface exposes a `T *` while keeping length/capacity
-metadata before the returned allocation. Related `stb_ds.h` APIs use macro
-interfaces and hidden metadata for dynamic arrays and hash tables. This gives
-convenient container operations without generating a distinct public container
-struct for every type. It does not, by itself, provide a way to infer and emit a
-family of arbitrary user-defined C function and type specializations from
-application call sites.
+Some C containers expose an ordinary typed pointer while keeping length,
+capacity, or hash-table state in hidden metadata associated with the allocation.
+The classic stb stretchy-buffer design stores its bookkeeping immediately before
+the user-visible array pointer. [`stb_ds.h`](https://github.com/nothings/stb/blob/master/stb_ds.h)
+provides macro APIs for typed dynamic arrays and hash tables using related
+header-managed techniques.
 
-[CC.h by Jackson Allan](https://github.com/JacksonAllan/CC) takes a different,
-more type-encoded route: its container handle is a specially formed pointer type
-that carries type information for its macro API, with compile-time selection
-techniques including `typeof` and `_Generic`. This is sometimes described as a
-“fake pointer” or pointer-fiction technique; the pointer type is an encoding
-used by the API, not simply a normal `T *` with a hidden allocation header.
-CC.h demonstrates how far compile-time type selection can go inside C macros.
-`tmplgen` instead runs an explicit analysis/generation phase and emits ordinary
-concrete declarations and functions. The right choice depends on whether the
-problem is primarily generic container ergonomics or generating a project’s
-own reusable C algorithms and types.
+This is a strong fit for **runtime-sized storage**: the caller gets familiar
+`T *` indexing, and the library can recover the container bookkeeping from the
+pointer. The pointer may change when storage grows, so callers must follow the
+library’s update and lifetime rules; macros also impose evaluation rules on
+their arguments. This representation technique is primarily about storing and
+accessing containers. It does not by itself analyze a project and emit
+specializations of arbitrary user-defined types and algorithms.
 
-## When tmplgen is a good fit
+## Pointer-fictions: the CC.h approach
 
-Consider it when:
+[CC.h by Jackson Allan](https://github.com/JacksonAllan/CC) uses a different
+pointer-based technique. The container handle’s **pointer type** encodes
+information such as the container identity and element/key types; macros use
+that information with C type-selection features to route operations. Its
+README’s implementation overview describes a handle shaped like
+`element_type (*(*)[container_type_id])(key_type *)`.
 
-- The project must remain C, and operations benefit from concrete types rather
-  than a runtime-erased `void *` interface.
-- The set of needed specializations is naturally visible in source call sites.
-- You can run a generator during development/build, or can check generated
-  files into source control for downstream consumers.
-- You want reusable template declarations but want final code to be ordinary C
-  that can be inspected, compiled, and debugged with familiar tools.
+Pointer-fictions are not inherently limited to containers. In principle, a
+compile-time pointer-type encoding can be generalized to represent arbitrary
+type identities and select type-specific operations or declarations. CC.h is a
+particularly developed application of that idea to containers.
 
-Prefer another approach when there are only a few fixed concrete types and
-manual instantiation is clearer; when a dynamic open-ended type set is required;
-when a compact container API is the actual need; when C-style C++ is already an
-accepted implementation choice; or when adding a generator/libclang dependency is
-undesirable.
+The pointer-shaped transport is also the central trade-off. A value-oriented
+interface such as `T make_value(...)` or `consume(T value)` does not fit the
+same handle model directly: it tends to need a wrapper, an address, or a buffer
+parameter to carry the encoded handle. This can make function signatures more
+pointer-heavy than the underlying operation requires and can constrain
+optimization opportunities around aliasing and value flow. If an implementation
+uses sentinel or fabricated pointer values, it must additionally ensure those
+values are never treated as ordinary object addresses; provenance, validity,
+and optimizer assumptions need careful handling. These concerns depend on the
+specific encoding and implementation—pointer-fictions are a general technique,
+not one fixed implementation.
 
-## Limitations to understand
+`tmplgen` takes a different route: it observes ordinary typed expressions in
+the source, then materializes real concrete C types and functions. The caller
+continues to pass a `T`, `T *`, or other natural signature from the template;
+the type information is used by the generator rather than carried in a
+runtime pointer handle.
 
-- Inference is based on function inputs and constructor uses, not return types.
-  A variable must be inferable from an input position to dispatch a call.
-- The generator analyzes files on disk. It does not read unsaved editor buffers.
-- libclang must see the same preprocessor definitions, include paths, target,
-  and language mode that matter to the real build.
-- Dispatch associations reflect observed uses. A new call type requires
-  regeneration before the corresponding specialization exists.
-- Generated code is part of the build contract: stale generated files can cause
-  compile errors or omit a desired specialization.
+## C-style templates: repeated inclusion
+
+A common C technique is to put a declaration body in an intentionally
+re-includable file and set macros before each inclusion:
+
+```c
+/* vec_template.inc — intentionally has no ordinary include guard */
+#include <stddef.h>
+
+typedef struct {
+    T *data;
+    size_t length;
+} Vec;
+
+static inline void vec_push(Vec *vec, T value)
+{
+    vec->data[vec->length++] = value;
+}
+```
+
+Instantiate it explicitly by defining the type and generated names:
+
+```c
+#define T int
+#define Vec Vec_int
+#define vec_push vec_push_int
+#include "vec_template.inc"
+#undef vec_push
+#undef Vec
+#undef T
+
+#define T double
+#define Vec Vec_double
+#define vec_push vec_push_double
+#include "vec_template.inc"
+#undef vec_push
+#undef Vec
+#undef T
+```
+
+This stays within the C preprocessor and makes each instantiation visible in
+the including file. It is a good option for a small, fixed set of types or a
+small reusable library that already owns its instantiation list. The application
+author must decide which types to include, keep names distinct, and manage
+macros and include guards carefully. It does not infer new instantiations from
+ordinary source calls. `tmplgen` automates that selection and emits separate,
+inspectable generated modules instead of requiring each consumer to repeat the
+include protocol.
+
+## C-style C++
+
+Another option is to write C-like code as C++ and use native templates:
+
+```cpp
+template<class T>
+T max_value(T left, T right)
+{
+    return left > right ? left : right;
+}
+```
+
+The style can remain procedural and close to C, but the program is still C++:
+the compiler, language rules, standard library, and ABI are C++. This is often
+the cleanest choice when C++ is acceptable. If the public interface must remain
+C, C++ implementations can be wrapped in `extern "C"` functions, but template
+types themselves do not cross that C ABI boundary.
+
+By comparison, `tmplgen` writes and emits C. A normal C compiler builds the
+result, and the generated declarations can remain part of a C API. The cost is
+that generic syntax and inference live in the generator rather than in the C
+language/compiler.
+
+## Runtime erasure and manual `_Generic`
+
+These two C APIs solve different problems and should not be conflated.
+
+### `void *` APIs: runtime type erasure
+
+A `void *` API accepts storage without preserving its element type in the
+function signature. A reusable vector may take an element size; a generic map
+may also take hash/equality callbacks, copy functions, or a vtable. This supports
+types chosen at runtime—including plugin or dynamically loaded types that could
+not be known during generation—but transfers type safety and operation
+selection to metadata and conventions. The user often writes casts, and the
+implementation may use byte copies or indirect calls.
+
+Choose this when runtime openness and one type-erased implementation matter more
+than a concrete API for each type. It is different from `tmplgen`: `tmplgen`
+specializes all types visible in source, while `void *` supports values whose
+type may be selected only at runtime.
+
+### Handwritten `_Generic`: a compile-time overload list
+
+An ordinary `_Generic` API chooses from an association list written by the
+library author:
+
+```c
+#define max_value(a, b) \
+    _Generic((a), int: max_int, double: max_double)((a), (b))
+```
+
+For a small, known set of types, this is direct and effective: selection occurs
+at compile time and resolves to a concrete function call. But `_Generic` only
+selects among expressions already listed. It does not declare `Vec_int`, emit
+`max_int`, or discover additional types from the source tree. Macro systems can
+make association lists extensible, but then the library author must build and
+maintain that extension mechanism.
+
+`tmplgen` uses compile-time dispatch too; its distinction is that it discovers
+the associations and emits the concrete declarations/functions from observed
+source uses. Use handwritten `_Generic` when the association list is small and
+stable, and generation when both the concrete implementations and dispatch set
+should follow actual project use.
+
+## Manual instantiation and scripted generation
+
+For a handful of types, handwrite the concrete declarations or wrappers. This
+has the smallest toolchain and the clearest control flow. It becomes repetitive
+when a library supports many types or tuples, and callers must remember to add
+instances and dispatch cases consistently.
+
+Lua, Python, or another scripting language can make a generator easier to
+prototype and more expressive than C macros. A script can generate arbitrary
+source, but it does not automatically know what types a C call uses. That
+requires a manifest or a compiler-aware parser plus the right flags. `tmplgen`
+uses libclang specifically to derive specializations from C source while
+keeping the final build artifacts in C.
+
+## When tmplgen fits
+
+`tmplgen` is a good fit when:
+
+- You want to keep the implementation and public API in C.
+- Type-specific code should have real concrete C types and functions rather
+  than a runtime-erased representation.
+- You want the specialization set to grow with the source: adding a new call
+  with a new type can request a new instance without editing a type registry.
+- You can run a generation step with libclang, or can check generated C into the
+  project for consumers that do not run the generator.
+- You want to inspect and debug the final C using ordinary compiler tooling.
+
+Prefer another approach when a handful of manual instances are clearer; when
+the type is selected only at runtime and must not require regeneration; when
+`_Generic` over a short fixed list is enough; when a pointer-backed container
+API is the actual goal; or when C++ is already an accepted implementation
+language. An **open-ended set of source-visible C types is not a limitation**:
+`tmplgen` can add a specialization for each newly observed use on the next
+generation/build.
+
+## Practical boundaries
+
+- Every specialization must be inferable from a constructor use or function
+  input type. Return types do not drive inference.
+- The source and its preprocessor environment must be visible to libclang. Types
+  that appear only after runtime loading cannot be inferred at build time.
+- More type combinations mean more generated C and potentially more compile
+  work. `--compiled` can move implementations out of widely included headers.
+- Generated files should be regenerated when templates, source call sites, or
+  relevant included declarations change.
 
 ## Further reading
 

@@ -226,9 +226,9 @@ specialization constraint.
 | Requirement | Use |
 | --- | --- |
 | A concrete type must expose named fields with compatible types | `<:` structural row |
-| A type must satisfy a single-type compile-time property | `|=` |
+| A type must satisfy a compile-time property | Type-variable satisfaction annotation |
 | Several type variables must satisfy a relation | `@where` |
-| A candidate needs both fields and an additional property | Combine `<:` with `|=` or `@where` |
+| A candidate needs both fields and an additional property | Combine a structural row with satisfaction |
 
 Constraints are checked only for specializations requested by observed source
 uses. They do not create specializations by themselves. For the full template

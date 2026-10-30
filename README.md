@@ -87,7 +87,7 @@ For a walkthrough of your own templates and build integration, start with
 | **Source-driven inference** | Infer type arguments from function inputs and constructor uses—no per-call type tables. |
 | **Concrete C output** | Emit real specialized structs and functions that ordinary C tools can inspect. |
 | **Compile-time dispatch** | Select observed specializations through `_Generic` or GNU builtins, with no runtime type lookup. |
-| **Expressive constraints** | Require structural fields with `<:` or assert compile-time properties with `|=` and `@where`. |
+| **Expressive constraints** | Require structural fields with `<:` or assert compile-time properties with satisfaction annotations and `@where`. |
 | **Two output modes** | Use convenient header-only output, or move implementations into `.gen.c` files with `--compiled`. |
 | **Incremental analysis** | Reuse validated whole-project and per-source facts; check generated files with `--check`. |
 
@@ -102,8 +102,8 @@ backend must be supported by the application compiler; see
 | --- | --- |
 | [Usage & template syntax](doc/usage.md) | Annotations, type inference, CLI options, and output modes |
 | [Constraints](doc/constraints.md) | Structural subtyping, compile-time satisfaction, examples, and diagnostics |
-| [Tooling & integration](doc/tooling.md) | libclang, compiler flags, clangd, build integration, caches, and tests |
-| [Design & alternatives](doc/paradigm.md) | The specialization model and trade-offs versus stb-style pointers, CC.h, C++, manual instantiation, and script generators |
+| [Tooling & integration](doc/tooling.md) | libclang, compiler flags, clangd, diagnostics and `#line` mapping, caches, and tests |
+| [Design & alternatives](doc/paradigm.md) | The specialization model and trade-offs versus hidden metadata, pointer-fictions, `void *`, `_Generic`, repeated-include templates, C++, and script generators |
 | [Benchmarks](test/bench/README.md) | Benchmark methodology, workload controls, and recorded results |
 
 ## Develop and test

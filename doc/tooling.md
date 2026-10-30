@@ -62,6 +62,51 @@ macros so callers use suffixed concrete functions directly. The consumer
 compiler must accept the selected output syntax. The dispatch selection does
 not perform runtime type lookup; it resolves to a concrete call while compiling.
 
+## Diagnostics and source locations
+
+There are two stages that can report errors:
+
+1. **Generation errors** are written to stderr with a `tmplgen:` prefix. When a
+   source location is known, the format is `tmplgen: path:line: error: message`.
+   These include malformed annotations, unsupported template patterns, file
+   errors, and failures to parse a translation unit. Command-line usage errors
+   return status 2; generation failures and stale `--check` outputs return
+   status 1.
+2. **Generated-C errors** are reported by the application compiler. Structural
+   and satisfaction constraints become `_Static_assert`s with messages that
+   identify the failed row or expression. For example:
+
+   ```text
+   test/tmpl/result.tmpl.h:101:1: error: static assertion failed: "tmplgen: TP is not a subtype of Physics (incompatible field y)"
+   ```
+
+   An unmatched dispatch similarly names the missing association, such as
+   `max__no_match_for_argument_type`, and uses a deliberately incompatible
+   parameter type to make the failure clear.
+
+Generated files use `#line` directives so the compiler can attribute important
+generated constructs to their template source. Dispatch macro definitions and
+constraint assertions are mapped to template locations by default. Function
+and type bodies remain attributed to the generated file unless `--emit-line` is
+set:
+
+```sh
+./tmplgen --emit-line --clang-arg=-std=c11
+```
+
+With `--emit-line`, body diagnostics point back to the template declaration and
+the generator restores the generated-file location after each body. Use
+`--no-emit-line` to return to the default for a run. Source paths in `#line`
+directives follow the paths used when loading templates; running from the
+project root gives concise project-relative locations, while an absolute
+`--template-dir` produces absolute paths.
+
+The generator uses libclang for parsing and type extraction; it is not a
+replacement for the application compiler’s diagnostic output. When a generated
+call or body fails, compile the consuming translation unit with the same
+language mode, include paths, and defines passed through `--clang-arg`. Use
+`--verbose` to inspect which templates and source facts were read or reused.
+
 The project’s `.clangd` demonstrates a related editor setup: template files
 have `TMPLGEN` fallback declarations for standalone parsing, while test files
 receive language modes matching their dispatch and inference requirements.
