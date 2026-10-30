@@ -1,8 +1,8 @@
-types,modules,functions_per_module,source_files,calls,expected_specializations,generated_specializations,compiled_output,phase,iteration,changed_source_files,changed_calls,changed_outputs,seconds
-64,12,8,6,768,6144,6144,0,cold,0,0,0,13,2.8082055730046704
-64,12,8,6,768,6144,6144,0,type_update,1,6,12,13,2.82190446392633
-64,12,8,6,768,6144,6144,0,type_update,2,6,12,13,2.8228193579707295
-64,12,8,6,768,6144,6144,0,type_update,3,6,12,13,2.8153838069410995
-64,12,8,6,768,6144,6144,0,unchanged_cache,1,0,0,0,0.0190110020339489
-64,12,8,6,768,6144,6144,0,unchanged_cache,2,0,0,0,0.019035858917050064
-64,12,8,6,768,6144,6144,0,unchanged_cache,3,0,0,0,0.019193163025192916
+types,modules,functions_per_module,source_files,calls,expected_specializations,generated_specializations,compiled_output,change_kind,phase,iteration,changed_source_files,changed_calls,changed_outputs,pass1_facts_hits,pass2_facts_hits,seconds
+64,12,8,7,780,6144,6144,0,local-call,cold,0,0,0,13,0,0,3.5556716569699347
+64,12,8,7,780,6144,6152,0,local-call,type_update,1,1,1,2,7,7,1.6331932599423453
+64,12,8,7,780,6144,6144,0,local-call,type_update,2,1,1,2,7,7,1.6442220699973404
+64,12,8,7,780,6144,6152,0,local-call,type_update,3,1,1,2,7,7,1.6457754080183804
+64,12,8,7,780,6144,6144,0,local-call,unchanged_cache,1,0,0,0,0,0,0.03348511701915413
+64,12,8,7,780,6144,6144,0,local-call,unchanged_cache,2,0,0,0,0,0,0.03365616709925234
+64,12,8,7,780,6144,6144,0,local-call,unchanged_cache,3,0,0,0,0,0,0.03352808707859367

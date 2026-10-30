@@ -1,1 +1,3 @@
 .tmplgen.cache
+.tmplgen-facts-*.cache
+.tmplgen-tu-*

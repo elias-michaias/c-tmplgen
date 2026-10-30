@@ -148,15 +148,25 @@ modules and `--functions-per-module` controls each module's dependency depth;
 units. The expected number of function specializations is
 `types × modules × functions-per-module`.
 
-`incremental.py` times a cold generation, then repeatedly switches all call
-sites for one concrete type to a newly added type and updates the dispatch
-tables, then measures unchanged cached checks. It saves the measurements to
-`test/bench/incremental-results.csv` by default. A changed input currently
-invalidates the project cache and triggers full analysis; this benchmark makes
-that cost explicit. On the 64 × 12 × 8 workload, cold generation was 2.808 s,
-the one-type/12-call-site dispatch update was 2.822 s, and an unchanged cached
-check was 19 ms. Thus one changed type is currently about as expensive as a
-cold generation; the large speedup applies to subsequent no-change builds.
+`incremental.py` times a cold generation, then makes repeatable input edits and
+measures unchanged cached checks. Its default `local-call` case keeps a new
+concrete type in a shared header, initially unused, then changes one call site
+to that type and updates dispatch. `--change-kind type-header` edits a shared
+header and retargets all uses; `--change-kind body-only` adds a non-generic
+function to one source without changing generic usage. It saves measurements to
+`test/bench/incremental-results.csv` by default. The header and body-only samples
+are saved separately in `incremental-header-results.csv` and
+`incremental-body-results.csv`.
+
+On 2026-10-30, for a 64 × 12 × 8 workload, the local call-site update takes
+**1.64 s** versus **3.56 s** cold (about **2.2× faster**), reusing first- and
+second-pass facts for the other seven tracked source units and changing two generated files.
+Changing the shared type header instead takes **3.44 s** versus **3.44 s** cold:
+all eight tracked units are invalidated, making it effectively a cold analysis.
+A body-only source edit takes **1.58 s** versus **3.41 s** cold; it is about
+**2.2× faster**, reuses both passes for the other seven units, and changes no
+generated files. Each case settles back to about **33 ms** on the next unchanged
+check.
 
 ## Generate a project without benchmarking
 

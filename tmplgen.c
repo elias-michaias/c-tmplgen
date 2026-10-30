@@ -130,10 +130,31 @@ typedef struct {
 } ClangUse;
 typedef struct { ClangUse *items; size_t count, cap; } ClangUseList;
 typedef struct { char **items; size_t count, cap; } StringSet;
+typedef struct { StringSet *all; StringSet *local; } InclusionCapture;
 typedef struct { char *stem; } GenTemplate;
 
 typedef struct { char *text; size_t line; int kind; } CToken;
 typedef struct { CToken *items; size_t count, cap; } TokenList;
+typedef struct {
+    size_t template_index;
+    char *functor;
+    size_t argument_count;
+    size_t *parameter_indices;
+    char **spellings;
+    char **canonicals;
+} SourceConstructorFact;
+typedef struct {
+    ClangUseList pass1_uses, pass2_uses;
+    TypeAlias *aliases;
+    size_t alias_count, alias_cap;
+    SourceConstructorFact *constructors;
+    size_t constructor_count, constructor_cap;
+    StructuralSchema *schemas;
+    size_t schema_count, schema_cap;
+    StringSet dependencies;
+    unsigned long long pass1_key, pass2_key;
+    int loaded, pass1_valid, pass2_valid;
+} SourceFacts;
 
 static GenInstance *g_instances;
 static size_t g_instance_count, g_instance_cap;
@@ -157,6 +178,7 @@ static int g_dispatch_backend;
 static int g_emit_line;
 static int g_compiled_output;
 static int g_cache_enabled;
+static int g_tu_cache_enabled;
 static StringSet g_clang_dependencies;
 static char **g_clang_args;
 static size_t g_clang_arg_count, g_clang_arg_cap;
@@ -176,11 +198,26 @@ static void buf_putc(Buf *b, char c);
 static void buf_puts(Buf *b, const char *s);
 static void buf_put_uint(Buf *b, unsigned long value);
 static void buf_free(Buf *b);
+static void signature_mix(unsigned long long *hash, const char *data,
+                          size_t length);
 static void emit_spaces(Buf *out, unsigned count);
 static void emit_line_directive(Buf *out, unsigned long line, const char *path);
 static char *copy_cx_string(CXString value);
 static void string_set_add(StringSet *set, const char *s);
 static void string_set_free(StringSet *set);
+static void source_facts_free(SourceFacts *facts);
+static void source_facts_add_alias(SourceFacts *facts, const char *name,
+                                   const char *canonical);
+static void source_facts_add_constructor(SourceFacts *facts,
+                                        size_t template_index,
+                                        const char *functor,
+                                        const size_t *parameter_indices,
+                                        const char *const *spellings,
+                                        const char *const *canonicals,
+                                        size_t argument_count);
+static void source_facts_add_schema(SourceFacts *facts,
+                                    const StructuralSchema *schema);
+static void source_facts_apply(SourceFacts *facts);
 
 static const char *find_alias_canonical(const char *name)
 {
@@ -502,12 +539,21 @@ typedef struct {
     Buf text;
     CToken *tokens;
     size_t token_count, token_cap;
+    SourceFacts facts;
 } SourceFile;
 
 typedef struct {
     SourceFile *items;
     size_t count, cap;
 } SourceList;
+
+static void source_facts_reset(SourceFacts *facts);
+static char *source_facts_cache_path(const char *source_path);
+static int source_facts_load(SourceFile *source, const SourceList *files);
+static int source_facts_save(const SourceFile *source,
+                             const SourceList *files);
+static unsigned long long source_facts_key(const SourceFile *source,
+                                           const Buf *bootstrap, int pass);
 
 static void source_file_free(SourceFile *file);
 
@@ -907,6 +953,35 @@ static void cache_collect_inclusion(CXFile included_file,
     clang_disposeString(filename);
 }
 
+static void cache_collect_source_inclusion(CXFile included_file,
+                                           CXSourceLocation *inclusion_stack,
+                                           unsigned include_length,
+                                           CXClientData client_data)
+{
+    InclusionCapture *capture = (InclusionCapture *)client_data;
+    CXString filename;
+    const char *raw_path;
+    char *absolute;
+    (void)inclusion_stack;
+    (void)include_length;
+    if (included_file == NULL) return;
+    filename = clang_getFileName(included_file);
+    raw_path = clang_getCString(filename);
+    if (raw_path == NULL || raw_path[0] == '\0') {
+        clang_disposeString(filename);
+        return;
+    }
+    absolute = absolute_path(raw_path);
+    if (!path_is_within_directory(absolute, g_generated_dir)) {
+        if (capture->local != NULL) string_set_add(capture->local, absolute);
+        if (capture->all != NULL) {
+            cache_add_dependency_path(capture->all, absolute);
+        }
+    }
+    free(absolute);
+    clang_disposeString(filename);
+}
+
 static void clear_template_registry(void)
 {
     size_t i;
@@ -1303,6 +1378,7 @@ static void source_file_free(SourceFile *file)
     buf_free(&file->text);
     for (i = 0U; i < file->token_count; ++i) free(file->tokens[i].text);
     free(file->tokens);
+    source_facts_free(&file->facts);
     memset(file, 0, sizeof(*file));
 }
 
@@ -1689,7 +1765,7 @@ static const StructuralSchema *find_structural_schema(const char *name,
                                                        int *ambiguous);
 static const TemplateFunction *find_template_function(const TemplateInfo *ti,
                                                        const char *name);
-static void register_structural_schema(CXCursor cursor);
+static void register_structural_schema(CXCursor cursor, SourceFacts *facts);
 static char *specialize_function_calls(const char *fragment,
                                        const TemplateInfo *ti,
                                        const GenInstance *instance,
@@ -2450,14 +2526,14 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
     if ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl) &&
         clang_isCursorDefinition(cursor) != 0U) {
         if (own_file) {
-            register_structural_schema(cursor);
+            register_structural_schema(cursor, NULL);
         } else {
             CXString spelling = clang_getCursorSpelling(cursor);
             const char *record_name = clang_getCString(spelling);
             int required = record_name != NULL &&
                            template_requires_constraint(ti, record_name);
             clang_disposeString(spelling);
-            if (required) register_structural_schema(cursor);
+            if (required) register_structural_schema(cursor, NULL);
         }
     }
     if (!own_file) {
@@ -5573,6 +5649,7 @@ typedef struct {
     size_t template_count;
     SourceList *files;
     ClangUseList *uses;
+    SourceFacts *facts;
     CXFile *scanned_files;
     size_t scanned_file_count;
     SourceVariableList variables;
@@ -5605,7 +5682,7 @@ static enum CXChildVisitResult collect_structural_schema_field(CXCursor cursor,
     return CXChildVisit_Continue;
 }
 
-static void register_structural_schema(CXCursor cursor)
+static void register_structural_schema(CXCursor cursor, SourceFacts *facts)
 {
     enum CXCursorKind kind = clang_getCursorKind(cursor);
     char *name = copy_cx_string(clang_getCursorSpelling(cursor));
@@ -5645,6 +5722,7 @@ static void register_structural_schema(CXCursor cursor)
     }
     free(name);
     clang_visitChildren(cursor, collect_structural_schema_field, schema);
+    source_facts_add_schema(facts, schema);
 }
 
 static const StructuralSchema *find_structural_schema(const char *name,
@@ -6041,6 +6119,241 @@ static void clang_use_list_free(ClangUseList *uses)
     memset(uses, 0, sizeof(*uses));
 }
 
+static void source_constructor_fact_free(SourceConstructorFact *fact)
+{
+    size_t i;
+    free(fact->functor);
+    for (i = 0U; i < fact->argument_count; ++i) {
+        free(fact->spellings[i]);
+        free(fact->canonicals[i]);
+    }
+    free(fact->spellings);
+    free(fact->canonicals);
+    free(fact->parameter_indices);
+    memset(fact, 0, sizeof(*fact));
+}
+
+static void source_facts_free(SourceFacts *facts)
+{
+    size_t i;
+    clang_use_list_free(&facts->pass1_uses);
+    clang_use_list_free(&facts->pass2_uses);
+    for (i = 0U; i < facts->alias_count; ++i) {
+        free(facts->aliases[i].name);
+        free(facts->aliases[i].canonical);
+    }
+    free(facts->aliases);
+    for (i = 0U; i < facts->constructor_count; ++i) {
+        source_constructor_fact_free(&facts->constructors[i]);
+    }
+    free(facts->constructors);
+    for (i = 0U; i < facts->schema_count; ++i) {
+        free(facts->schemas[i].name);
+        list_free(facts->schemas[i].fields, facts->schemas[i].field_count);
+    }
+    free(facts->schemas);
+    string_set_free(&facts->dependencies);
+    memset(facts, 0, sizeof(*facts));
+}
+
+static void source_facts_reset(SourceFacts *facts)
+{
+    source_facts_free(facts);
+}
+
+static void source_facts_add_alias(SourceFacts *facts, const char *name,
+                                   const char *canonical)
+{
+    size_t i;
+    TypeAlias *next;
+    size_t new_cap;
+    if (facts == NULL) return;
+    for (i = 0U; i < facts->alias_count; ++i) {
+        if (str_eq(facts->aliases[i].name, name)) {
+            if (!str_eq(facts->aliases[i].canonical, canonical)) {
+                free(facts->aliases[i].canonical);
+                facts->aliases[i].canonical = copy_string(canonical);
+            }
+            return;
+        }
+    }
+    if (facts->alias_count == facts->alias_cap) {
+        new_cap = facts->alias_cap == 0U ? 8U : facts->alias_cap * 2U;
+        if (new_cap < facts->alias_cap ||
+            new_cap > (size_t)-1 / sizeof(*facts->aliases)) {
+            die("too many source typedef aliases");
+        }
+        next = (TypeAlias *)realloc(facts->aliases,
+                                    new_cap * sizeof(*facts->aliases));
+        if (next == NULL) die("out of memory");
+        facts->aliases = next;
+        facts->alias_cap = new_cap;
+    }
+    facts->aliases[facts->alias_count].name = copy_string(name);
+    facts->aliases[facts->alias_count].canonical = copy_string(canonical);
+    ++facts->alias_count;
+}
+
+static void source_facts_add_constructor(SourceFacts *facts,
+                                        size_t template_index,
+                                        const char *functor,
+                                        const size_t *parameter_indices,
+                                        const char *const *spellings,
+                                        const char *const *canonicals,
+                                        size_t argument_count)
+{
+    size_t i, j;
+    SourceConstructorFact *next;
+    size_t new_cap;
+    if (facts == NULL) return;
+    for (i = 0U; i < facts->constructor_count; ++i) {
+        SourceConstructorFact *existing = &facts->constructors[i];
+        if (existing->template_index != template_index ||
+            existing->argument_count != argument_count ||
+            !str_eq(existing->functor, functor)) continue;
+        for (j = 0U; j < argument_count; ++j) {
+            if (existing->parameter_indices[j] != parameter_indices[j] ||
+                !str_eq(existing->spellings[j], spellings[j]) ||
+                !str_eq(existing->canonicals[j], canonicals[j])) break;
+        }
+        if (j == argument_count) return;
+    }
+    if (facts->constructor_count == facts->constructor_cap) {
+        new_cap = facts->constructor_cap == 0U ? 4U :
+                  facts->constructor_cap * 2U;
+        if (new_cap < facts->constructor_cap ||
+            new_cap > (size_t)-1 / sizeof(*facts->constructors)) {
+            die("too many source type-constructor uses");
+        }
+        next = (SourceConstructorFact *)realloc(facts->constructors,
+            new_cap * sizeof(*facts->constructors));
+        if (next == NULL) die("out of memory");
+        facts->constructors = next;
+        facts->constructor_cap = new_cap;
+    }
+    {
+        SourceConstructorFact *fact = &facts->constructors[facts->constructor_count++];
+        memset(fact, 0, sizeof(*fact));
+        fact->template_index = template_index;
+        fact->functor = copy_string(functor);
+        fact->argument_count = argument_count;
+        if (argument_count != 0U) {
+            fact->parameter_indices = (size_t *)malloc(
+                argument_count * sizeof(*fact->parameter_indices));
+            fact->spellings = (char **)calloc(argument_count,
+                                              sizeof(*fact->spellings));
+            fact->canonicals = (char **)calloc(argument_count,
+                                               sizeof(*fact->canonicals));
+            if (fact->parameter_indices == NULL || fact->spellings == NULL ||
+                fact->canonicals == NULL) die("out of memory");
+            for (j = 0U; j < argument_count; ++j) {
+                fact->parameter_indices[j] = parameter_indices[j];
+                fact->spellings[j] = copy_string(spellings[j]);
+                fact->canonicals[j] = copy_string(canonicals[j]);
+            }
+        }
+    }
+}
+
+static void source_facts_add_schema(SourceFacts *facts,
+                                    const StructuralSchema *schema)
+{
+    StructuralSchema *copy;
+    size_t i;
+    size_t new_cap;
+    if (facts == NULL) return;
+    for (i = 0U; i < facts->schema_count; ++i) {
+        StructuralSchema *existing = &facts->schemas[i];
+        if (existing->is_union == schema->is_union &&
+            str_eq(existing->name, schema->name)) {
+            size_t field_index;
+            for (field_index = 0U; field_index < schema->field_count; ++field_index) {
+                list_add(&existing->fields, &existing->field_count,
+                         &existing->field_cap, schema->fields[field_index]);
+            }
+            return;
+        }
+    }
+    if (facts->schema_count == facts->schema_cap) {
+        new_cap = facts->schema_cap == 0U ? 4U : facts->schema_cap * 2U;
+        if (new_cap < facts->schema_cap ||
+            new_cap > (size_t)-1 / sizeof(*facts->schemas)) {
+            die("too many source structural schemas");
+        }
+        copy = (StructuralSchema *)realloc(facts->schemas,
+            new_cap * sizeof(*facts->schemas));
+        if (copy == NULL) die("out of memory");
+        facts->schemas = copy;
+        facts->schema_cap = new_cap;
+    }
+    copy = &facts->schemas[facts->schema_count++];
+    memset(copy, 0, sizeof(*copy));
+    copy->name = copy_string(schema->name);
+    copy->is_union = schema->is_union;
+    for (i = 0U; i < schema->field_count; ++i) {
+        list_add(&copy->fields, &copy->field_count, &copy->field_cap,
+                 schema->fields[i]);
+    }
+}
+
+static void source_facts_apply(SourceFacts *facts)
+{
+    size_t i;
+    for (i = 0U; i < facts->alias_count; ++i) {
+        add_alias(facts->aliases[i].name, facts->aliases[i].canonical);
+    }
+    for (i = 0U; i < facts->constructor_count; ++i) {
+        SourceConstructorFact *fact = &facts->constructors[i];
+        GenInstance *instance = add_instance(fact->template_index,
+            fact->parameter_indices, (const char *const *)fact->spellings,
+            (const char *const *)fact->canonicals, fact->argument_count);
+        size_t argument_index;
+        for (argument_index = 0U; argument_index < fact->argument_count;
+             ++argument_index) {
+            add_alias(fact->spellings[argument_index],
+                      fact->canonicals[argument_index]);
+        }
+        (void)add_type_use(fact->functor, instance->name);
+    }
+    for (i = 0U; i < facts->schema_count; ++i) {
+        const StructuralSchema *source = &facts->schemas[i];
+        StructuralSchema *target = NULL;
+        StructuralSchema *next;
+        size_t schema_index;
+        for (schema_index = 0U; schema_index < g_structural_schema_count;
+             ++schema_index) {
+            if (g_structural_schemas[schema_index].is_union == source->is_union &&
+                str_eq(g_structural_schemas[schema_index].name, source->name)) {
+                target = &g_structural_schemas[schema_index];
+                break;
+            }
+        }
+        if (target == NULL) {
+            if (g_structural_schema_count == g_structural_schema_cap) {
+                size_t new_cap = g_structural_schema_cap == 0U ? 8U :
+                                 g_structural_schema_cap * 2U;
+                if (new_cap < g_structural_schema_cap ||
+                    new_cap > (size_t)-1 / sizeof(*g_structural_schemas)) {
+                    die("too many structural schemas");
+                }
+                next = (StructuralSchema *)realloc(g_structural_schemas,
+                    new_cap * sizeof(*g_structural_schemas));
+                if (next == NULL) die("out of memory");
+                g_structural_schemas = next;
+                g_structural_schema_cap = new_cap;
+            }
+            target = &g_structural_schemas[g_structural_schema_count++];
+            memset(target, 0, sizeof(*target));
+            target->name = copy_string(source->name);
+            target->is_union = source->is_union;
+        }
+        for (schema_index = 0U; schema_index < source->field_count; ++schema_index) {
+            list_add(&target->fields, &target->field_count, &target->field_cap,
+                     source->fields[schema_index]);
+        }
+    }
+}
+
 static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                                                            CXCursor parent,
                                                            CXClientData client_data)
@@ -6071,7 +6384,7 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
             clang_disposeString(spelling);
         }
         if (required) {
-            register_structural_schema(cursor);
+            register_structural_schema(cursor, context->facts);
         }
     }
     if (!scanned) return CXChildVisit_Recurse;
@@ -6101,6 +6414,7 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
         char *canonical_name = copy_cx_string(clang_getTypeSpelling(canonical));
         if (valid_identifier(name) && canonical_name[0] != '\0') {
             add_alias(name, canonical_name);
+            source_facts_add_alias(context->facts, name, canonical_name);
         }
         free(name);
         free(canonical_name);
@@ -6148,6 +6462,11 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                         (const char *const *)arguments,
                         (const char *const *)canonical_arguments, argument_count);
                     (void)add_type_use(name, instance->name);
+                    source_facts_add_constructor(context->facts,
+                        type_template_index, name, parameter_indices,
+                        (const char *const *)arguments,
+                        (const char *const *)canonical_arguments,
+                        argument_count);
                     free(parameter_indices);
                 }
                 for (j = 0U; j < argument_count; ++j) free(canonical_arguments[j]);
@@ -6325,11 +6644,11 @@ static int infer_use_type_from_variable(ClangContext *context, ClangUse *use)
     return use->type_spelling[0] != '\0';
 }
 
-static int parse_source_with_clang(CXIndex index, const SourceFile *source,
+static int parse_source_with_clang(CXIndex index, SourceFile *source,
                                    const Buf *bootstrap,
                                    int pass, const TemplateInfo *infos,
                                    size_t template_count, SourceList *files,
-                                   ClangUseList *uses)
+                                   ClangUseList *uses, SourceFacts *facts)
 {
     const char **arguments;
     int argument_count = (int)g_clang_arg_count + 2;
@@ -6341,11 +6660,14 @@ static int parse_source_with_clang(CXIndex index, const SourceFile *source,
     CXTranslationUnit tu = NULL;
     enum CXErrorCode result;
     ClangContext context;
+    InclusionCapture capture;
     arguments = (const char **)malloc((size_t)argument_count * sizeof(*arguments));
     if (arguments == NULL) die("out of memory");
     arguments[0] = "-x";
     arguments[1] = "c";
-    for (i = 0; i < (int)g_clang_arg_count; ++i) arguments[i + 2] = g_clang_args[i];
+    for (i = 0; i < (int)g_clang_arg_count; ++i) {
+        arguments[i + 2] = g_clang_args[i];
+    }
     unsaved = (struct CXUnsavedFile *)calloc(unsaved_count, sizeof(*unsaved));
     unsaved_paths = (char **)calloc(unsaved_count, sizeof(*unsaved_paths));
     if (unsaved == NULL || unsaved_paths == NULL) die("out of memory");
@@ -6359,10 +6681,10 @@ static int parse_source_with_clang(CXIndex index, const SourceFile *source,
         unsaved[unsaved_index].Contents = bootstrap->p != NULL ? bootstrap->p : "";
         unsaved[unsaved_index].Length = (unsigned long)bootstrap->len;
     }
-    result = clang_parseTranslationUnit2(index, source->path, arguments, argument_count,
-                                         unsaved, (unsigned)unsaved_count,
-                                         CXTranslationUnit_DetailedPreprocessingRecord |
-                                         CXTranslationUnit_KeepGoing, &tu);
+    result = clang_parseTranslationUnit2(index, source->path, arguments,
+        argument_count, unsaved, (unsigned)unsaved_count,
+        CXTranslationUnit_DetailedPreprocessingRecord |
+            CXTranslationUnit_KeepGoing, &tu);
     free(arguments);
     for (unsaved_index = 0U; unsaved_index < unsaved_count; ++unsaved_index) {
         free(unsaved_paths[unsaved_index]);
@@ -6370,11 +6692,16 @@ static int parse_source_with_clang(CXIndex index, const SourceFile *source,
     free(unsaved_paths);
     free(unsaved);
     if (result != CXError_Success || tu == NULL) {
-        report_error(source->path, 0U, "libclang failed to parse this source file (%d)",
+        report_error(source->path, 0U,
+                     "libclang failed to parse this source file (%d)",
                      (int)result);
         return 0;
     }
-    clang_getInclusions(tu, cache_collect_inclusion, &g_clang_dependencies);
+    capture.all = &g_clang_dependencies;
+    capture.local = g_tu_cache_enabled ? &facts->dependencies : NULL;
+    if (g_cache_enabled || g_tu_cache_enabled) {
+        clang_getInclusions(tu, cache_collect_source_inclusion, &capture);
+    }
     memset(&context.variables, 0, sizeof(context.variables));
     context.scanned_files = (CXFile *)calloc(files->count,
                                               sizeof(*context.scanned_files));
@@ -6389,6 +6716,7 @@ static int parse_source_with_clang(CXIndex index, const SourceFile *source,
     context.template_count = template_count;
     context.files = files;
     context.uses = uses;
+    context.facts = pass == 1 ? facts : NULL;
     context.pass = pass;
     context.failed = 0;
     clang_visitChildren(clang_getTranslationUnitCursor(tu),
@@ -7687,8 +8015,243 @@ static void collect_suffix_api_uses(SourceFile *file, const TemplateInfo *infos,
     }
 }
 
+static int source_has_suffix_api_call(const SourceFile *file,
+                                      const TemplateInfo *infos,
+                                      size_t template_count)
+{
+    size_t token_index;
+    for (token_index = 0U; token_index + 1U < file->token_count; ++token_index) {
+        size_t template_index;
+        const char *token = file->tokens[token_index].text;
+        if (file->tokens[token_index].kind != C_TOKEN_IDENT ||
+            !token_is(file, token_index + 1U, "(")) continue;
+        for (template_index = 0U; template_index < template_count;
+             ++template_index) {
+            size_t function_index;
+            for (function_index = 0U;
+                 function_index < infos[template_index].function_count;
+                 ++function_index) {
+                const TemplateFunction *function =
+                    &infos[template_index].functions[function_index];
+                size_t base_length = strlen(function->name);
+                if (function->type_parameter_count != 0U &&
+                    strlen(token) > base_length &&
+                    strncmp(token, function->name, base_length) == 0 &&
+                    token[base_length] == '_') return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static int source_call_group_equal(const ClangUse *left, const ClangUse *right)
+{
+    return str_eq(left->name, right->name) && str_eq(left->path, right->path) &&
+           left->offset == right->offset;
+}
+
+static void source_hash_specialization(unsigned long long *hash,
+                                       const TemplateInfo *ti,
+                                       const TemplateFunction *function,
+                                       const GenInstance *instance)
+{
+    Buf return_type;
+    char *body;
+    char *specialized_calls;
+    Buf specialized_body;
+    size_t i;
+    signature_mix(hash, instance->key, strlen(instance->key));
+    buf_init(&return_type);
+    if (function->return_application.constructor != NULL) {
+        rewrite_c_type(function->return_type, ti, instance,
+                       &function->return_application, &return_type);
+    } else {
+        rewrite(function->return_type, ti, instance, &return_type);
+    }
+    signature_mix(hash, return_type.p != NULL ? return_type.p : "",
+                  return_type.len);
+    buf_free(&return_type);
+    for (i = 0U; i < function->parameter_count; ++i) {
+        Buf parameter_type;
+        buf_init(&parameter_type);
+        if (function->parameters[i].application.constructor != NULL) {
+            rewrite_c_type(function->parameters[i].type, ti, instance,
+                           &function->parameters[i].application, &parameter_type);
+        } else {
+            rewrite(function->parameters[i].type, ti, instance, &parameter_type);
+        }
+        signature_mix(hash, parameter_type.p != NULL ? parameter_type.p : "",
+                      parameter_type.len);
+        buf_free(&parameter_type);
+    }
+    if (function->start_offset >= function->end_offset ||
+        function->end_offset > ti->body.len) return;
+    body = copy_range(ti->body.p + function->start_offset,
+                      (size_t)(function->end_offset - function->start_offset));
+    specialized_calls = specialize_function_calls(body, ti, instance, function, 0, 0);
+    buf_init(&specialized_body);
+    rewrite(specialized_calls, ti, instance, &specialized_body);
+    signature_mix(hash, specialized_body.p != NULL ? specialized_body.p : "",
+                  specialized_body.len);
+    buf_free(&specialized_body);
+    free(specialized_calls);
+    free(body);
+}
+
+static unsigned long long source_facts_pass2_key(const SourceFile *source,
+                                                  const TemplateInfo *infos,
+                                                  size_t template_count,
+                                                  const Buf *full_bootstrap)
+{
+    unsigned long long hash = 14695981039346656037ULL;
+    char numeric[64];
+    size_t i, j;
+    int use_global_bootstrap = g_dispatch_backend == GEN_DISPATCH_NONE ||
+        source_has_suffix_api_call(source, infos, template_count);
+    (void)snprintf(numeric, sizeof(numeric), "%016llx",
+                   source->facts.pass1_key);
+    signature_mix(&hash, numeric, strlen(numeric));
+    for (i = 0U; i < template_count; ++i) {
+        signature_mix(&hash, infos[i].path, strlen(infos[i].path));
+        signature_mix(&hash, infos[i].body.p != NULL ? infos[i].body.p : "",
+                      infos[i].body.len);
+    }
+    for (i = 0U; i < source->facts.dependencies.count; ++i) {
+        unsigned long long hash1, hash2;
+        if (!cache_file_hash(source->facts.dependencies.items[i], &hash1, &hash2)) {
+            use_global_bootstrap = 1;
+            break;
+        }
+        signature_mix(&hash, source->facts.dependencies.items[i],
+                      strlen(source->facts.dependencies.items[i]));
+        (void)snprintf(numeric, sizeof(numeric), "%016llx:%016llx", hash1, hash2);
+        signature_mix(&hash, numeric, strlen(numeric));
+    }
+    for (i = 0U; i < source->facts.constructor_count; ++i) {
+        const SourceConstructorFact *fact = &source->facts.constructors[i];
+        signature_mix(&hash, fact->functor, strlen(fact->functor));
+        for (j = 0U; j < fact->argument_count; ++j) {
+            signature_mix(&hash, fact->spellings[j], strlen(fact->spellings[j]));
+            signature_mix(&hash, fact->canonicals[j], strlen(fact->canonicals[j]));
+        }
+    }
+    if (use_global_bootstrap) {
+        signature_mix(&hash, full_bootstrap->p != NULL ? full_bootstrap->p : "",
+                      full_bootstrap->len);
+        return hash;
+    }
+    for (i = 0U; i < source->facts.pass1_uses.count; ++i) {
+        const ClangUse *call = &source->facts.pass1_uses.items[i];
+        size_t template_index = 0U;
+        const TemplateFunction *function;
+        const char **call_canonicals;
+        unsigned char *assigned;
+        int complete = 1;
+        int matched = 0;
+        size_t prior;
+        if (!generic_function_template(infos, template_count, call->name,
+                                       &template_index)) continue;
+        function = find_template_function(&infos[template_index], call->name);
+        if (function == NULL || function->dispatch_count == 0U) {
+            use_global_bootstrap = 1;
+            break;
+        }
+        for (prior = 0U; prior < i; ++prior) {
+            if (source_call_group_equal(call,
+                                        &source->facts.pass1_uses.items[prior])) break;
+        }
+        if (prior != i) continue;
+        call_canonicals = (const char **)calloc(function->dispatch_count,
+                                                sizeof(*call_canonicals));
+        assigned = (unsigned char *)calloc(function->dispatch_count,
+                                            sizeof(*assigned));
+        if (call_canonicals == NULL || assigned == NULL) die("out of memory");
+        for (j = i; j < source->facts.pass1_uses.count; ++j) {
+            const ClangUse *use = &source->facts.pass1_uses.items[j];
+            size_t dispatch_index;
+            if (!source_call_group_equal(call, use)) continue;
+            for (dispatch_index = 0U; dispatch_index < function->dispatch_count;
+                 ++dispatch_index) {
+                if (function->dispatch_indices[dispatch_index] != use->argument_index) {
+                    continue;
+                }
+                if (use->canonical_spelling == NULL ||
+                    use->canonical_spelling[0] == '\0') {
+                    complete = 0;
+                } else {
+                    call_canonicals[dispatch_index] = use->canonical_spelling;
+                    assigned[dispatch_index] = 1U;
+                }
+            }
+        }
+        for (j = 0U; j < function->dispatch_count; ++j) {
+            if (!assigned[j]) complete = 0;
+        }
+        if (!complete) {
+            free(call_canonicals); free(assigned);
+            use_global_bootstrap = 1;
+            break;
+        }
+        signature_mix(&hash, call->name, strlen(call->name));
+        for (j = 0U; j < function->dispatch_count; ++j) {
+            signature_mix(&hash, call_canonicals[j], strlen(call_canonicals[j]));
+        }
+        for (j = 0U; j < g_generic_use_count; ++j) {
+            const GenericUse *generic = &g_generic_uses[j];
+            size_t dispatch_index;
+            GenInstance *instance;
+            size_t *parameter_indices;
+            size_t parameter_index;
+            if (!generic->dispatch || !str_eq(generic->name, call->name) ||
+                generic->dispatch_count != function->dispatch_count) continue;
+            for (dispatch_index = 0U;
+                 dispatch_index < function->dispatch_count; ++dispatch_index) {
+                if (generic->dispatch_indices[dispatch_index] !=
+                        function->dispatch_indices[dispatch_index] ||
+                    !str_eq(generic->dispatch_canonicals[dispatch_index],
+                            call_canonicals[dispatch_index])) break;
+            }
+            if (dispatch_index != function->dispatch_count) continue;
+            matched = 1;
+            signature_mix(&hash, generic->type_name, strlen(generic->type_name));
+            parameter_indices = (size_t *)malloc(
+                function->type_parameter_count * sizeof(*parameter_indices));
+            if (parameter_indices == NULL) die("out of memory");
+            for (parameter_index = 0U;
+                 parameter_index < function->type_parameter_count;
+                 ++parameter_index) {
+                int mapped = template_parameter_index(&infos[template_index],
+                    function->type_parameters[parameter_index]);
+                if (mapped < 0) die("invalid pass-two cache parameter map");
+                parameter_indices[parameter_index] = (size_t)mapped;
+            }
+            instance = find_instance(template_index, generic->type_name,
+                                     parameter_indices,
+                                     function->type_parameter_count);
+            free(parameter_indices);
+            if (instance == NULL) {
+                free(call_canonicals); free(assigned);
+                use_global_bootstrap = 1;
+                break;
+            }
+            source_hash_specialization(&hash, &infos[template_index],
+                                       function, instance);
+        }
+        free(call_canonicals); free(assigned);
+        if (use_global_bootstrap) break;
+        if (!matched) {
+            signature_mix(&hash, "no-matching-dispatch", 20U);
+        }
+    }
+    if (use_global_bootstrap) {
+        signature_mix(&hash, full_bootstrap->p != NULL ? full_bootstrap->p : "",
+                      full_bootstrap->len);
+    }
+    return hash;
+}
+
 static int discover_source_usages(const TemplateInfo *infos, size_t template_count,
-                                 SourceList *files)
+                                  SourceList *files)
 {
     CXIndex index;
     Buf bootstrap;
@@ -7701,12 +8264,29 @@ static int discover_source_usages(const TemplateInfo *infos, size_t template_cou
     buf_init(&bootstrap);
     emit_bootstrap_header(&bootstrap, infos, template_count, 0);
     for (i = 0U; i < files->count; ++i) {
-        ClangUseList uses;
-        memset(&uses, 0, sizeof(uses));
-        if (!parse_source_with_clang(index, &files->items[i], &bootstrap,
-                                     1, infos, template_count, files, &uses)) success = 0;
-        (void)process_clang_uses(&uses, infos, template_count, 0);
-        clang_use_list_free(&uses);
+        SourceFile *source = &files->items[i];
+        SourceFacts *facts = &source->facts;
+        unsigned long long pass1_key = source_facts_key(source, &bootstrap, 1);
+        int pass1_ok = 1;
+        if (g_tu_cache_enabled && !facts->loaded) {
+            (void)source_facts_load(source, files);
+        }
+        if (!g_tu_cache_enabled || !facts->loaded || !facts->pass1_valid ||
+            facts->pass1_key != pass1_key) {
+            source_facts_reset(facts);
+            facts->pass1_key = pass1_key;
+            pass1_ok = parse_source_with_clang(index, source, &bootstrap,
+                1, infos, template_count, files, &facts->pass1_uses, facts);
+            facts->pass1_valid = pass1_ok;
+            facts->loaded = g_tu_cache_enabled;
+            if (!pass1_ok) success = 0;
+        } else if (g_verbose) {
+            fprintf(stderr, "tmplgen: reused source facts pass 1 for %s\n",
+                    source->path);
+        }
+        if (!pass1_ok) continue;
+        source_facts_apply(facts);
+        (void)process_clang_uses(&facts->pass1_uses, infos, template_count, 0);
     }
     buf_free(&bootstrap);
     if (success) {
@@ -7716,16 +8296,35 @@ static int discover_source_usages(const TemplateInfo *infos, size_t template_cou
         expand_dependencies_to_fixpoint(infos, template_count, 0);
         emit_bootstrap_header(&bootstrap, infos, template_count, 1);
         for (i = 0U; i < files->count; ++i) {
-            ClangUseList uses;
-            memset(&uses, 0, sizeof(uses));
-            if (!parse_source_with_clang(index, &files->items[i], &bootstrap,
-                                          2, infos, template_count, files, &uses)) success = 0;
-            if (!process_clang_uses(&uses, infos, template_count, 1)) {
+            SourceFile *source = &files->items[i];
+            SourceFacts *facts = &source->facts;
+            unsigned long long pass2_key = source_facts_pass2_key(
+                source, infos, template_count, &bootstrap);
+            int pass2_ok = 1;
+            if (!g_tu_cache_enabled || !facts->loaded ||
+                !facts->pass2_valid || facts->pass2_key != pass2_key) {
+                clang_use_list_free(&facts->pass2_uses);
+                facts->pass2_key = pass2_key;
+                pass2_ok = parse_source_with_clang(index, source, &bootstrap,
+                    2, infos, template_count, files, &facts->pass2_uses, facts);
+                facts->pass2_valid = pass2_ok;
+                facts->loaded = g_tu_cache_enabled;
+                if (!pass2_ok) success = 0;
+            } else if (g_verbose) {
+                fprintf(stderr, "tmplgen: reused source facts pass 2 for %s\n",
+                        source->path);
+            }
+            if (!pass2_ok) continue;
+            if (!process_clang_uses(&facts->pass2_uses, infos, template_count, 1)) {
                 /* Inference warnings do not stop source discovery. */
             }
-            clang_use_list_free(&uses);
         }
         expand_dependencies_to_fixpoint(infos, template_count, 1);
+        if (success && g_tu_cache_enabled) {
+            for (i = 0U; i < files->count; ++i) {
+                source_facts_save(&files->items[i], files);
+            }
+        }
     }
     buf_free(&bootstrap);
     clang_disposeIndex(index);
@@ -7994,6 +8593,7 @@ static int compute_input_signature(unsigned long long *signature)
     } else if (g_cache_enabled) {
         /* Without a stable binary identity, conservatively disable the cache. */
         g_cache_enabled = 0;
+        g_tu_cache_enabled = 0;
     }
     for (i = 0U; i < g_clang_arg_count; ++i) {
         signature_mix(&hash, g_clang_args[i], strlen(g_clang_args[i]));
@@ -8107,19 +8707,28 @@ done:
     return okay;
 }
 
-static int cache_write_record(FILE *file, const char *path)
+static int cache_write_hashed_record(FILE *file, const CacheRecord *record)
 {
-    unsigned long long hash1, hash2;
     size_t i;
-    if (!cache_file_hash(path, &hash1, &hash2) ||
-        fprintf(file, "%016llx %016llx %lu\n", hash1, hash2,
-                (unsigned long)strlen(path)) < 0) return 0;
-    for (i = 0U; path[i] != '\0'; ++i) {
-        if (fprintf(file, "%02x", (unsigned int)(unsigned char)path[i]) < 0) {
+    if (fprintf(file, "%016llx %016llx %lu\n", record->hash1,
+                record->hash2, (unsigned long)strlen(record->path)) < 0) return 0;
+    for (i = 0U; record->path[i] != '\0'; ++i) {
+        if (fprintf(file, "%02x", (unsigned int)(unsigned char)record->path[i]) < 0) {
             return 0;
         }
     }
     return fputc('\n', file) != EOF;
+}
+
+static int cache_write_record(FILE *file, const char *path)
+{
+    unsigned long long hash1, hash2;
+    CacheRecord record;
+    if (path == NULL || !cache_file_hash(path, &hash1, &hash2)) return 0;
+    record.path = (char *)path;
+    record.hash1 = hash1;
+    record.hash2 = hash2;
+    return cache_write_hashed_record(file, &record);
 }
 
 static char *cache_manifest_path(void)
@@ -8244,6 +8853,439 @@ done:
     else if (g_verbose) fprintf(stderr, "tmplgen: updated cache %s\n", path);
     cache_record_list_free(&dependencies);
     free(path);
+    return okay;
+}
+
+static unsigned long long source_facts_key(const SourceFile *source,
+                                           const Buf *bootstrap, int pass)
+{
+    unsigned long long hash = 14695981039346656037ULL;
+    unsigned long long binary_hash1, binary_hash2;
+    CXString clang_version;
+    char *clang_version_text;
+    char *working_directory = absolute_path(".");
+    char config[128];
+    size_t i;
+    signature_mix(&hash, source->path, strlen(source->path));
+    signature_mix(&hash, source->text.p != NULL ? source->text.p : "",
+                  source->text.len);
+    signature_mix(&hash, bootstrap->p != NULL ? bootstrap->p : "",
+                  bootstrap->len);
+    signature_mix(&hash, g_source_root, strlen(g_source_root));
+    signature_mix(&hash, g_absolute_template_dir,
+                  strlen(g_absolute_template_dir));
+    signature_mix(&hash, working_directory, strlen(working_directory));
+    signature_mix(&hash, g_output_path, strlen(g_output_path));
+    signature_mix(&hash, g_generated_dir, strlen(g_generated_dir));
+    (void)snprintf(config, sizeof(config), "%d:%d:%d:%d", pass,
+                   g_dispatch_backend, g_emit_line, g_compiled_output);
+    signature_mix(&hash, config, strlen(config));
+    signature_mix(&hash, __DATE__, strlen(__DATE__));
+    signature_mix(&hash, __TIME__, strlen(__TIME__));
+    for (i = 0U; i < g_clang_arg_count; ++i) {
+        signature_mix(&hash, g_clang_args[i], strlen(g_clang_args[i]));
+    }
+    {
+        static const char *const clang_environment[] = {
+            "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH",
+            "OBJC_INCLUDE_PATH", "SDKROOT", "INCLUDE"
+        };
+        size_t environment_index;
+        for (environment_index = 0U;
+             environment_index < sizeof(clang_environment) /
+                                     sizeof(clang_environment[0]);
+             ++environment_index) {
+            const char *value = getenv(clang_environment[environment_index]);
+            signature_mix(&hash, clang_environment[environment_index],
+                          strlen(clang_environment[environment_index]));
+            if (value != NULL) signature_mix(&hash, value, strlen(value));
+        }
+    }
+    clang_version = clang_getClangVersion();
+    clang_version_text = copy_cx_string(clang_version);
+    signature_mix(&hash, clang_version_text, strlen(clang_version_text));
+    free(clang_version_text);
+    if (g_executable_path != NULL &&
+        cache_file_hash(g_executable_path, &binary_hash1, &binary_hash2)) {
+        signature_mix(&hash, g_executable_path, strlen(g_executable_path));
+        (void)snprintf(config, sizeof(config), "%016llx:%016llx",
+                       binary_hash1, binary_hash2);
+        signature_mix(&hash, config, strlen(config));
+    }
+    free(working_directory);
+    return hash;
+}
+
+static char *source_facts_cache_path(const char *source_path)
+{
+    unsigned long long hash1 = 14695981039346656037ULL;
+    unsigned long long hash2 = 7809847782465536322ULL;
+    size_t i;
+    char filename[96];
+    for (i = 0U; source_path[i] != '\0'; ++i) {
+        unsigned long long byte = (unsigned long long)(unsigned char)source_path[i];
+        hash1 = (hash1 ^ byte) * 1099511628211ULL;
+        hash2 ^= byte + 0x9e3779b97f4a7c15ULL + (hash2 << 6U) + (hash2 >> 2U);
+        hash2 *= 0xbf58476d1ce4e5b9ULL;
+    }
+    (void)snprintf(filename, sizeof(filename),
+                   ".tmplgen-facts-%016llx%016llx.cache", hash1, hash2);
+    return join_path(g_generated_dir, filename);
+}
+
+static int source_facts_write_string(FILE *file, const char *value)
+{
+    size_t i;
+    size_t length = strlen(value != NULL ? value : "");
+    if (fprintf(file, "%lu\n", (unsigned long)length) < 0) return 0;
+    value = value != NULL ? value : "";
+    for (i = 0U; i < length; ++i) {
+        if (fprintf(file, "%02x", (unsigned int)(unsigned char)value[i]) < 0) {
+            return 0;
+        }
+    }
+    return fputc('\n', file) != EOF;
+}
+
+static int source_facts_read_string(FILE *file, char **value)
+{
+    unsigned long length;
+    unsigned long i;
+    char *decoded;
+    if (fscanf(file, "%lu\n", &length) != 1 || length > 16777216UL) return 0;
+    decoded = (char *)malloc((size_t)length + 1U);
+    if (decoded == NULL) die("out of memory");
+    for (i = 0UL; i < length; ++i) {
+        int high = cache_hex_value(fgetc(file));
+        int low = cache_hex_value(fgetc(file));
+        if (high < 0 || low < 0 || (high == 0 && low == 0)) {
+            free(decoded);
+            return 0;
+        }
+        decoded[i] = (char)((high << 4) | low);
+    }
+    if (fgetc(file) != '\n') {
+        free(decoded);
+        return 0;
+    }
+    decoded[length] = '\0';
+    *value = decoded;
+    return 1;
+}
+
+static int source_facts_write_uses(FILE *file, const ClangUseList *uses,
+                                   const SourceList *files)
+{
+    size_t i;
+    if (fprintf(file, "%lu\n", (unsigned long)uses->count) < 0) return 0;
+    for (i = 0U; i < uses->count; ++i) {
+        const ClangUse *use = &uses->items[i];
+        const char *argument_path = "";
+        if (use->argument_file_index < files->count) {
+            argument_path = files->items[use->argument_file_index].path;
+        }
+        if (fprintf(file, "%u %lu %u %u %u\n", use->offset,
+                    (unsigned long)use->line, use->argument_index,
+                    use->argument_start, use->argument_end) < 0 ||
+            !source_facts_write_string(file, use->name) ||
+            !source_facts_write_string(file, use->path) ||
+            !source_facts_write_string(file, argument_path) ||
+            !source_facts_write_string(file, use->type_spelling) ||
+            !source_facts_write_string(file, use->canonical_spelling)) return 0;
+    }
+    return 1;
+}
+
+static int source_facts_read_uses(FILE *file, ClangUseList *uses,
+                                  const SourceList *files)
+{
+    unsigned long count, i;
+    if (fscanf(file, "%lu\n", &count) != 1 || count > 10000000UL) return 0;
+    for (i = 0UL; i < count; ++i) {
+        unsigned long offset, line, argument_index, argument_start, argument_end;
+        char *name = NULL, *path = NULL, *argument_path = NULL;
+        char *type = NULL, *canonical = NULL;
+        ClangUse *next;
+        size_t new_cap;
+        size_t argument_file_index;
+        int okay = fscanf(file, "%lu %lu %lu %lu %lu\n", &offset, &line,
+                          &argument_index, &argument_start, &argument_end) == 5 &&
+                   offset <= UINT_MAX && argument_index <= UINT_MAX &&
+                   argument_start <= UINT_MAX && argument_end <= UINT_MAX &&
+                   source_facts_read_string(file, &name) &&
+                   source_facts_read_string(file, &path) &&
+                   source_facts_read_string(file, &argument_path) &&
+                   source_facts_read_string(file, &type) &&
+                   source_facts_read_string(file, &canonical);
+        if (!okay) {
+            free(name); free(path); free(argument_path); free(type); free(canonical);
+            return 0;
+        }
+        argument_file_index = argument_path[0] != '\0' ?
+            source_list_index_for_path(files, argument_path) : (size_t)-1;
+        if (uses->count == uses->cap) {
+            new_cap = uses->cap == 0U ? 8U : uses->cap * 2U;
+            if (new_cap < uses->cap ||
+                new_cap > (size_t)-1 / sizeof(*uses->items)) {
+                die("too many cached Clang uses");
+            }
+            next = (ClangUse *)realloc(uses->items,
+                                      new_cap * sizeof(*uses->items));
+            if (next == NULL) die("out of memory");
+            uses->items = next;
+            uses->cap = new_cap;
+        }
+        memset(&uses->items[uses->count], 0, sizeof(*uses->items));
+        uses->items[uses->count].name = name;
+        uses->items[uses->count].path = path;
+        uses->items[uses->count].offset = (unsigned)offset;
+        uses->items[uses->count].line = (size_t)line;
+        uses->items[uses->count].argument_index = (unsigned)argument_index;
+        uses->items[uses->count].argument_file_index = argument_file_index;
+        uses->items[uses->count].argument_start = (unsigned)argument_start;
+        uses->items[uses->count].argument_end = (unsigned)argument_end;
+        uses->items[uses->count].type_spelling = type[0] != '\0' ? type : NULL;
+        uses->items[uses->count].canonical_spelling =
+            canonical[0] != '\0' ? canonical : NULL;
+        if (type[0] == '\0') free(type);
+        if (canonical[0] == '\0') free(canonical);
+        free(argument_path);
+        ++uses->count;
+    }
+    return 1;
+}
+
+static int source_facts_load(SourceFile *source, const SourceList *files)
+{
+    char *path = source_facts_cache_path(source->path);
+    FILE *file = fopen(path, "rb");
+    char header[40];
+    unsigned long count, i;
+    int okay = 0;
+    source_facts_reset(&source->facts);
+    if (file == NULL) {
+        free(path);
+        return 0;
+    }
+    if (fgets(header, sizeof(header), file) == NULL ||
+        !str_eq(header, "TMPLGEN-FACTS-1\n") ||
+        fscanf(file, "%16llx %16llx\n", &source->facts.pass1_key,
+               &source->facts.pass2_key) != 2 ||
+        fscanf(file, "%lu\n", &count) != 1 || count > 1000000UL) goto done;
+    for (i = 0UL; i < count; ++i) {
+        CacheRecordList dependency;
+        unsigned long long hash1, hash2;
+        memset(&dependency, 0, sizeof(dependency));
+        if (!cache_read_record(file, &dependency) || dependency.count != 1U) {
+            cache_record_list_free(&dependency);
+            goto done;
+        }
+        hash1 = dependency.items[0].hash1;
+        hash2 = dependency.items[0].hash2;
+        if (!cache_file_hash(dependency.items[0].path, &hash1, &hash2) ||
+            hash1 != dependency.items[0].hash1 ||
+            hash2 != dependency.items[0].hash2) {
+            cache_record_list_free(&dependency);
+            goto done;
+        }
+        string_set_add(&source->facts.dependencies, dependency.items[0].path);
+        cache_add_dependency_path(&g_clang_dependencies, dependency.items[0].path);
+        cache_record_list_free(&dependency);
+    }
+    if (fscanf(file, "%lu\n", &count) != 1 || count > 1000000UL) goto done;
+    for (i = 0UL; i < count; ++i) {
+        char *name = NULL, *canonical = NULL;
+        if (!source_facts_read_string(file, &name) ||
+            !source_facts_read_string(file, &canonical)) {
+            free(name); free(canonical);
+            goto done;
+        }
+        source_facts_add_alias(&source->facts, name, canonical);
+        free(name); free(canonical);
+    }
+    if (fscanf(file, "%lu\n", &count) != 1 || count > 1000000UL) goto done;
+    for (i = 0UL; i < count; ++i) {
+        unsigned long template_index, argument_count, j;
+        char *functor = NULL;
+        size_t *indices = NULL;
+        char **spellings = NULL, **canonicals = NULL;
+        if (fscanf(file, "%lu %lu\n", &template_index, &argument_count) != 2 ||
+            template_index >= gen_template_count() || argument_count > 1024UL ||
+            !source_facts_read_string(file, &functor)) {
+            free(functor);
+            goto done;
+        }
+        if (argument_count != 0UL) {
+            indices = (size_t *)malloc((size_t)argument_count * sizeof(*indices));
+            spellings = (char **)calloc((size_t)argument_count, sizeof(*spellings));
+            canonicals = (char **)calloc((size_t)argument_count, sizeof(*canonicals));
+            if (indices == NULL || spellings == NULL || canonicals == NULL) {
+                die("out of memory");
+            }
+            for (j = 0UL; j < argument_count; ++j) {
+                unsigned long parameter_index;
+                if (fscanf(file, "%lu\n", &parameter_index) != 1 ||
+                    !source_facts_read_string(file, &spellings[j]) ||
+                    !source_facts_read_string(file, &canonicals[j])) {
+                    size_t free_index;
+                    free(functor);
+                    for (free_index = 0U; free_index < (size_t)argument_count;
+                         ++free_index) {
+                        free(spellings[free_index]); free(canonicals[free_index]);
+                    }
+                    free(indices); free(spellings); free(canonicals);
+                    goto done;
+                }
+                indices[j] = (size_t)parameter_index;
+            }
+        }
+        source_facts_add_constructor(&source->facts, (size_t)template_index,
+            functor, indices, (const char *const *)spellings,
+            (const char *const *)canonicals, (size_t)argument_count);
+        free(functor);
+        for (j = 0UL; j < argument_count; ++j) {
+            free(spellings[j]); free(canonicals[j]);
+        }
+        free(indices); free(spellings); free(canonicals);
+    }
+    if (fscanf(file, "%lu\n", &count) != 1 || count > 1000000UL) goto done;
+    for (i = 0UL; i < count; ++i) {
+        StructuralSchema schema;
+        unsigned long is_union, field_count, j;
+        memset(&schema, 0, sizeof(schema));
+        if (fscanf(file, "%lu %lu\n", &is_union, &field_count) != 2 ||
+            is_union > 1UL || field_count > 1000000UL ||
+            !source_facts_read_string(file, &schema.name)) {
+            free(schema.name);
+            goto done;
+        }
+        schema.is_union = (int)is_union;
+        for (j = 0UL; j < field_count; ++j) {
+            char *field = NULL;
+            if (!source_facts_read_string(file, &field)) {
+                free(field); free(schema.name);
+                list_free(schema.fields, schema.field_count);
+                goto done;
+            }
+            list_add(&schema.fields, &schema.field_count, &schema.field_cap, field);
+            free(field);
+        }
+        source_facts_add_schema(&source->facts, &schema);
+        free(schema.name);
+        list_free(schema.fields, schema.field_count);
+    }
+    if (!source_facts_read_uses(file, &source->facts.pass1_uses, files) ||
+        !source_facts_read_uses(file, &source->facts.pass2_uses, files)) goto done;
+    if (fgetc(file) == EOF && !ferror(file)) okay = 1;
+done:
+    (void)fclose(file);
+    free(path);
+    if (!okay) {
+        source_facts_reset(&source->facts);
+        return 0;
+    }
+    source->facts.loaded = 1;
+    source->facts.pass1_valid = 1;
+    source->facts.pass2_valid = 1;
+    return 1;
+}
+
+static int source_facts_save(const SourceFile *source,
+                             const SourceList *files)
+{
+    CacheRecordList dependencies;
+    char *path;
+    char *temporary;
+    FILE *file;
+    size_t i;
+    int okay = 0;
+    if (!g_tu_cache_enabled || !source->facts.pass1_valid ||
+        !source->facts.pass2_valid) return 0;
+    memset(&dependencies, 0, sizeof(dependencies));
+    for (i = 0U; i < source->facts.dependencies.count; ++i) {
+        unsigned long long hash1, hash2;
+        if (!cache_file_hash(source->facts.dependencies.items[i], &hash1, &hash2)) {
+            cache_record_list_free(&dependencies);
+            return 0;
+        }
+        cache_record_list_add(&dependencies, source->facts.dependencies.items[i],
+                              hash1, hash2);
+    }
+    path = source_facts_cache_path(source->path);
+    {
+        Buf temp;
+        buf_init(&temp);
+        buf_puts(&temp, path);
+        buf_puts(&temp, ".tmp");
+        temporary = temp.p;
+    }
+    if (!ensure_parent_directories(path)) goto done;
+    file = fopen(temporary, "wb");
+    if (file == NULL) goto done;
+    if (fprintf(file, "TMPLGEN-FACTS-1\n%016llx %016llx\n%lu\n",
+                source->facts.pass1_key, source->facts.pass2_key,
+                (unsigned long)dependencies.count) < 0) goto close_file;
+    for (i = 0U; i < dependencies.count; ++i) {
+        if (!cache_write_hashed_record(file, &dependencies.items[i])) goto close_file;
+    }
+    if (fprintf(file, "%lu\n", (unsigned long)source->facts.alias_count) < 0) {
+        goto close_file;
+    }
+    for (i = 0U; i < source->facts.alias_count; ++i) {
+        if (!source_facts_write_string(file, source->facts.aliases[i].name) ||
+            !source_facts_write_string(file, source->facts.aliases[i].canonical)) {
+            goto close_file;
+        }
+    }
+    if (fprintf(file, "%lu\n", (unsigned long)source->facts.constructor_count) < 0) {
+        goto close_file;
+    }
+    for (i = 0U; i < source->facts.constructor_count; ++i) {
+        const SourceConstructorFact *fact = &source->facts.constructors[i];
+        size_t argument_index;
+        if (fprintf(file, "%lu %lu\n", (unsigned long)fact->template_index,
+                    (unsigned long)fact->argument_count) < 0 ||
+            !source_facts_write_string(file, fact->functor)) goto close_file;
+        for (argument_index = 0U; argument_index < fact->argument_count;
+             ++argument_index) {
+            if (fprintf(file, "%lu\n",
+                        (unsigned long)fact->parameter_indices[argument_index]) < 0 ||
+                !source_facts_write_string(file, fact->spellings[argument_index]) ||
+                !source_facts_write_string(file, fact->canonicals[argument_index])) {
+                goto close_file;
+            }
+        }
+    }
+    if (fprintf(file, "%lu\n", (unsigned long)source->facts.schema_count) < 0) {
+        goto close_file;
+    }
+    for (i = 0U; i < source->facts.schema_count; ++i) {
+        const StructuralSchema *schema = &source->facts.schemas[i];
+        size_t field_index;
+        if (fprintf(file, "%u %lu\n", (unsigned)schema->is_union,
+                    (unsigned long)schema->field_count) < 0 ||
+            !source_facts_write_string(file, schema->name)) goto close_file;
+        for (field_index = 0U; field_index < schema->field_count; ++field_index) {
+            if (!source_facts_write_string(file, schema->fields[field_index])) {
+                goto close_file;
+            }
+        }
+    }
+    if (!source_facts_write_uses(file, &source->facts.pass1_uses, files) ||
+        !source_facts_write_uses(file, &source->facts.pass2_uses, files)) goto close_file;
+    okay = 1;
+close_file:
+    if (fclose(file) != 0) okay = 0;
+    if (okay) {
+        (void)remove(path);
+        if (rename(temporary, path) != 0) okay = 0;
+    }
+done:
+    if (!okay) (void)remove(temporary);
+    else if (g_verbose) fprintf(stderr, "tmplgen: saved source facts %s\n", path);
+    free(temporary);
+    free(path);
+    cache_record_list_free(&dependencies);
     return okay;
 }
 
@@ -8389,6 +9431,7 @@ int main(int argc, char **argv)
     g_dispatch_backend = GEN_DISPATCH;
     g_emit_line = GEN_EMIT_LINE;
     g_cache_enabled = 1;
+    g_tu_cache_enabled = 1;
     for (i = 1; i < argc; ++i) {
         if (str_eq(argv[i], "--help")) {
             usage(stdout);
@@ -8401,6 +9444,7 @@ int main(int argc, char **argv)
             watch = 1;
         } else if (str_eq(argv[i], "--no-cache")) {
             g_cache_enabled = 0;
+            g_tu_cache_enabled = 0;
         } else if (str_eq(argv[i], "--compiled")) {
             g_compiled_output = 1;
         } else if (str_eq(argv[i], "--source-root") ||

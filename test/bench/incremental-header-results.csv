@@ -1,0 +1,8 @@
+types,modules,functions_per_module,source_files,calls,expected_specializations,generated_specializations,compiled_output,change_kind,phase,iteration,changed_source_files,changed_calls,changed_outputs,pass1_facts_hits,pass2_facts_hits,seconds
+64,12,8,7,780,6144,6144,0,type-header,cold,0,0,0,13,0,0,3.435775351943448
+64,12,8,7,780,6144,6144,0,type-header,type_update,1,8,24,13,0,0,3.471999734058045
+64,12,8,7,780,6144,6144,0,type-header,type_update,2,8,24,13,0,0,3.4236188570503145
+64,12,8,7,780,6144,6144,0,type-header,type_update,3,8,24,13,0,0,3.4377178869908676
+64,12,8,7,780,6144,6144,0,type-header,unchanged_cache,1,0,0,0,0,0,0.03323010099120438
+64,12,8,7,780,6144,6144,0,type-header,unchanged_cache,2,0,0,0,0,0,0.03306821803562343
+64,12,8,7,780,6144,6144,0,type-header,unchanged_cache,3,0,0,0,0,0,0.0340653529856354

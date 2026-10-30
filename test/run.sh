@@ -13,6 +13,7 @@ cd "$ROOT"
     tmplgen.c -lclang -o "$BUILD/tmplgen"
 "$BUILD/tmplgen" --clang-arg=-std=c23
 "$BUILD/tmplgen" --check --clang-arg=-std=c23
+"$BUILD/tmplgen" --check --no-cache --clang-arg=-std=c23
 if grep -R -q 'typedef int int' gen; then
     printf '%s\n' 'template LSP fallback leaked into generated output' >&2
     exit 1

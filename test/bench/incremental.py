@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import csv
 import os
+import re
 import statistics
+import subprocess
 import tempfile
 import time
 from pathlib import Path
@@ -22,31 +24,50 @@ from run import (
 )
 
 
-def add_type_and_retarget_calls(project: Path, old_name: str, new_name: str) -> tuple[int, int]:
-    types_path = project / "include" / "types.h"
-    types_contents = types_path.read_text()
-    guard_end = types_contents.rfind("\n#endif")
-    if guard_end < 0:
-        raise RuntimeError(f"missing final include guard in {types_path}")
-    declaration = (
-        f"\nstruct {new_name} {{\n"
-        "    unsigned long value;\n"
-        "};\n"
-    )
-    types_path.write_text(types_contents[:guard_end] + declaration + types_contents[guard_end:])
+def mutate_project(project: Path, old_name: str, new_name: str,
+                   change_kind: str) -> tuple[int, int]:
+    source_files = sorted((project / "src").glob("*.c"))
+    if not source_files:
+        raise RuntimeError(f"no C sources found in {project / 'src'}")
+    if change_kind == "body-only":
+        source = source_files[0]
+        source.write_text(source.read_text() +
+                          "\nvoid bench_incremental_edit(void) { }\n")
+        return 1, 0
+    if change_kind == "type-header":
+        types_path = project / "include" / "types.h"
+        types_contents = types_path.read_text()
+        old_decl = (f"struct {old_name} {{\n"
+                    "    unsigned long value;\n"
+                    "};")
+        new_decl = (f"struct {old_name} {{\n"
+                    "    unsigned long value;\n"
+                    "    unsigned long updated;\n"
+                    "};")
+        if old_decl not in types_contents:
+            raise RuntimeError(f"cannot find type definition {old_name} in {types_path}")
+        types_path.write_text(types_contents.replace(old_decl, new_decl, 1))
+        changed_files = 1
+        changed_calls = 0
+        for source in source_files:
+            original = source.read_text()
+            updated = original.replace(f"struct {old_name}", f"struct {new_name}")
+            if updated != original:
+                changed_files += 1
+                changed_calls += original.count(f"struct {old_name}")
+                source.write_text(updated)
+        if changed_calls == 0:
+            raise RuntimeError(f"no call sites found for {old_name}")
+        return changed_files, changed_calls
 
-    changed_files = 0
-    changed_calls = 0
-    for source in sorted((project / "src").glob("*.c")):
-        original = source.read_text()
-        updated = original.replace(f"struct {old_name}", f"struct {new_name}")
-        if updated != original:
-            changed_files += 1
-            changed_calls += original.count(f"struct {old_name}")
-            source.write_text(updated)
-    if changed_calls == 0:
-        raise RuntimeError(f"no call sites found for {old_name}")
-    return changed_files, changed_calls
+    source = source_files[0]
+    original = source.read_text()
+    old_argument = f"(struct {old_name} *)0"
+    if old_argument not in original:
+        raise RuntimeError(f"cannot find the seed type call in {source}")
+    updated = original.replace(old_argument, f"(struct {new_name} *)0", 1)
+    source.write_text(updated)
+    return 1, 1
 
 
 def restore_project(project: Path, types_header: str,
@@ -71,15 +92,48 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer.writerows(rows)
 
 
+def timed_tmplgen(
+    command: list[str], project: Path, *, verbose: bool
+) -> tuple[float, int, int]:
+    start = time.perf_counter()
+    result = subprocess.run(command, cwd=project, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.PIPE, text=True)
+    elapsed = time.perf_counter() - start
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"tmplgen failed with exit status {result.returncode}:\n{result.stderr[-8000:]}"
+        )
+    pass1_hits = len(re.findall(r"reused source facts pass 1 for ", result.stderr))
+    pass2_hits = len(re.findall(r"reused source facts pass 2 for ", result.stderr))
+    if verbose:
+        for line in result.stderr.splitlines():
+            if "source facts" in line:
+                print(line)
+    return elapsed, pass1_hits, pass2_hits
+
+
 def measure(project: Path, binary: Path, *, types: int, modules: int,
             functions_per_module: int, calls_per_source: int,
-            repeats: int, dispatch: str, compiled: bool) -> list[dict[str, object]]:
+            repeats: int, dispatch: str, compiled: bool,
+            change_kind: str, verbose: bool) -> list[dict[str, object]]:
     metadata = generate_project(
         project,
-        types=types,
+        # Keep one declared-but-unused concrete type available for the edit.
+        types=types + 1,
         modules=modules,
         functions_per_module=functions_per_module,
         calls_per_source=calls_per_source,
+    )
+    spare_type = f"BenchType_{types:06d}"
+    first_type = "BenchType_000000"
+    for source in sorted((project / "src").glob("*.c")):
+        contents = source.read_text()
+        contents = contents.replace(f"struct {spare_type} *)0",
+                                    f"struct {first_type} *)0")
+        source.write_text(contents)
+    metadata["types"] = types
+    metadata["expected_function_specializations"] = (
+        types * modules * functions_per_module
     )
     generate = tmplgen_command(
         binary, project, check=False, dispatch=dispatch,
@@ -91,9 +145,9 @@ def measure(project: Path, binary: Path, *, types: int, modules: int,
     )
     rows: list[dict[str, object]] = []
 
-    start = time.perf_counter()
-    invoke(generate, cwd=project)
-    cold_seconds = time.perf_counter() - start
+    cold_seconds, _, _ = timed_tmplgen(
+        generate + (["--verbose"] if verbose else []), project, verbose=verbose
+    )
     invoke(check, cwd=project)
     expected = int(metadata["expected_function_specializations"])
     actual = specialization_count(project)
@@ -109,20 +163,23 @@ def measure(project: Path, binary: Path, *, types: int, modules: int,
         "expected_specializations": expected,
         "generated_specializations": actual,
         "compiled_output": int(compiled),
+        "change_kind": change_kind,
     }
     rows.append({**base_metrics, "phase": "cold", "iteration": 0,
                  "changed_source_files": 0,
                  "changed_calls": 0,
                  "changed_outputs": len(generated_snapshot(project)),
+                 "pass1_facts_hits": 0,
+                 "pass2_facts_hits": 0,
                  "seconds": cold_seconds})
 
     source_paths = sorted((project / "src").glob("*.c"))
     original_sources = {path: path.read_text() for path in source_paths}
     original_types = (project / "include" / "types.h").read_text()
     old_name = "BenchType_000000"
-    new_name = f"BenchType_{types:06d}"
-    changed_source_files, changed_calls = add_type_and_retarget_calls(
-        project, old_name, new_name
+    new_name = spare_type
+    changed_source_files, changed_calls = mutate_project(
+        project, old_name, new_name, change_kind
     )
     restore_project(project, original_types, original_sources)
 
@@ -132,23 +189,27 @@ def measure(project: Path, binary: Path, *, types: int, modules: int,
         if iteration % 2 == 0:
             restore_project(project, original_types, original_sources)
         else:
-            add_type_and_retarget_calls(project, old_name, new_name)
-        start = time.perf_counter()
-        invoke(generate, cwd=project)
-        seconds = time.perf_counter() - start
+            mutate_project(project, old_name, new_name, change_kind)
+        seconds, pass1_hits, pass2_hits = timed_tmplgen(
+            generate + (["--verbose"] if verbose else []), project,
+            verbose=verbose,
+        )
         update_samples.append(seconds)
         current_snapshot = generated_snapshot(project)
         changed_outputs = sum(
-            before_snapshot.get(name) != data
-            for name, data in current_snapshot.items()
+            before_snapshot.get(name) != data for name, data in current_snapshot.items()
         )
+        actual = specialization_count(project)
         rows.append({
             **base_metrics,
+            "generated_specializations": actual,
             "phase": "type_update",
             "iteration": iteration,
             "changed_source_files": changed_source_files,
             "changed_calls": changed_calls,
             "changed_outputs": changed_outputs,
+            "pass1_facts_hits": pass1_hits,
+            "pass2_facts_hits": pass2_hits,
             "seconds": seconds,
         })
 
@@ -166,11 +227,14 @@ def measure(project: Path, binary: Path, *, types: int, modules: int,
             "changed_source_files": 0,
             "changed_calls": 0,
             "changed_outputs": 0,
+            "pass1_facts_hits": 0,
+            "pass2_facts_hits": 0,
             "seconds": seconds,
         })
 
     print(
         f"cold={cold_seconds * 1000.0:.2f} ms; "
+        f"change={change_kind}; "
         f"one-type update median={statistics.median(update_samples) * 1000.0:.2f} ms "
         f"({changed_source_files} source files, {changed_calls} call sites); "
         f"unchanged cache median={statistics.median(noop_samples) * 1000.0:.2f} ms"
@@ -193,12 +257,20 @@ def main() -> None:
         default=128,
     )
     parser.add_argument("--repeats", type=positive_argument("repeats"), default=3)
+    parser.add_argument(
+        "--change-kind",
+        choices=("local-call", "type-header", "body-only"),
+        default="local-call",
+        help="simulate a call-site type change, shared-header edit, or unrelated body edit",
+    )
     parser.add_argument("--dispatch", choices=("auto", "generic", "gnu", "none"),
                         default="auto")
     parser.add_argument("--compiled", action="store_true")
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--keep-project", action="store_true")
+    parser.add_argument("--verbose", action="store_true",
+                        help="print per-translation-unit Clang AST cache hits/saves")
     parser.add_argument("--csv", type=Path, default=Path("test/bench/incremental-results.csv"))
     arguments = parser.parse_args()
 
@@ -218,6 +290,7 @@ def main() -> None:
                 calls_per_source=arguments.calls_per_source,
                 repeats=arguments.repeats, dispatch=arguments.dispatch,
                 compiled=arguments.compiled,
+                change_kind=arguments.change_kind, verbose=arguments.verbose,
             )
             print(f"project kept at {project}")
         else:
@@ -231,6 +304,7 @@ def main() -> None:
                     calls_per_source=arguments.calls_per_source,
                     repeats=arguments.repeats, dispatch=arguments.dispatch,
                     compiled=arguments.compiled,
+                    change_kind=arguments.change_kind, verbose=arguments.verbose,
                 )
     csv_path = arguments.csv.resolve()
     csv_path.parent.mkdir(parents=True, exist_ok=True)
