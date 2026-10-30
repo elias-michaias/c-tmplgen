@@ -125,7 +125,7 @@ typedef struct {
     unsigned offset;
     size_t line;
     unsigned argument_index;
-    char *argument_path;
+    size_t argument_file_index;
     unsigned argument_start;
     unsigned argument_end;
     char *type_spelling;
@@ -1647,14 +1647,6 @@ static int template_parameter_index(const TemplateInfo *ti, const char *name)
     return -1;
 }
 
-static int template_name_in_path(const char *path, const char *expected)
-{
-    char *absolute = absolute_path(path);
-    int matches = str_eq(absolute, expected);
-    free(absolute);
-    return matches;
-}
-
 static void copy_template_constraints(TemplateConstraint **target,
                                      size_t *target_count, size_t *target_cap,
                                      const TemplateConstraint *source,
@@ -1955,7 +1947,7 @@ static void collect_type_spelling_parameters(const TemplateInfo *ti,
 typedef struct {
     TemplateInfo *info;
     CXTranslationUnit tu;
-    const char *absolute_path;
+    CXFile template_file;
     unsigned offset_bias;
     int failed;
 } TemplateAnalysis;
@@ -2145,22 +2137,27 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
     CXFile file = NULL;
     char *path;
     unsigned line = 0U, column = 0U, offset = 0U;
+    int own_file;
     clang_getExpansionLocation(location, &file, &line, &column, &offset);
     if (file == NULL) return CXChildVisit_Recurse;
-    path = copy_cx_string(clang_getFileName(file));
+    own_file = clang_File_isEqual(file, analysis->template_file) != 0U;
     if ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl) &&
         clang_isCursorDefinition(cursor) != 0U) {
-        char *record_name = copy_cx_string(clang_getCursorSpelling(cursor));
-        if (template_name_in_path(path, analysis->absolute_path) ||
-            template_requires_constraint(ti, record_name)) {
+        if (own_file) {
             register_structural_schema(cursor);
+        } else {
+            CXString spelling = clang_getCursorSpelling(cursor);
+            const char *record_name = clang_getCString(spelling);
+            int required = record_name != NULL &&
+                           template_requires_constraint(ti, record_name);
+            clang_disposeString(spelling);
+            if (required) register_structural_schema(cursor);
         }
-        free(record_name);
     }
-    if (!template_name_in_path(path, analysis->absolute_path)) {
-        free(path);
+    if (!own_file) {
         return CXChildVisit_Recurse;
     }
+    path = copy_cx_string(clang_getFileName(file));
     if (clang_getCursorKind(parent) != CXCursor_TranslationUnit) {
         free(path);
         return CXChildVisit_Recurse;
@@ -2613,7 +2610,15 @@ static int analyze_template(TemplateInfo *ti)
     }
     analysis.info = ti;
     analysis.tu = tu;
-    analysis.absolute_path = path;
+    analysis.template_file = clang_getFile(tu, path);
+    if (analysis.template_file == NULL) {
+        report_error(ti->path, 0U, "libclang could not resolve the template file");
+        clang_disposeTranslationUnit(tu);
+        clang_disposeIndex(index);
+        buf_free(&contents);
+        free(path);
+        return 0;
+    }
     analysis.failed = 0;
     clang_visitChildren(clang_getTranslationUnitCursor(tu),
                         collect_template_declarations, &analysis);
@@ -3528,8 +3533,9 @@ static char *application_suffix(const TemplateInfo *ti,
     char **owned;
     char *suffix;
     size_t i;
-    if (argument_count != constructor->parameter_count) return NULL;
-    spellings = (const char **)malloc(argument_count * sizeof(*spellings));
+    if (argument_count == 0U ||
+        argument_count != constructor->parameter_count) return NULL;
+    spellings = (const char **)calloc(argument_count, sizeof(*spellings));
     owned = (char **)calloc(argument_count, sizeof(*owned));
     if (spellings == NULL || owned == NULL) die("out of memory");
     for (i = 0U; i < argument_count; ++i) {
@@ -5107,7 +5113,7 @@ static void emit_type_functors(Buf *out, const TemplateInfo *ti)
 
 typedef struct {
     char *name;
-    char *path;
+    size_t file_index;
     char *type_spelling;
     char *canonical_spelling;
     unsigned offset;
@@ -5124,6 +5130,8 @@ typedef struct {
     size_t template_count;
     SourceList *files;
     ClangUseList *uses;
+    CXFile *scanned_files;
+    size_t scanned_file_count;
     SourceVariableList variables;
     int pass;
     int failed;
@@ -5272,7 +5280,7 @@ static int validate_structural_constraints(const TemplateInfo *infos,
 }
 
 static void source_variable_add(SourceVariableList *variables, const char *name,
-                                const char *path, const char *type_spelling,
+                                size_t file_index, const char *type_spelling,
                                 const char *canonical_spelling, unsigned offset)
 {
     SourceVariable *next;
@@ -5290,7 +5298,7 @@ static void source_variable_add(SourceVariableList *variables, const char *name,
         variables->cap = new_cap;
     }
     variables->items[variables->count].name = copy_string(name);
-    variables->items[variables->count].path = copy_string(path);
+    variables->items[variables->count].file_index = file_index;
     variables->items[variables->count].type_spelling = copy_string(type_spelling);
     variables->items[variables->count].canonical_spelling =
         copy_string(canonical_spelling);
@@ -5303,7 +5311,6 @@ static void source_variable_list_free(SourceVariableList *variables)
     size_t i;
     for (i = 0U; i < variables->count; ++i) {
         free(variables->items[i].name);
-        free(variables->items[i].path);
         free(variables->items[i].type_spelling);
         free(variables->items[i].canonical_spelling);
     }
@@ -5311,13 +5318,14 @@ static void source_variable_list_free(SourceVariableList *variables)
     memset(variables, 0, sizeof(*variables));
 }
 
-static int path_is_scanned(const SourceList *files, const char *path)
+static size_t clang_file_index(const ClangContext *context, CXFile file)
 {
     size_t i;
-    for (i = 0U; i < files->count; ++i) {
-        if (str_eq(files->items[i].path, path)) return 1;
+    for (i = 0U; i < context->scanned_file_count; ++i) {
+        if (context->scanned_files[i] != NULL &&
+            clang_File_isEqual(context->scanned_files[i], file) != 0U) return i;
     }
-    return 0;
+    return (size_t)-1;
 }
 
 static const TemplateType *find_template_type(const TemplateInfo *ti,
@@ -5531,9 +5539,19 @@ static int macro_argument_source_range(CXTranslationUnit tu, CXCursor cursor,
     return found_range;
 }
 
+static size_t source_list_index_for_path(const SourceList *files,
+                                         const char *path)
+{
+    size_t i;
+    for (i = 0U; i < files->count; ++i) {
+        if (str_eq(files->items[i].path, path)) return i;
+    }
+    return (size_t)-1;
+}
+
 static void clang_use_add(ClangUseList *list, const char *name, const char *path,
                           unsigned offset, size_t line, unsigned argument_index,
-                          const char *argument_path,
+                          size_t argument_file_index,
                           unsigned argument_start, unsigned argument_end)
 {
     size_t i;
@@ -5559,7 +5577,7 @@ static void clang_use_add(ClangUseList *list, const char *name, const char *path
     list->items[list->count].offset = offset;
     list->items[list->count].line = line;
     list->items[list->count].argument_index = argument_index;
-    list->items[list->count].argument_path = copy_string(argument_path);
+    list->items[list->count].argument_file_index = argument_file_index;
     list->items[list->count].argument_start = argument_start;
     list->items[list->count].argument_end = argument_end;
     list->items[list->count].type_spelling = NULL;
@@ -5573,7 +5591,6 @@ static void clang_use_list_free(ClangUseList *uses)
     for (i = 0U; i < uses->count; ++i) {
         free(uses->items[i].name);
         free(uses->items[i].path);
-        free(uses->items[i].argument_path);
         free(uses->items[i].type_spelling);
         free(uses->items[i].canonical_spelling);
     }
@@ -5592,24 +5609,33 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
     unsigned line = 0U;
     unsigned column = 0U;
     unsigned offset = 0U;
+    size_t source_file_index;
     char *path;
+    int scanned;
     (void)parent;
     clang_getExpansionLocation(location, &source_file, &line, &column, &offset);
     if (source_file == NULL) return CXChildVisit_Recurse;
-    path = copy_cx_string(clang_getFileName(source_file));
+    source_file_index = clang_file_index(context, source_file);
+    scanned = source_file_index != (size_t)-1;
     if ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl) &&
         clang_isCursorDefinition(cursor) != 0U) {
-        char *record_name = copy_cx_string(clang_getCursorSpelling(cursor));
-        if (path_is_scanned(context->files, path) ||
-            any_template_requires_constraint(record_name)) {
+        int required = scanned;
+        if (!required) {
+            CXString spelling = clang_getCursorSpelling(cursor);
+            const char *record_name = clang_getCString(spelling);
+            required = record_name != NULL &&
+                       any_template_requires_constraint(record_name);
+            clang_disposeString(spelling);
+        }
+        if (required) {
             register_structural_schema(cursor);
         }
-        free(record_name);
     }
-    if (!path_is_scanned(context->files, path)) {
-        free(path);
-        return CXChildVisit_Recurse;
-    }
+    if (!scanned) return CXChildVisit_Recurse;
+    if (kind != CXCursor_VarDecl && kind != CXCursor_TypedefDecl &&
+        kind != CXCursor_MacroExpansion) return CXChildVisit_Recurse;
+    path = kind == CXCursor_MacroExpansion ?
+        copy_cx_string(clang_getFileName(source_file)) : NULL;
     if (kind == CXCursor_VarDecl) {
         char *name = copy_cx_string(clang_getCursorSpelling(cursor));
         CXType declared_type = clang_getCursorType(cursor);
@@ -5618,7 +5644,8 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
         char *canonical_spelling = copy_cx_string(
             clang_getTypeSpelling(canonical_type));
         if (valid_identifier(name) && type_spelling[0] != '\0') {
-            source_variable_add(&context->variables, name, path, type_spelling,
+            source_variable_add(&context->variables, name, source_file_index,
+                                type_spelling,
                                 canonical_spelling, offset);
         }
         free(name);
@@ -5701,7 +5728,9 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                                                         &argument_path, &argument_start,
                                                         &argument_end)) {
                             clang_use_add(context->uses, name, path, offset,
-                                          (size_t)line, argument, argument_path,
+                                          (size_t)line, argument,
+                                          source_list_index_for_path(context->files,
+                                                                     argument_path),
                                           argument_start, argument_end);
                             if (g_verbose) {
                                 fprintf(stderr,
@@ -5732,14 +5761,15 @@ static enum CXChildVisitResult collect_clang_expression_type(CXCursor cursor,
     unsigned line = 0U;
     unsigned column = 0U;
     unsigned offset = 0U;
-    char *path;
+    size_t source_file_index;
     size_t i;
     (void)parent;
     if (!clang_isExpression(clang_getCursorKind(cursor))) return CXChildVisit_Recurse;
     location = clang_getCursorLocation(cursor);
     clang_getExpansionLocation(location, &source_file, &line, &column, &offset);
     if (source_file == NULL) return CXChildVisit_Recurse;
-    path = copy_cx_string(clang_getFileName(source_file));
+    source_file_index = clang_file_index(context, source_file);
+    if (source_file_index == (size_t)-1) return CXChildVisit_Recurse;
     for (i = 0U; i < context->uses->count; ++i) {
         ClangUse *use = &context->uses->items[i];
         CXSourceRange extent = clang_getCursorExtent(cursor);
@@ -5749,8 +5779,8 @@ static enum CXChildVisitResult collect_clang_expression_type(CXCursor cursor,
         unsigned end_line = 0U, end_column = 0U;
         CXType expression_type;
         CXType canonical_type;
-        if (use->type_spelling != NULL || use->argument_path == NULL ||
-            !str_eq(use->argument_path, path)) continue;
+        if (use->type_spelling != NULL ||
+            use->argument_file_index != source_file_index) continue;
         clang_getSpellingLocation(clang_getRangeStart(extent), &start_file,
                                   &start_line, &start_column, &start);
         clang_getSpellingLocation(clang_getRangeEnd(extent), &end_file,
@@ -5763,23 +5793,16 @@ static enum CXChildVisitResult collect_clang_expression_type(CXCursor cursor,
         canonical_type = clang_getCanonicalType(expression_type);
         use->type_spelling = copy_cx_string(clang_getTypeSpelling(expression_type));
         use->canonical_spelling = copy_cx_string(clang_getTypeSpelling(canonical_type));
-        if (g_verbose) fprintf(stderr, "tmplgen: clang type %s:%u arg=%u..%u type=%s\n",
-                               path, line, start, end, use->type_spelling);
+        if (g_verbose) {
+            char *path = copy_cx_string(clang_getFileName(source_file));
+            fprintf(stderr, "tmplgen: clang type %s:%u arg=%u..%u type=%s\n",
+                    path, line, start, end, use->type_spelling);
+            free(path);
+        }
     }
-    free(path);
     (void)line;
     (void)column;
     return CXChildVisit_Recurse;
-}
-
-static const SourceFile *source_file_for_path(const SourceList *files,
-                                              const char *path)
-{
-    size_t i;
-    for (i = 0U; i < files->count; ++i) {
-        if (str_eq(files->items[i].path, path)) return &files->items[i];
-    }
-    return NULL;
 }
 
 static int infer_use_type_from_variable(ClangContext *context, ClangUse *use)
@@ -5792,10 +5815,10 @@ static int infer_use_type_from_variable(ClangContext *context, ClangUse *use)
     int dereference = 0;
     size_t i;
     const SourceVariable *variable = NULL;
-    if (use->argument_path == NULL ||
+    if (use->argument_file_index >= context->files->count ||
         use->argument_end <= use->argument_start) return 0;
-    source = source_file_for_path(context->files, use->argument_path);
-    if (source == NULL || (size_t)use->argument_end > source->text.len) return 0;
+    source = &context->files->items[use->argument_file_index];
+    if ((size_t)use->argument_end > source->text.len) return 0;
     expression = copy_range(source->text.p + use->argument_start,
                             (size_t)(use->argument_end - use->argument_start));
     p = expression;
@@ -5826,7 +5849,7 @@ static int infer_use_type_from_variable(ClangContext *context, ClangUse *use)
     for (i = 0U; i < context->variables.count; ++i) {
         const SourceVariable *candidate = &context->variables.items[i];
         if (!str_eq(candidate->name, name) ||
-            !str_eq(candidate->path, use->argument_path) ||
+            candidate->file_index != use->argument_file_index ||
             candidate->offset > use->offset) continue;
         if (variable == NULL || candidate->offset > variable->offset) {
             variable = candidate;
@@ -5909,6 +5932,14 @@ static int parse_source_with_clang(CXIndex index, const SourceFile *source,
         return 0;
     }
     memset(&context.variables, 0, sizeof(context.variables));
+    context.scanned_files = (CXFile *)calloc(files->count,
+                                              sizeof(*context.scanned_files));
+    if (context.scanned_files == NULL && files->count != 0U) die("out of memory");
+    context.scanned_file_count = files->count;
+    for (unsaved_index = 0U; unsaved_index < files->count; ++unsaved_index) {
+        context.scanned_files[unsaved_index] =
+            clang_getFile(tu, files->items[unsaved_index].path);
+    }
     context.tu = tu;
     context.infos = infos;
     context.template_count = template_count;
@@ -5927,6 +5958,7 @@ static int parse_source_with_clang(CXIndex index, const SourceFile *source,
         }
     }
     source_variable_list_free(&context.variables);
+    free(context.scanned_files);
     clang_disposeTranslationUnit(tu);
     return context.failed == 0;
 }
