@@ -157,10 +157,10 @@ Template variables may require structural rows using `<:`. The names on the righ
 
 For `T <: Physics`, a concrete named type must provide every field declared by `Physics` with a compatible C field type. Extra fields are allowed and neither offsets nor total size are compared. `+` combines requirements, while commas continue to separate template variables. Put the schema definitions in the template or in an included header. The generated specialization emits `_Static_assert` checks for the required fields; GCC/Clang also use this assertion form in pre-C11 modes.
 
-For an arbitrary compile-time constraint, use `|=`. Macro-call terms use the shorthand with the type argument omitted; the concrete type is appended as the final macro argument. Non-call expressions have occurrences of the template variable substituted directly. The result must be an integer constant expression accepted by `_Static_assert`:
+For an arbitrary compile-time constraint, use `|=`. Macro-call terms use the shorthand with the type argument omitted; the concrete type is injected as the first macro argument. A macro that only needs the type can be written without parentheses. Non-call expressions have occurrences of the template variable substituted directly. The result must be an integer constant expression accepted by `_Static_assert`:
 
 ```c
-// @template T |= MY_CONSTRAINT(MyRandomTypeName) + MY_CONSTRAINT2()
+// @template T |= MY_CONSTRAINT(MyRandomTypeName) + MY_CONSTRAINT2
 ```
 
 Top-level `+` separates constraints, while commas inside a parenthesized macro call remain part of that expression. Failures report that the variable failed to satisfy the expression.

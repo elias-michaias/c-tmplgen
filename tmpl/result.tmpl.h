@@ -97,7 +97,7 @@ static inline E result_error(Result(T, E) *result)
 // @template T
 static inline T result_identity(T value) { return value; }
 // @template TP <: Physics
-// @template TP |= INT_ALIGNMENT()
+// @template TP |= INT_ALIGNMENT
 static inline int physics_sum(TP *value) { return value->x + value->y; }
 // @template UE <: Entity
 // @template UE <: Named
@@ -114,11 +114,11 @@ static inline int same_size(T left, U right)
     return sizeof(left) == sizeof(right);
 }
 // @template
-// @ AI |= NAMED_INT_ALIGNMENT(Physics) + INT_ALIGNMENT()
+// @ AI |= NAMED_INT_ALIGNMENT(Physics) + INT_ALIGNMENT
 static inline int alignment_ok(AI *value)
 {
     (void)value;
-    return NAMED_INT_ALIGNMENT(Physics, AI);
+    return NAMED_INT_ALIGNMENT(AI, Physics);
 }
 // @template U
 static inline U cross_helper(U value) { return value + 2; }

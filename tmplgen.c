@@ -3475,18 +3475,36 @@ static char *expand_short_constraint_call(const char *expression,
                                           const char *parameter,
                                           const char *concrete_type)
 {
-    size_t start = 0U, open, end = 0U, length;
+    size_t start = 0U, name_end, open, end = 0U, length;
     char **arguments = NULL;
     size_t argument_count = 0U;
     Buf expanded;
     while (isspace((unsigned char)expression[start])) ++start;
     if (!is_ident_start(expression[start])) return NULL;
-    open = start + 1U;
-    while (is_ident_char(expression[open])) ++open;
+    name_end = start + 1U;
+    while (is_ident_char(expression[name_end])) ++name_end;
+    open = name_end;
     {
         size_t paren = open;
         while (isspace((unsigned char)expression[paren])) ++paren;
-        if (expression[paren] != '(') return NULL;
+        if (expression[paren] != '(') {
+            char *name;
+            size_t tail = paren;
+            if (expression[tail] != '\0') return NULL;
+            name = copy_range(expression + start, name_end - start);
+            if (str_eq(name, parameter)) {
+                free(name);
+                return NULL;
+            }
+            buf_init(&expanded);
+            buf_putn(&expanded, expression, start);
+            buf_puts(&expanded, name);
+            buf_putc(&expanded, '(');
+            buf_puts(&expanded, concrete_type);
+            buf_putc(&expanded, ')');
+            free(name);
+            return expanded.p != NULL ? expanded.p : copy_string("");
+        }
         open = paren;
     }
     (void)parse_text_type_arguments(expression, open, &arguments,
@@ -3505,19 +3523,26 @@ static char *expand_short_constraint_call(const char *expression,
         }
     }
     if (argument_count != 0U) {
-        char *last_argument = normalize_spaces(arguments[argument_count - 1U]);
-        int already_full = valid_identifier(last_argument) &&
-                           str_eq(last_argument, parameter);
-        free(last_argument);
+        char *first_argument = normalize_spaces(arguments[0]);
+        int already_full = valid_identifier(first_argument) &&
+                           str_eq(first_argument, parameter);
+        free(first_argument);
         if (already_full) {
             list_free(arguments, argument_count);
             return NULL;
         }
     }
     buf_init(&expanded);
-    buf_putn(&expanded, expression, end - 1U);
-    if (argument_count != 0U) buf_puts(&expanded, ", ");
+    buf_putn(&expanded, expression, open + 1U);
     buf_puts(&expanded, concrete_type);
+    {
+        size_t argument_index;
+        for (argument_index = 0U; argument_index < argument_count;
+             ++argument_index) {
+            buf_puts(&expanded, ", ");
+            buf_puts(&expanded, arguments[argument_index]);
+        }
+    }
     buf_putc(&expanded, ')');
     list_free(arguments, argument_count);
     return expanded.p != NULL ? expanded.p : copy_string("");

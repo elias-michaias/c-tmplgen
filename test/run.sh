@@ -29,6 +29,12 @@ for inferred_tuple in Result_InferredLong_InferredError \
         exit 1
     fi
 done
+if ! grep -Fq '_Static_assert((INT_ALIGNMENT(PhysicsBody))' gen/result.gen.h ||
+   ! grep -Fq '_Static_assert((NAMED_INT_ALIGNMENT(PhysicsBody, Physics))' \
+       gen/result.gen.h; then
+    printf '%s\n' 'constraint shorthand did not inject the type as the first macro argument' >&2
+    exit 1
+fi
 if ! grep -q 'Triple_Tag_InferredError_InferredLong' gen/triple.gen.h; then
     printf '%s\n' 'auto input inference did not generate the inferred triple' >&2
     exit 1

@@ -3,8 +3,8 @@
 
 #include <stddef.h>
 
-#define NAMED_INT_ALIGNMENT(Name, Type) \
-    (__alignof__(Type) >= __alignof__(int) && sizeof(#Name) > 1)
+#define NAMED_INT_ALIGNMENT(Type, ...) \
+    (__alignof__(Type) >= __alignof__(int) && sizeof(#__VA_ARGS__) > 1)
 #define INT_ALIGNMENT(Type) (__alignof__(Type) >= __alignof__(int))
 #define SAME_SIZE(Left, Right) (sizeof(Left) == sizeof(Right))
 

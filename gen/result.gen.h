@@ -218,10 +218,10 @@ __extension__ _Static_assert(__builtin_types_compatible_p(__typeof__(((PhysicsBo
 #endif
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #line 101 "tmpl/result.tmpl.h"
-_Static_assert((INT_ALIGNMENT(PhysicsBody)), "tmplgen: TP failed to satisfy INT_ALIGNMENT()");
+_Static_assert((INT_ALIGNMENT(PhysicsBody)), "tmplgen: TP failed to satisfy INT_ALIGNMENT");
 #elif defined(__GNUC__) || defined(__clang__)
 #line 101 "tmpl/result.tmpl.h"
-__extension__ _Static_assert((INT_ALIGNMENT(PhysicsBody)), "tmplgen: TP failed to satisfy INT_ALIGNMENT()");
+__extension__ _Static_assert((INT_ALIGNMENT(PhysicsBody)), "tmplgen: TP failed to satisfy INT_ALIGNMENT");
 #endif
 #line 227 "/home/elias/Projects/c-tmplgen/gen/result.gen.h"
 static inline int physics_sum_PhysicsBody(PhysicsBody *value) { return value->x + value->y; }
@@ -296,23 +296,23 @@ static inline int same_size_TestInt_TestInt(TestInt left, TestInt right)
 /* ---- result: alignment_ok_PhysicsBody ---- */
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #line 118 "tmpl/result.tmpl.h"
-_Static_assert((NAMED_INT_ALIGNMENT(Physics, PhysicsBody)), "tmplgen: AI failed to satisfy NAMED_INT_ALIGNMENT(Physics)");
+_Static_assert((NAMED_INT_ALIGNMENT(PhysicsBody, Physics)), "tmplgen: AI failed to satisfy NAMED_INT_ALIGNMENT(Physics)");
 #elif defined(__GNUC__) || defined(__clang__)
 #line 118 "tmpl/result.tmpl.h"
-__extension__ _Static_assert((NAMED_INT_ALIGNMENT(Physics, PhysicsBody)), "tmplgen: AI failed to satisfy NAMED_INT_ALIGNMENT(Physics)");
+__extension__ _Static_assert((NAMED_INT_ALIGNMENT(PhysicsBody, Physics)), "tmplgen: AI failed to satisfy NAMED_INT_ALIGNMENT(Physics)");
 #endif
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #line 118 "tmpl/result.tmpl.h"
-_Static_assert((INT_ALIGNMENT(PhysicsBody)), "tmplgen: AI failed to satisfy INT_ALIGNMENT()");
+_Static_assert((INT_ALIGNMENT(PhysicsBody)), "tmplgen: AI failed to satisfy INT_ALIGNMENT");
 #elif defined(__GNUC__) || defined(__clang__)
 #line 118 "tmpl/result.tmpl.h"
-__extension__ _Static_assert((INT_ALIGNMENT(PhysicsBody)), "tmplgen: AI failed to satisfy INT_ALIGNMENT()");
+__extension__ _Static_assert((INT_ALIGNMENT(PhysicsBody)), "tmplgen: AI failed to satisfy INT_ALIGNMENT");
 #endif
 #line 312 "/home/elias/Projects/c-tmplgen/gen/result.gen.h"
 static inline int alignment_ok_PhysicsBody(PhysicsBody *value)
 {
     (void)value;
-    return NAMED_INT_ALIGNMENT(Physics, PhysicsBody);
+    return NAMED_INT_ALIGNMENT(PhysicsBody, Physics);
 }
 
 /* ---- result: cross_helper_TestInt ---- */
