@@ -18,7 +18,7 @@ for fixture in "$ROOT"/test/negative/*.c.in; do
         continue
     fi
     printf '\n===== %s =====\n' "$filename"
-    if "$CC" -x c -I "$ROOT" -std=c11 -Wall -Wextra \
+    if "$CC" -x c -I "$ROOT" -I "$ROOT/test" -std=c11 -Wall -Wextra \
         -pedantic -Wconversion -Wshadow -Werror=incompatible-pointer-types \
         "$fixture" -o "$BUILD/$name"; then
         printf 'ERROR: %s unexpectedly compiled\n' "$filename" >&2
@@ -29,13 +29,15 @@ for fixture in "$ROOT"/test/negative/*.c.in; do
 done
 
 SUBTYPE="$BUILD/subtyping"
-mkdir -p "$SUBTYPE/tmpl" "$SUBTYPE/gen" "$SUBTYPE/test/lib"
-cp -R "$ROOT/tmpl/." "$SUBTYPE/tmpl/"
+mkdir -p "$SUBTYPE/tmpl" "$SUBTYPE/gen" "$SUBTYPE/test/lib" "$SUBTYPE/lib"
+cp -R "$ROOT/test/tmpl/." "$SUBTYPE/tmpl/"
 cp "$ROOT/test/lib/physics.h" "$SUBTYPE/test/lib/physics.h"
+cp "$ROOT/test/lib/physics.h" "$SUBTYPE/lib/physics.h"
 cp "$ROOT/test/negative/unmatched_structural_rows.c.in" "$SUBTYPE/main.c"
 printf '\n===== unmatched_structural_rows.c.in =====\n'
 if ! (CDPATH= cd -- "$SUBTYPE" && "$BUILD/tmplgen" \
-    --source-root "$SUBTYPE" --output "$SUBTYPE/gen/all.gen.h" \
+    --source-root "$SUBTYPE" --template-dir "$SUBTYPE/tmpl" \
+    --output "$SUBTYPE/gen/all.gen.h" \
     --clang-arg=-std=c11); then
     printf '%s\n' 'tmplgen failed before compiling unmatched_structural_rows.c.in' >&2
     failed=1

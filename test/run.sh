@@ -14,43 +14,43 @@ cd "$ROOT"
 "$BUILD/tmplgen" --clang-arg=-std=c23
 "$BUILD/tmplgen" --check --clang-arg=-std=c23
 "$BUILD/tmplgen" --check --no-cache --clang-arg=-std=c23
-if grep -R -q 'typedef int int' gen; then
+if grep -R -q 'typedef int int' test/gen; then
     printf '%s\n' 'template LSP fallback leaked into generated output' >&2
     exit 1
 fi
-if grep -Eq 'max_long' gen/math.gen.h || grep -q 'Vec_double' gen/vec.gen.h; then
+if grep -Eq 'max_long' test/gen/math.gen.h || grep -q 'Vec_double' test/gen/vec.gen.h; then
     printf '%s\n' 'unrequested template specializations were generated' >&2
     exit 1
 fi
 for inferred_tuple in Result_InferredLong_InferredError \
                       Result_InferredDouble_ErrorCode \
                       Result_Tag_InferredError; do
-    if ! grep -q "$inferred_tuple" gen/result.gen.h; then
+    if ! grep -q "$inferred_tuple" test/gen/result.gen.h; then
         printf 'auto input inference did not generate %s\n' "$inferred_tuple" >&2
         exit 1
     fi
 done
-if ! grep -Fq '_Static_assert((INT_ALIGNMENT(PhysicsBody))' gen/result.gen.h ||
+if ! grep -Fq '_Static_assert((INT_ALIGNMENT(PhysicsBody))' test/gen/result.gen.h ||
    ! grep -Fq '_Static_assert((NAMED_INT_ALIGNMENT(PhysicsBody, Physics))' \
-       gen/result.gen.h; then
+        test/gen/result.gen.h; then
     printf '%s\n' 'constraint shorthand did not inject the type as the first macro argument' >&2
     exit 1
 fi
-if ! grep -q 'Triple_Tag_InferredError_InferredLong' gen/triple.gen.h; then
+if ! grep -q 'Triple_Tag_InferredError_InferredLong' test/gen/triple.gen.h; then
     printf '%s\n' 'auto input inference did not generate the inferred triple' >&2
     exit 1
 fi
-if ! grep -q '^/// static inline Result(T, E) result_make(ResultTag tag, T value, E error)$' gen/result.gen.h ||
+if ! grep -q '^/// static inline Result(T, E) result_make(ResultTag tag, T value, E error)$' test/gen/result.gen.h ||
    ! grep -q '^static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);$' \
-        gen/result.gen.h ||
-    ! grep -q '^/// static inline Result(T, E) result_make(ResultTag tag, T value, E error)$' gen/all.gen.h ||
+         test/gen/result.gen.h ||
+    ! grep -q '^/// static inline Result(T, E) result_make(ResultTag tag, T value, E error)$' test/gen/all.gen.h ||
     ! grep -q '^static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);$' \
-        gen/all.gen.h; then
+         test/gen/all.gen.h; then
     printf '%s\n' 'dispatch docs or navigation prototype was not generated' >&2
     exit 1
 fi
-if ! grep -q '^/// static inline T option_value(Option(T) \* option)$' gen/result.gen.h ||
-   ! grep -q '^/// static inline A triple_first(Triple(A, B, C) \* value)$' gen/triple.gen.h; then
+if ! grep -q '^/// static inline T option_value(Option(T) \* option)$' test/gen/result.gen.h ||
+   ! grep -q '^/// static inline A triple_first(Triple(A, B, C) \* value)$' test/gen/triple.gen.h; then
     printf '%s\n' 'constructor applications were lost from generated signatures' >&2
     exit 1
 fi
@@ -92,24 +92,24 @@ fi
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/function_recursion.c -o "$BUILD/function-recursion"
 "$BUILD/function-recursion"
-if ! grep -q 'chain_leaf_TestInt' gen/math.gen.h ||
-   ! grep -q 'chain_middle_TestInt' gen/math.gen.h ||
-   ! grep -q 'recursive_value_TestInt' gen/math.gen.h ||
-   ! grep -q 'mutual_other_TestInt' gen/math.gen.h ||
-   ! grep -q 'reorder_sink_double_TestInt' gen/math.gen.h ||
-   ! grep -q 'cross_helper_TestInt' gen/result.gen.h; then
+if ! grep -q 'chain_leaf_TestInt' test/gen/math.gen.h ||
+   ! grep -q 'chain_middle_TestInt' test/gen/math.gen.h ||
+   ! grep -q 'recursive_value_TestInt' test/gen/math.gen.h ||
+   ! grep -q 'mutual_other_TestInt' test/gen/math.gen.h ||
+   ! grep -q 'reorder_sink_double_TestInt' test/gen/math.gen.h ||
+   ! grep -q 'cross_helper_TestInt' test/gen/result.gen.h; then
     printf '%s\n' 'nested or recursive generic function specialization was not emitted' >&2
     exit 1
 fi
-if ! grep -q '^#include "result.gen.h"$' gen/math.gen.h; then
+if ! grep -q '^#include "result.gen.h"$' test/gen/math.gen.h; then
     printf '%s\n' 'template include was not rewritten to the generated module' >&2
     exit 1
 fi
-if ! grep -q '^static inline TestInt cross_helper_TestInt(TestInt value);$' gen/math.gen.h; then
+if ! grep -q '^static inline TestInt cross_helper_TestInt(TestInt value);$' test/gen/math.gen.h; then
     printf '%s\n' 'cross-template helper prototype was not emitted before its caller' >&2
     exit 1
 fi
-if ! grep -q '^#line [0-9][0-9]* "tmpl/math.tmpl.h"$' gen/math.gen.h; then
+if ! grep -q '^#line [0-9][0-9]* "test/tmpl/math.tmpl.h"$' test/gen/math.gen.h; then
     printf '%s\n' 'dispatch diagnostics are not mapped back to their template source' >&2
     exit 1
 fi
@@ -133,9 +133,9 @@ fi
 "$BUILD/gnu-dispatch"
 
 NEWTYPE="$BUILD/newtype"
-mkdir -p "$NEWTYPE/test/lib"
-cp -R gen "$NEWTYPE/gen"
-cp test/lib/physics.h "$NEWTYPE/test/lib/physics.h"
+mkdir -p "$NEWTYPE/lib"
+cp -R test/gen "$NEWTYPE/gen"
+cp test/lib/physics.h "$NEWTYPE/lib/physics.h"
 printf 'typedef double Fresh;\n' > "$NEWTYPE/fresh.h"
 cat > "$NEWTYPE/main.c" <<'EOF'
 #include "fresh.h"
@@ -160,7 +160,7 @@ fi
     "$NEWTYPE/main.c" -o "$NEWTYPE/main"
 "$NEWTYPE/main"
 
-if "$CC" -x c -I . -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+if "$CC" -x c -I . -I test -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/negative/unmatched_dispatch.c.in -o "$BUILD/unmatched" \
     >"$BUILD/unmatched.log" 2>&1; then
     printf '%s\n' 'unmatched dispatch unexpectedly compiled' >&2
@@ -171,7 +171,7 @@ if ! grep -q 'struct tmplgen_no_association_for_push_argument' "$BUILD/unmatched
     exit 1
 fi
 
-if "$CC" -x c -I . -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+if "$CC" -x c -I . -I test -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/negative/unmatched_pair.c.in -o "$BUILD/unmatched-pair" \
     >"$BUILD/unmatched-pair.log" 2>&1; then
     printf '%s\n' 'unmatched pair dispatch unexpectedly compiled' >&2
@@ -183,7 +183,7 @@ if ! grep -q 'struct tmplgen_no_association_for_result_make_argument' \
     exit 1
 fi
 
-if "$CC" -x c -I . -std=c11 -Wall -Wextra -Werror=incompatible-pointer-types \
+if "$CC" -x c -I . -I test -std=c11 -Wall -Wextra -Werror=incompatible-pointer-types \
     test/negative/unmatched_option_pair.c.in -o "$BUILD/unmatched-option-pair" \
     >"$BUILD/unmatched-option-pair.log" 2>&1; then
     printf '%s\n' 'same-type constructor constraint unexpectedly accepted a mismatched pair' >&2
@@ -195,8 +195,9 @@ if ! grep -q 'Option_TestInt' "$BUILD/unmatched-option-pair.log"; then
 fi
 
 SUBTYPE="$BUILD/subtyping"
-mkdir -p "$SUBTYPE/gen" "$SUBTYPE/test/lib"
+mkdir -p "$SUBTYPE/gen" "$SUBTYPE/test/lib" "$SUBTYPE/lib"
 cp test/lib/physics.h "$SUBTYPE/test/lib/physics.h"
+cp test/lib/physics.h "$SUBTYPE/lib/physics.h"
 cp test/negative/unmatched_structural_rows.c.in "$SUBTYPE/main.c"
 "$BUILD/tmplgen" --source-root "$SUBTYPE" --output "$SUBTYPE/gen/all.gen.h" \
     --clang-arg=-std=c11
@@ -224,24 +225,25 @@ if ! grep -q 'tmplgen: @where failed to satisfy SAME_SIZE(T, U)' \
     printf '%s\n' '@where failure did not include its cross-variable expression' >&2
     exit 1
 fi
-if ! grep -q 'tmpl/result.tmpl.h' "$BUILD/subtyping.log"; then
+if ! grep -q 'test/tmpl/result.tmpl.h' "$BUILD/subtyping.log"; then
     printf '%s\n' 'structural constraint diagnostics were not mapped to the template' >&2
     exit 1
 fi
-if ! grep -q 'tmpl/result.tmpl.h:101:' "$BUILD/subtyping.log" ||
-   ! grep -q 'tmpl/result.tmpl.h:104:' "$BUILD/subtyping.log"; then
+if ! grep -q 'test/tmpl/result.tmpl.h:101:' "$BUILD/subtyping.log" ||
+   ! grep -q 'test/tmpl/result.tmpl.h:104:' "$BUILD/subtyping.log"; then
     printf '%s\n' 'structural constraint diagnostics did not point at the constrained functions' >&2
     exit 1
 fi
-if ! grep -q 'tmpl/result.tmpl.h:112:' "$BUILD/subtyping.log"; then
+if ! grep -q 'test/tmpl/result.tmpl.h:112:' "$BUILD/subtyping.log"; then
     printf '%s\n' 'expression constraint diagnostics did not point at the constrained function' >&2
     exit 1
 fi
 
 COMPILED="$BUILD/compiled"
-mkdir -p "$COMPILED/tmpl" "$COMPILED/test/lib" "$COMPILED/gen"
-cp -R tmpl/. "$COMPILED/tmpl/"
+mkdir -p "$COMPILED/tmpl" "$COMPILED/test/lib" "$COMPILED/lib" "$COMPILED/gen"
+cp -R test/tmpl/. "$COMPILED/tmpl/"
 cp test/lib/physics.h "$COMPILED/test/lib/physics.h"
+cp test/lib/physics.h "$COMPILED/lib/physics.h"
 cat > "$COMPILED/main.c" <<'EOF'
 #include "test/lib/physics.h"
 #include "gen/all.gen.h"

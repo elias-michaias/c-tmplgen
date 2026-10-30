@@ -2,12 +2,12 @@ CompileFlags:
   Add: [-std=c99]
 ---
 If:
-  PathMatch: tmpl/.*[.]tmpl[.]h
+  PathMatch: test/tmpl/.*[.]tmpl[.]h
 CompileFlags:
   Add: [-x, c]
 ---
 If:
-  PathMatch: gen/.*[.]gen[.]h
+  PathMatch: test/gen/.*[.]gen[.]h
 CompileFlags:
   Add: [-x, c]
 ---

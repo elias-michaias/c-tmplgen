@@ -70,10 +70,12 @@ installed by the generator.
 
 ## Generated files and build integration
 
-Treat `gen/<stem>.gen.h`, `gen/<stem>.gen.c`, and `gen/all.gen.h` as generated
-outputs. Build systems should run `tmplgen` before compiling files that include
-them. Regenerate when templates change or when source changes add, remove, or
-alter generic calls or constructor uses. A generated header can be committed if
+Treat `<output-dir>/<stem>.gen.h`, `<output-dir>/<stem>.gen.c`, and the aggregate
+header as generated outputs. This repository’s examples live in `test/gen/`;
+another project can choose its output directory with `--output`. Build systems
+should run `tmplgen` before compiling files that include the generated headers.
+Regenerate when templates change or when source changes add, remove, or alter
+generic calls or constructor uses. A generated header can be committed if
 consumers should not need the generator at build time, but it must be refreshed
 when those inputs change.
 

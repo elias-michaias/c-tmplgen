@@ -29,6 +29,8 @@ the selected template directory as sorted top-level `*.tmpl.h` files.
 Type constructors use function-like syntax in template source. For example:
 
 ```c
+#include <stddef.h>
+
 // @template T
 typedef struct {
     T *data;
@@ -63,36 +65,10 @@ variable occurs only in its return type cannot be selected automatically from a
 call. For type arguments at source use sites, use a typedef name or a built-in
 type name; use a typedef for qualified or multi-token type spellings.
 
-For a structural requirement, annotate a variable with `<:` and a named schema
-whose fields form the required row:
-
-```c
-// @template T <: Physics
-static inline int physics_sum(T *value)
-{
-    return value->x + value->y;
-}
-```
-
-Extra fields are allowed. Multiple rows may be combined with `+`. For an
-arbitrary integer constant expression checked at compile time, use `|=` or
-`@where`:
-
-```c
-// @template T |= INT_ALIGNMENT
-static inline int aligned(T *value) { (void)value; return 1; }
-
-// @template T, U
-// @where SAME_SIZE(T, U)
-static inline int same_size(T left, U right)
-{
-    return sizeof(left) == sizeof(right);
-}
-```
-
-Constraint failures appear as generated `_Static_assert` diagnostics mapped to
-the template declaration. Multiple adjacent annotation lines can extend the
-same declaration’s requirements.
+Use `<:` for structural field requirements and `|=` or `@where` for
+compile-time satisfaction expressions. See the dedicated
+[Constraints guide](constraints.md) for subtyping, satisfiability, and complete
+examples.
 
 ## Generate and check
 
@@ -104,10 +80,10 @@ cc -std=c99 -Wall -Wextra -pedantic tmplgen.c -lclang -o tmplgen
 ./tmplgen --check --clang-arg=-std=c11
 ```
 
-The defaults are `--source-root .`, `--template-dir tmpl`, and
-`--output gen/all.gen.h`. Module headers are written beside the aggregate, for
-example `gen/math.gen.h`. `--check` compares every expected generated file and
-returns failure if one is missing or stale.
+For this repository, the defaults are `--source-root .`, `--template-dir
+test/tmpl`, and `--output test/gen/all.gen.h`. Module headers are written beside
+the aggregate, for example `test/gen/math.gen.h`. `--check` compares every
+expected generated file and returns failure if one is missing or stale.
 
 For a project in a different directory, specify its paths explicitly:
 

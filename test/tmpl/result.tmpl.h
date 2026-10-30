@@ -1,6 +1,6 @@
 // clang-format off
 #include <assert.h>
-#include "../test/lib/physics.h"
+#include "../lib/physics.h"
 #ifndef TMPLGEN
 typedef int T;
 typedef int E;

@@ -1,5 +1,5 @@
 #include "test_types.h"
-#include "../../gen/vec.gen.h"
+#include "../gen/vec.gen.h"
 
 int main(void)
 {

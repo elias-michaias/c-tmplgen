@@ -50,7 +50,7 @@ static inline void push_int(Vec_int * v, int x) {
 #define GEN_ARG1_(arg0, arg1, ...) arg1
 #endif
 
-#line 16 "tmpl/vec.tmpl.h"
+#line 16 "test/tmpl/vec.tmpl.h"
 /// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
 static inline void push_TestInt(Vec_TestInt * v, TestInt x);
 /// static inline void push_int(Vec_int * v, int x)
@@ -62,7 +62,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 #undef push
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline void push(Vec(T) * v, T x)
-#line 16 "tmpl/vec.tmpl.h"
+#line 16 "test/tmpl/vec.tmpl.h"
 #define push(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Vec_TestInt *: push_TestInt, \
     Vec_int *: push_int, \
@@ -70,7 +70,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline void push(Vec(T) * v, T x)
-#line 16 "tmpl/vec.tmpl.h"
+#line 16 "test/tmpl/vec.tmpl.h"
 #define push(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_TestInt *)), \

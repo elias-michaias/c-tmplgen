@@ -1,4 +1,4 @@
-<h1 align="center">tmplgen</h1>
+<h1 align="center">c-tmplgen</h1>
 
 <p align="center">
   <strong>Generic C. Specialized at build time.</strong><br>
@@ -10,17 +10,19 @@
   <a href="https://en.cppreference.com/w/c/99"><img alt="C99 generator" src="https://img.shields.io/badge/generator-C99-00599C?style=flat-square&logo=c"></a>
   <a href="https://clang.llvm.org/doxygen/group__CINDEX.html"><img alt="libclang analysis" src="https://img.shields.io/badge/analysis-libclang-262D3A?style=flat-square&logo=llvm"></a>
   <a href="doc/paradigm.md"><img alt="Ahead of time" src="https://img.shields.io/badge/specialization-ahead--of--time-287D73?style=flat-square"></a>
+  <img alt="Header-only by default" src="https://img.shields.io/badge/output-header--only%20by%20default-7654A6?style=flat-square">
 </p>
 
-<table>
-  <tr>
-    <td align="center"><strong>Annotated C templates</strong></td>
-    <td align="center">+</td>
-    <td align="center"><strong>Types observed in source</strong></td>
-    <td align="center">→</td>
-    <td align="center"><strong>Concrete C specializations</strong></td>
-  </tr>
-</table>
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#highlights">Features</a> ·
+  <a href="doc/usage.md">Usage</a> ·
+  <a href="doc/constraints.md">Constraints</a> ·
+  <a href="doc/paradigm.md">How It Works</a> ·
+  <a href="#develop-and-test">Tests</a>
+</p>
+
+---
 
 <p align="center">
   <a href="code.png"><img src="code.png" alt="A generic Vec template and a C call site using Vec(int)" width="680"></a>
@@ -53,19 +55,19 @@ cc -std=c99 -Wall -Wextra -pedantic tmplgen.c -lclang -o tmplgen
 ./tmplgen --clang-arg=-std=c23
 ```
 
-The default scan discovers `tmpl/*.tmpl.h` and C source/header files under the
-current directory. Generated modules go to `gen/`; `gen/all.gen.h` is the
-aggregate include.
+The default scan discovers `test/tmpl/*.tmpl.h` and C source/header files under
+the current directory. Generated modules go to `test/gen/`;
+`test/gen/all.gen.h` is the aggregate include.
 
 ### 3. Call the generic API
 
-This repository’s `tmpl/math.tmpl.h` declares `max` with a type variable. The
-call below is enough for the generator to infer the concrete type and emit the
-matching implementation and dispatch association:
+This repository’s `test/tmpl/math.tmpl.h` declares `max` with a type variable.
+The call below is enough for the generator to infer the concrete type and emit
+the matching implementation and dispatch association:
 
 ```c
 #include "test/cases/test_types.h"
-#include "gen/all.gen.h"
+#include "test/gen/all.gen.h"
 
 int main(void)
 {
@@ -85,7 +87,7 @@ For a walkthrough of your own templates and build integration, start with
 | **Source-driven inference** | Infer type arguments from function inputs and constructor uses—no per-call type tables. |
 | **Concrete C output** | Emit real specialized structs and functions that ordinary C tools can inspect. |
 | **Compile-time dispatch** | Select observed specializations through `_Generic` or GNU builtins, with no runtime type lookup. |
-| **Expressive constraints** | Require structural fields with `<:` or add compile-time checks with `@where`. |
+| **Expressive constraints** | Require structural fields with `<:` or assert compile-time properties with `|=` and `@where`. |
 | **Two output modes** | Use convenient header-only output, or move implementations into `.gen.c` files with `--compiled`. |
 | **Incremental analysis** | Reuse validated whole-project and per-source facts; check generated files with `--check`. |
 
@@ -98,7 +100,8 @@ backend must be supported by the application compiler; see
 
 | Guide | What’s inside |
 | --- | --- |
-| [Usage & template syntax](doc/usage.md) | Annotations, type inference, constraints, CLI options, and output modes |
+| [Usage & template syntax](doc/usage.md) | Annotations, type inference, CLI options, and output modes |
+| [Constraints](doc/constraints.md) | Structural subtyping, compile-time satisfaction, examples, and diagnostics |
 | [Tooling & integration](doc/tooling.md) | libclang, compiler flags, clangd, build integration, caches, and tests |
 | [Design & alternatives](doc/paradigm.md) | The specialization model and trade-offs versus stb-style pointers, CC.h, C++, manual instantiation, and script generators |
 | [Benchmarks](test/bench/README.md) | Benchmark methodology, workload controls, and recorded results |
@@ -111,6 +114,6 @@ CC=clang ./test/run.sh
 ./test/negative.sh
 ```
 
-Edit the `.tmpl.h` files and regenerate; files under `gen/` are generated
+Edit the `.tmpl.h` files and regenerate; files under `test/gen/` are generated
 outputs. For the implementation model and a candid comparison with other
 generic-programming approaches, see [Design & alternatives](doc/paradigm.md).
