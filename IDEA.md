@@ -284,16 +284,20 @@ Before each dispatch macro, emit navigation prototypes for its concrete targets,
 ## 7. Command line
 
 ```
-tmplgen            generate gen/<stem>.gen.h files and gen/all.gen.h (default)
-tmplgen --check    generate in memory, compare every generated file; exit 1 if any differ (for CI)
-tmplgen --watch    poll inputs every GEN_WATCH_INTERVAL_MS and regenerate on change
-tmplgen --verbose  print what was read/written to stderr (combinable with the others)
-tmplgen --help     usage
+tmplgen                generate gen/<stem>.gen.h files and gen/all.gen.h (default)
+tmplgen --compiled     also emit gen/<stem>.gen.c implementations
+tmplgen --check        compare every generated file; exit 1 if any differ
+tmplgen --no-cache     always run full libclang analysis and generation
+tmplgen --watch        poll inputs every GEN_WATCH_INTERVAL_MS and regenerate on change
+tmplgen --verbose      print what was read/written to stderr
+tmplgen --help         usage
 ```
 
 Exit codes: `0` success (including "unchanged"), `1` error or `--check` mismatch, `2` bad usage.
 
-On a normal run print one `path: written` or `path: unchanged` line for every generated module and the aggregate header.
+Normal runs and successful `--check` runs use a content-validated cache in the generated directory to skip libclang when inputs and generated outputs are unchanged. The cache is ignored build metadata; `--check` does not write generated outputs. `--no-cache` forces full analysis. Runs print one `path: written` or `path: unchanged` line for every generated output.
+
+`--compiled` keeps declarations, constructors, and dispatch macros in the generated headers while moving generic function bodies into per-template `.gen.c` files. Compile and link those implementation files with the project. The default remains header-only.
 
 **Watch mode** fingerprints discovered source and template file contents on each poll, and runs full generation only when that fingerprint changes. This avoids repeated libclang parsing while inputs are idle; the pre-scan still reads the inputs at the configured interval. Errors print and the watcher continues. Since it reads from disk, it cannot see unsaved editor-buffer changes.
 

@@ -237,4 +237,46 @@ if ! grep -q 'tmpl/result.tmpl.h:112:' "$BUILD/subtyping.log"; then
     exit 1
 fi
 
+COMPILED="$BUILD/compiled"
+mkdir -p "$COMPILED/tmpl" "$COMPILED/test/lib" "$COMPILED/gen"
+cp -R tmpl/. "$COMPILED/tmpl/"
+cp test/lib/physics.h "$COMPILED/test/lib/physics.h"
+cat > "$COMPILED/main.c" <<'EOF'
+#include "test/lib/physics.h"
+#include "gen/all.gen.h"
+
+int main(void)
+{
+    struct PhysicsBody body = { 1, 2, 0.0 };
+    return physics_sum(&body) != 3 || max(2, 1) != 2;
+}
+EOF
+"$BUILD/tmplgen" --source-root "$COMPILED" --template-dir "$COMPILED/tmpl" \
+    --output "$COMPILED/gen/all.gen.h" --clang-arg=-std=c11 --compiled
+if [ ! -f "$COMPILED/gen/math.gen.c" ] ||
+   ! grep -Fq 'max_int' "$COMPILED/gen/math.gen.c"; then
+    printf '%s\n' 'compiled mode did not emit specialization implementations' >&2
+    exit 1
+fi
+"$BUILD/tmplgen" --source-root "$COMPILED" --template-dir "$COMPILED/tmpl" \
+    --output "$COMPILED/gen/all.gen.h" --clang-arg=-std=c11 --compiled --check
+printf '%s\n' 'double extra(void) { return max(1.0, 2.0); }' >> "$COMPILED/main.c"
+"$BUILD/tmplgen" --source-root "$COMPILED" --template-dir "$COMPILED/tmpl" \
+    --output "$COMPILED/gen/all.gen.h" --clang-arg=-std=c11 --compiled
+if ! grep -Fq 'max_double' "$COMPILED/gen/math.gen.c"; then
+    printf '%s\n' 'compiled mode cache did not notice changed source usages' >&2
+    exit 1
+fi
+printf '%s\n' '/* tampered output */' >> "$COMPILED/gen/math.gen.h"
+if "$BUILD/tmplgen" --source-root "$COMPILED" --template-dir "$COMPILED/tmpl" \
+    --output "$COMPILED/gen/all.gen.h" --clang-arg=-std=c11 --compiled --check; then
+    printf '%s\n' 'compiled-mode check accepted a modified generated header' >&2
+    exit 1
+fi
+"$BUILD/tmplgen" --source-root "$COMPILED" --template-dir "$COMPILED/tmpl" \
+    --output "$COMPILED/gen/all.gen.h" --clang-arg=-std=c11 --compiled
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    "$COMPILED/main.c" "$COMPILED"/gen/*.gen.c -o "$COMPILED/main"
+"$COMPILED/main"
+
 printf '%s\n' 'all tmplgen tests passed'

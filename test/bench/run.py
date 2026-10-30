@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import concurrent.futures
 import os
 import re
 import shlex
@@ -69,7 +70,8 @@ def compile_tmplgen(destination: Path) -> Path:
 
 
 def tmplgen_command(
-    binary: Path, project: Path, *, check: bool, dispatch: str
+    binary: Path, project: Path, *, check: bool, dispatch: str,
+    use_cache: bool, compiled_output: bool
 ) -> list[str]:
     command = [
         str(binary),
@@ -85,6 +87,10 @@ def tmplgen_command(
     ]
     if check:
         command.append("--check")
+    if not use_cache:
+        command.append("--no-cache")
+    if compiled_output:
+        command.append("--compiled")
     return command
 
 
@@ -112,9 +118,44 @@ def tree_bytes(paths: Iterable[Path]) -> int:
     return sum(path.stat().st_size for path in paths if path.is_file())
 
 
+def compile_project(project: Path, *, optimization: str, jobs: int) -> tuple[float, int]:
+    compiler = shlex.split(os.environ.get("CC", "cc"))
+    sources = sorted((project / "src").glob("*.c"))
+    implementations = sorted((project / "gen").glob("*.gen.c"))
+    compile_inputs = sources + implementations
+    if not compile_inputs:
+        raise RuntimeError(f"no C sources to compile in {project}")
+    workers = min(jobs if jobs > 0 else (os.cpu_count() or 1), len(compile_inputs))
+    with tempfile.TemporaryDirectory(prefix="tmplgen-bench-objects-") as object_dir:
+        def compile_one(item: tuple[int, Path]) -> None:
+            index, source = item
+            output = Path(object_dir) / f"unit-{index:05d}.o"
+            command = compiler + [
+                "-std=c11",
+                f"-O{optimization}",
+                "-c",
+                str(source),
+                "-o",
+                str(output),
+            ]
+            result = subprocess.run(
+                command, capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"C compile failed for {source}:\n{result.stderr[-8000:]}"
+                )
+
+        start = time.perf_counter()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(compile_one, enumerate(compile_inputs)))
+        elapsed = time.perf_counter() - start
+    return elapsed, len(compile_inputs)
+
+
 def specialization_count(project: Path) -> int:
     count = 0
-    for module in (project / "gen").glob("*.gen.h"):
+    for module in (project / "gen").glob("*.gen.*"):
         count += len(SPECIALIZATION_LINE.findall(module.read_text()))
     return count
 
@@ -150,6 +191,11 @@ def execute_benchmark(
     warmups: int,
     dispatch: str,
     mode: str,
+    use_cache: bool,
+    compiled_output: bool,
+    compile_c: bool,
+    compile_opt: str,
+    compile_jobs: int,
 ) -> tuple[dict[str, object], list[dict[str, object]]]:
     metadata = generate_project(
         project,
@@ -158,8 +204,14 @@ def execute_benchmark(
         functions_per_module=functions_per_module,
         calls_per_source=calls_per_source,
     )
-    generation_command = tmplgen_command(binary, project, check=False, dispatch=dispatch)
-    check_command = tmplgen_command(binary, project, check=True, dispatch=dispatch)
+    generation_command = tmplgen_command(
+        binary, project, check=False, dispatch=dispatch, use_cache=use_cache,
+        compiled_output=compiled_output
+    )
+    check_command = tmplgen_command(
+        binary, project, check=True, dispatch=dispatch, use_cache=use_cache,
+        compiled_output=compiled_output
+    )
 
     cold_seconds = invoke(generation_command, cwd=project)
     # --check is also a correctness gate: every emitted module and the
@@ -176,7 +228,7 @@ def execute_benchmark(
 
     template_bytes = tree_bytes((project / "tmpl").glob("*.tmpl.h"))
     source_bytes = tree_bytes((project / "src").glob("*.c"))
-    generated_bytes = tree_bytes((project / "gen").glob("*.gen.h"))
+    generated_bytes = tree_bytes((project / "gen").glob("*.gen.*"))
     metrics: dict[str, object] = {
         "types": types,
         "modules": modules,
@@ -189,6 +241,12 @@ def execute_benchmark(
         "source_bytes": source_bytes,
         "generated_bytes": generated_bytes,
         "cold_ms": cold_seconds * 1000.0,
+        "cache_enabled": int(use_cache),
+        "compiled_output": int(compiled_output),
+        "compile_files": 0,
+        "compile_opt": compile_opt,
+        "compile_jobs": compile_jobs,
+        "compiler": os.environ.get("CC", "cc"),
     }
 
     csv_rows: list[dict[str, object]] = []
@@ -210,6 +268,25 @@ def execute_benchmark(
                  "seconds": seconds}
             )
         samples_by_mode[selected_mode] = samples
+    if compile_c:
+        compile_samples: list[float] = []
+        compile_file_count = 0
+        for _ in range(warmups):
+            _, compile_file_count = compile_project(
+                project, optimization=compile_opt, jobs=compile_jobs
+            )
+        for iteration in range(1, repeats + 1):
+            seconds, compile_file_count = compile_project(
+                project, optimization=compile_opt, jobs=compile_jobs
+            )
+            compile_samples.append(seconds)
+            csv_rows.append(
+                {**metrics, "phase": "compile", "iteration": iteration,
+                 "seconds": seconds, "compile_files": compile_file_count,
+                 "compile_opt": compile_opt}
+            )
+        samples_by_mode[f"compile_O{compile_opt}"] = compile_samples
+        metrics["compile_files"] = compile_file_count
     metrics["samples"] = samples_by_mode
     return metrics, csv_rows
 
@@ -237,10 +314,19 @@ def main() -> None:
     parser.add_argument("--binary", type=Path)
     parser.add_argument("--work-dir", type=Path)
     parser.add_argument("--keep-projects", action="store_true")
+    parser.add_argument("--use-cache", action="store_true")
+    parser.add_argument("--compiled", action="store_true")
+    parser.add_argument("--compile-c", action="store_true",
+                        help="compile generated C translation units after generation")
+    parser.add_argument("--compile-opt", choices=("0", "2"), default="2")
+    parser.add_argument("--compile-jobs", type=int, default=0,
+                        help="parallel compiler jobs (default: CPU count)")
     parser.add_argument("--csv", type=Path, help="write individual timings and corpus metrics")
     arguments = parser.parse_args()
     if arguments.warmups < 0:
         parser.error("--warmups must be zero or greater")
+    if arguments.compile_jobs < 0:
+        parser.error("--compile-jobs must be zero or greater")
 
     work_dir = arguments.work_dir.resolve() if arguments.work_dir else None
     if work_dir is not None:
@@ -270,6 +356,11 @@ def main() -> None:
                     warmups=arguments.warmups,
                     dispatch=arguments.dispatch,
                     mode=arguments.mode,
+                    use_cache=arguments.use_cache,
+                    compiled_output=arguments.compiled,
+                    compile_c=arguments.compile_c,
+                    compile_opt=arguments.compile_opt,
+                    compile_jobs=arguments.compile_jobs,
                 )
                 print(f"project kept at {project}")
             else:
@@ -287,6 +378,11 @@ def main() -> None:
                         warmups=arguments.warmups,
                         dispatch=arguments.dispatch,
                         mode=arguments.mode,
+                        use_cache=arguments.use_cache,
+                        compiled_output=arguments.compiled,
+                        compile_c=arguments.compile_c,
+                        compile_opt=arguments.compile_opt,
+                        compile_jobs=arguments.compile_jobs,
                     )
             rows.extend(size_rows)
             print(

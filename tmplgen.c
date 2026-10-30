@@ -80,6 +80,16 @@
 typedef struct { char *p; size_t len, cap, newlines; } Buf;
 typedef struct { char *path; Buf contents; } GeneratedFile;
 typedef struct { GeneratedFile *items; size_t count, cap; } GeneratedFileList;
+typedef struct {
+    char *path;
+    unsigned long long hash1, hash2;
+} CacheRecord;
+typedef struct { CacheRecord *items; size_t count, cap; } CacheRecordList;
+typedef struct {
+    unsigned long long signature;
+    CacheRecordList dependencies;
+    CacheRecordList outputs;
+} CacheManifest;
 typedef struct { char *c_type; char *canonical; } TypeArgument;
 typedef struct {
     char *name;
@@ -137,12 +147,17 @@ static StructuralSchema *g_structural_schemas;
 static size_t g_structural_schema_count, g_structural_schema_cap;
 static char *g_source_root;
 static char *g_template_dir;
+static char *g_absolute_template_dir;
 static GenTemplate *g_templates;
 static size_t g_template_count, g_template_cap;
 static char *g_output_path;
 static char *g_generated_dir;
+static char *g_executable_path;
 static int g_dispatch_backend;
 static int g_emit_line;
+static int g_compiled_output;
+static int g_cache_enabled;
+static StringSet g_clang_dependencies;
 static char **g_clang_args;
 static size_t g_clang_arg_count, g_clang_arg_cap;
 static size_t g_error_count;
@@ -152,6 +167,7 @@ static void report_error(const char *path, size_t line, const char *fmt, ...);
 static int str_eq(const char *a, const char *b);
 static int is_ident_char(char c);
 static char *copy_string(const char *s);
+static char *generated_module_source_path(const char *stem);
 static char *normalize_spaces(const char *s);
 static size_t identifier_line_in_code(const char *src, const char *name);
 static char *join_suffix(const char *base, const char *suffix);
@@ -163,6 +179,8 @@ static void buf_free(Buf *b);
 static void emit_spaces(Buf *out, unsigned count);
 static void emit_line_directive(Buf *out, unsigned long line, const char *path);
 static char *copy_cx_string(CXString value);
+static void string_set_add(StringSet *set, const char *s);
+static void string_set_free(StringSet *set);
 
 static const char *find_alias_canonical(const char *name)
 {
@@ -766,6 +784,77 @@ static char *absolute_path(const char *path)
 #endif
 }
 
+static char *resolve_executable_path(const char *argument_zero)
+{
+    const char *path_environment;
+    size_t offset = 0U;
+    if (strchr(argument_zero, '/') != NULL || strchr(argument_zero, '\\') != NULL) {
+        return absolute_path(argument_zero);
+    }
+    path_environment = getenv("PATH");
+    if (path_environment == NULL) return NULL;
+    while (1) {
+        size_t end = offset;
+        char *directory;
+        char *candidate;
+        while (path_environment[end] != '\0' &&
+#if defined(_WIN32)
+               path_environment[end] != ';'
+#else
+               path_environment[end] != ':'
+#endif
+        ) ++end;
+        directory = end == offset ? copy_string(".") :
+                    copy_range(path_environment + offset, end - offset);
+        candidate = join_path(directory, argument_zero);
+#if defined(_WIN32)
+        {
+            DWORD attributes = GetFileAttributesA(candidate);
+            if (attributes != INVALID_FILE_ATTRIBUTES &&
+                (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0U) {
+                char *absolute = absolute_path(candidate);
+                free(candidate);
+                free(directory);
+                return absolute;
+            }
+        }
+#else
+        {
+            struct stat info;
+            if (stat(candidate, &info) == 0 && S_ISREG(info.st_mode) &&
+                access(candidate, X_OK) == 0) {
+                char *absolute = absolute_path(candidate);
+                free(candidate);
+                free(directory);
+                return absolute;
+            }
+        }
+#endif
+        free(candidate);
+#if defined(_WIN32)
+        if (strchr(argument_zero, '.') == NULL) {
+            Buf executable;
+            buf_init(&executable);
+            buf_puts(&executable, argument_zero);
+            buf_puts(&executable, ".exe");
+            candidate = join_path(directory, executable.p);
+            buf_free(&executable);
+            if (GetFileAttributesA(candidate) != INVALID_FILE_ATTRIBUTES) {
+                char *absolute = absolute_path(candidate);
+                free(candidate);
+                free(directory);
+                return absolute;
+            }
+            free(candidate);
+        }
+#endif
+        free(directory);
+        if (path_environment[end] == '\0') break;
+        offset = end + 1U;
+    }
+    return NULL;
+}
+
 static int source_file_extension(const char *name)
 {
     size_t length = strlen(name);
@@ -779,6 +868,43 @@ static const char *path_leaf(const char *path)
     const char *backslash = strrchr(path, '\\');
     if (backslash != NULL && (slash == NULL || backslash > slash)) slash = backslash;
     return slash != NULL ? slash + 1 : path;
+}
+
+static int path_is_within_directory(const char *path, const char *directory)
+{
+    size_t length = strlen(directory);
+    if (strncmp(path, directory, length) != 0) return 0;
+    if (length != 0U && (directory[length - 1U] == '/' ||
+                         directory[length - 1U] == '\\')) return 1;
+    return path[length] == '/' || path[length] == '\\';
+}
+
+static void cache_add_dependency_path(StringSet *dependencies, const char *path)
+{
+    char *absolute = absolute_path(path);
+    int project_input = path_is_within_directory(absolute, g_source_root) ||
+                        path_is_within_directory(absolute, g_absolute_template_dir) ||
+                        path_is_within_directory(absolute, g_generated_dir);
+    if (!project_input) string_set_add(dependencies, absolute);
+    free(absolute);
+}
+
+static void cache_collect_inclusion(CXFile included_file,
+                                    CXSourceLocation *inclusion_stack,
+                                    unsigned include_length,
+                                    CXClientData client_data)
+{
+    CXString filename;
+    const char *raw_path;
+    (void)inclusion_stack;
+    (void)include_length;
+    if (included_file == NULL) return;
+    filename = clang_getFileName(included_file);
+    raw_path = clang_getCString(filename);
+    if (raw_path != NULL && raw_path[0] != '\0') {
+        cache_add_dependency_path((StringSet *)client_data, raw_path);
+    }
+    clang_disposeString(filename);
 }
 
 static void clear_template_registry(void)
@@ -920,8 +1046,16 @@ static int is_generated_output_file(const char *path)
     char *aggregate = absolute_path(g_output_path);
     size_t generated_dir_length = strlen(g_generated_dir);
     size_t absolute_length = strlen(absolute);
-    int module_file = absolute_length >= 7U &&
-                      strcmp(absolute + absolute_length - 7U, ".gen.h") == 0 &&
+    size_t header_suffix_length = strlen(".gen.h");
+    size_t source_suffix_length = strlen(".gen.c");
+    int generated_module =
+                      (absolute_length >= header_suffix_length &&
+                       strcmp(absolute + absolute_length - header_suffix_length,
+                              ".gen.h") == 0) ||
+                      (absolute_length >= source_suffix_length &&
+                       strcmp(absolute + absolute_length - source_suffix_length,
+                              ".gen.c") == 0);
+    int module_file = generated_module &&
                       strncmp(absolute, g_generated_dir, generated_dir_length) == 0 &&
                       ((generated_dir_length == 1U && g_generated_dir[0] == '/') ||
                        absolute[generated_dir_length] == '/' ||
@@ -1247,6 +1381,67 @@ static int file_matches(const char *path, const Buf *expected, int *exists)
     }
     if (offset != expected->len) same = 0;
     return same;
+}
+
+static int cache_file_hash(const char *path, unsigned long long *hash1,
+                           unsigned long long *hash2)
+{
+    FILE *file = fopen(path, "rb");
+    unsigned char chunk[8192];
+    size_t count;
+    unsigned long long first = 14695981039346656037ULL;
+    unsigned long long second = 7809847782465536322ULL;
+    if (file == NULL) return 0;
+    while ((count = fread(chunk, 1U, sizeof(chunk), file)) != 0U) {
+        size_t i;
+        for (i = 0U; i < count; ++i) {
+            unsigned long long byte = (unsigned long long)chunk[i];
+            first = (first ^ byte) * 1099511628211ULL;
+            second ^= byte + 0x9e3779b97f4a7c15ULL + (second << 6U) +
+                     (second >> 2U);
+            second *= 0xbf58476d1ce4e5b9ULL;
+        }
+    }
+    {
+        int failed = ferror(file);
+        if (fclose(file) != 0) failed = 1;
+        if (failed) return 0;
+    }
+    *hash1 = first;
+    *hash2 = second;
+    return 1;
+}
+
+static void cache_record_list_free(CacheRecordList *records)
+{
+    size_t i;
+    for (i = 0U; i < records->count; ++i) free(records->items[i].path);
+    free(records->items);
+    memset(records, 0, sizeof(*records));
+}
+
+static void cache_record_list_add(CacheRecordList *records, const char *path,
+                                  unsigned long long hash1,
+                                  unsigned long long hash2)
+{
+    CacheRecord *next;
+    size_t new_cap;
+    if (records->count == records->cap) {
+        new_cap = records->cap == 0U ? 16U : records->cap * 2U;
+        if (new_cap < records->cap ||
+            new_cap > (size_t)-1 / sizeof(*records->items)) {
+            die("too many cache records");
+        }
+        next = (CacheRecord *)realloc(records->items,
+                                      new_cap * sizeof(*records->items));
+        if (next == NULL) die("out of memory");
+        records->items = next;
+        records->cap = new_cap;
+    }
+    records->items[records->count].path = copy_string(path);
+    records->items[records->count].hash1 = hash1;
+    records->items[records->count].hash2 = hash2;
+    ++records->count;
 }
 
 static int create_directory_if_missing(const char *path)
@@ -2719,6 +2914,7 @@ static int analyze_template(TemplateInfo *ti)
         clang_disposeIndex(index);
         return 0;
     }
+    clang_getInclusions(tu, cache_collect_inclusion, &g_clang_dependencies);
     analysis.info = ti;
     analysis.tu = tu;
     analysis.template_file = clang_getFile(tu, path);
@@ -4236,13 +4432,97 @@ static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
     return emitted;
 }
 
+static size_t skip_c_trivia(const char *source, size_t offset)
+{
+    for (;;) {
+        while (isspace((unsigned char)source[offset])) ++offset;
+        if (source[offset] == '/' && source[offset + 1U] == '/') {
+            while (source[offset] != '\0' && source[offset] != '\n') ++offset;
+        } else if (source[offset] == '/' && source[offset + 1U] == '*') {
+            offset += 2U;
+            while (source[offset] != '\0' &&
+                   !(source[offset] == '*' && source[offset + 1U] == '/')) ++offset;
+            if (source[offset] != '\0') offset += 2U;
+        } else {
+            return offset;
+        }
+    }
+}
+
+static size_t skip_c_literal(const char *source, size_t offset)
+{
+    char quote = source[offset++];
+    while (source[offset] != '\0' && source[offset] != quote) {
+        if (source[offset] == '\\' && source[offset + 1U] != '\0') offset += 2U;
+        else ++offset;
+    }
+    if (source[offset] != '\0') ++offset;
+    return offset;
+}
+
+static int externalize_function_definition(Buf *definition,
+                                           const char *function_name)
+{
+    const char *source = definition->p != NULL ? definition->p : "";
+    size_t name_offset = (size_t)-1;
+    size_t offset = 0U;
+    size_t name_length = strlen(function_name);
+    while (source[offset] != '\0') {
+        if (source[offset] == '/' &&
+            (source[offset + 1U] == '/' || source[offset + 1U] == '*')) {
+            offset = skip_c_trivia(source, offset);
+        } else if (source[offset] == '"' || source[offset] == '\'') {
+            offset = skip_c_literal(source, offset);
+        } else if (is_ident_start(source[offset])) {
+            size_t start = offset++;
+            size_t end;
+            size_t after;
+            while (is_ident_char(source[offset])) ++offset;
+            end = offset;
+            if (end - start != name_length ||
+                memcmp(source + start, function_name, name_length) != 0) continue;
+            after = skip_c_trivia(source, end);
+            if (source[after] == '(') {
+                name_offset = start;
+                break;
+            }
+        } else {
+            ++offset;
+        }
+    }
+    if (name_offset == (size_t)-1) return 0;
+
+    offset = 0U;
+    while (offset < name_offset) {
+        if (source[offset] == '/' &&
+            (source[offset + 1U] == '/' || source[offset + 1U] == '*')) {
+            offset = skip_c_trivia(source, offset);
+        } else if (source[offset] == '"' || source[offset] == '\'') {
+            offset = skip_c_literal(source, offset);
+        } else if (is_ident_start(source[offset])) {
+            size_t start = offset++;
+            size_t length;
+            while (is_ident_char(source[offset])) ++offset;
+            length = offset - start;
+            if ((length == 6U && memcmp(source + start, "static", 6U) == 0) ||
+                (length == 6U && memcmp(source + start, "inline", 6U) == 0)) {
+                memset(definition->p + start, ' ', length);
+            }
+        } else {
+            ++offset;
+        }
+    }
+    return 1;
+}
+
 static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *instance,
                           const char *output_path, const char *stem, const char *symbol,
                           unsigned start_offset, unsigned end_offset,
-                          unsigned start_line)
+                          unsigned start_line, int external_linkage)
 {
     char *fragment;
     char *specialized_calls = NULL;
+    const TemplateFunction *matched_function = NULL;
     const char *rewrite_source;
     Buf rewritten;
     Buf path;
@@ -4257,6 +4537,7 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
         if (function->start_offset == start_offset &&
             function->end_offset == end_offset &&
             function->type_parameter_count != 0U) {
+            matched_function = function;
             specialized_calls = specialize_function_calls(fragment, ti, instance,
                                                             function, 0, 0);
             rewrite_source = specialized_calls;
@@ -4266,6 +4547,15 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
     buf_init(&rewritten);
     buf_init(&path);
     rewrite(rewrite_source, ti, instance, &rewritten);
+    if (external_linkage) {
+        char *external_name;
+        int externalized;
+        if (matched_function == NULL) die("missing function for generated symbol '%s'", symbol);
+        external_name = join_suffix(matched_function->name, instance->name);
+        externalized = externalize_function_definition(&rewritten, external_name);
+        free(external_name);
+        if (!externalized) die("cannot externalize generated function '%s'", symbol);
+    }
     buf_puts(out, "\n/* ---- ");
     buf_puts(out, stem);
     buf_puts(out, ": ");
@@ -4487,6 +4777,8 @@ static void emit_function_signature(Buf *out, const TemplateInfo *ti,
 {
     Buf return_type;
     size_t i;
+    int external = g_compiled_output && !documentation &&
+                   function->type_parameter_count != 0U;
     buf_init(&return_type);
     if (instance != NULL) {
         rewrite_c_type(function->return_type, ti, instance,
@@ -4496,8 +4788,8 @@ static void emit_function_signature(Buf *out, const TemplateInfo *ti,
                                    &function->return_application);
     }
     if (documentation) buf_puts(out, "/// ");
-    if (function->is_static) buf_puts(out, "static ");
-    if (function->is_inline) buf_puts(out, "inline ");
+    if (!external && function->is_static) buf_puts(out, "static ");
+    if (!external && function->is_inline) buf_puts(out, "inline ");
     buf_puts(out, return_type.p != NULL ? return_type.p : "void");
     buf_putc(out, ' ');
     buf_puts(out, name);
@@ -4826,7 +5118,7 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
 static void emit_template_module(Buf *out, size_t template_index,
                                  const TemplateInfo *ti, const char *stem,
                                  const char *output_path,
-                                 const char *guard)
+                                 const char *guard, Buf *implementation)
 {
     StringSet includes;
     GenInstance empty_instance;
@@ -4835,6 +5127,16 @@ static void emit_template_module(Buf *out, size_t template_index,
     memset(&empty_instance, 0, sizeof(empty_instance));
     empty_instance.name = "";
     empty_instance.template_index = template_index;
+    if (implementation != NULL) {
+        Buf header_name;
+        buf_init(&header_name);
+        buf_puts(&header_name, stem);
+        buf_puts(&header_name, ".gen.h");
+        buf_puts(implementation, "#define TMPLGEN_AGGREGATING\n");
+        emit_include(implementation, header_name.p);
+        buf_puts(implementation, "#undef TMPLGEN_AGGREGATING\n\n");
+        buf_free(&header_name);
+    }
     emit_preamble(out, guard, ti, 1U, stem, &includes);
     for (i = 0U; i < ti->constructor_count; ++i) {
         const TemplateType *constructor = &ti->constructors[i];
@@ -4842,7 +5144,7 @@ static void emit_template_module(Buf *out, size_t template_index,
         if (constructor->parameter_count == 0U) {
             emit_instance(out, ti, &empty_instance, output_path, stem, constructor->name,
                           constructor->start_offset, constructor->end_offset,
-                          constructor->start_line);
+                          constructor->start_line, 0);
             continue;
         }
         for (j = 0U; j < g_instance_count; ++j) {
@@ -4853,7 +5155,7 @@ static void emit_template_module(Buf *out, size_t template_index,
                 !type_use_matches(constructor->name, instance->name)) continue;
             emit_instance(out, ti, instance, output_path, stem, constructor->name,
                           constructor->start_offset, constructor->end_offset,
-                          constructor->start_line);
+                          constructor->start_line, 0);
         }
     }
     emit_function_forward_declarations(out, template_index, ti);
@@ -4863,7 +5165,7 @@ static void emit_template_module(Buf *out, size_t template_index,
         if (function->type_parameter_count == 0U) {
             emit_instance(out, ti, &empty_instance, output_path, stem, function->name,
                           function->start_offset, function->end_offset,
-                          function->start_line);
+                          function->start_line, 0);
             continue;
         }
         for (j = 0U; j < g_instance_count; ++j) {
@@ -4872,9 +5174,17 @@ static void emit_template_module(Buf *out, size_t template_index,
                 !instance_matches_parameters(ti, instance,
                     function->type_parameters, function->type_parameter_count) ||
                 !generic_use_matches(function->name, instance->name, 0)) continue;
-            emit_instance(out, ti, instance, output_path, stem, function->name,
-                          function->start_offset, function->end_offset,
-                          function->start_line);
+            if (implementation != NULL) {
+                char *implementation_path = generated_module_source_path(stem);
+                emit_instance(implementation, ti, instance, implementation_path,
+                              stem, function->name, function->start_offset,
+                              function->end_offset, function->start_line, 1);
+                free(implementation_path);
+            } else {
+                emit_instance(out, ti, instance, output_path, stem, function->name,
+                              function->start_offset, function->end_offset,
+                              function->start_line, 0);
+            }
         }
     }
     buf_puts(out, "#ifndef TMPLGEN_AGGREGATING\n");
@@ -5172,6 +5482,18 @@ static char *generated_module_path(const char *stem)
     buf_init(&relative);
     buf_puts(&relative, stem);
     buf_puts(&relative, ".gen.h");
+    path = join_path(g_generated_dir, relative.p);
+    buf_free(&relative);
+    return path;
+}
+
+static char *generated_module_source_path(const char *stem)
+{
+    Buf relative;
+    char *path;
+    buf_init(&relative);
+    buf_puts(&relative, stem);
+    buf_puts(&relative, ".gen.c");
     path = join_path(g_generated_dir, relative.p);
     buf_free(&relative);
     return path;
@@ -6052,6 +6374,7 @@ static int parse_source_with_clang(CXIndex index, const SourceFile *source,
                      (int)result);
         return 0;
     }
+    clang_getInclusions(tu, cache_collect_inclusion, &g_clang_dependencies);
     memset(&context.variables, 0, sizeof(context.variables));
     context.scanned_files = (CXFile *)calloc(files->count,
                                               sizeof(*context.scanned_files));
@@ -6291,7 +6614,7 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
                 emit_instance(out, &infos[i], &empty_instance, g_output_path,
                               g_templates[i].stem, constructor->name,
                               constructor->start_offset, constructor->end_offset,
-                              constructor->start_line);
+                              constructor->start_line, 0);
             }
         }
         for (j = 0U; j < infos[i].function_count; ++j) {
@@ -6300,7 +6623,7 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
                 emit_instance(out, &infos[i], &empty_instance, g_output_path,
                               g_templates[i].stem, function->name,
                               function->start_offset, function->end_offset,
-                              function->start_line);
+                              function->start_line, 0);
             }
         }
     }
@@ -7489,6 +7812,7 @@ static int generate(GeneratedFileList *out)
     memset(&source_files, 0, sizeof(source_files));
     memset(out, 0, sizeof(*out));
     clear_discovery_state();
+    string_set_free(&g_clang_dependencies);
     g_error_count = 0U;
     if (!discover_template_files()) return 0;
     if (!config_validate()) return 0;
@@ -7548,13 +7872,22 @@ static int generate(GeneratedFileList *out)
     if (g_error_count != 0U) goto failed;
     for (i = 0U; i < gen_template_count(); ++i) {
         Buf module;
+        Buf implementation;
         char *path = generated_module_path(g_templates[i].stem);
         char *guard = generated_module_guard(g_templates[i].stem);
         buf_init(&module);
+        buf_init(&implementation);
         emit_template_module(&module, i, &infos[i], g_templates[i].stem,
-                             path, guard);
+                             path, guard,
+                             g_compiled_output ? &implementation : NULL);
         generated_file_list_add(out, path, &module);
         buf_free(&module);
+        if (g_compiled_output) {
+            char *source_path = generated_module_source_path(g_templates[i].stem);
+            generated_file_list_add(out, source_path, &implementation);
+            free(source_path);
+        }
+        buf_free(&implementation);
         free(path);
         free(guard);
     }
@@ -7587,7 +7920,6 @@ failed:
 
 /* ======================= OPTIONAL PLATFORM ================= */
 
-#if GEN_ENABLE_WATCH
 static void signature_mix(unsigned long long *hash, const char *data, size_t length)
 {
     size_t i;
@@ -7606,18 +7938,24 @@ static int source_file_path_compare(const void *left, const void *right)
     return strcmp(a->path, b->path);
 }
 
-static int compute_watch_signature(unsigned long long *signature)
+static int compute_input_signature(unsigned long long *signature)
 {
     SourceList files;
     char *source_root = absolute_path(g_source_root);
-    char *template_root = absolute_path(g_template_dir);
+    char *template_root = copy_string(g_absolute_template_dir);
+    char *working_directory = absolute_path(".");
     unsigned long long hash = 14695981039346656037ULL;
+    char config[128];
+    CXString clang_version;
+    char *clang_version_text;
+    unsigned long long executable_hash1, executable_hash2;
     size_t i;
 
     memset(&files, 0, sizeof(files));
     if (!scan_source_directory(&files, source_root)) {
         free(source_root);
         free(template_root);
+        free(working_directory);
         source_list_free(&files);
         return 0;
     }
@@ -7625,12 +7963,61 @@ static int compute_watch_signature(unsigned long long *signature)
         !scan_source_directory(&files, template_root)) {
         free(source_root);
         free(template_root);
+        free(working_directory);
         source_list_free(&files);
         return 0;
     }
     if (files.count > 1U) {
         qsort(files.items, files.count, sizeof(*files.items), source_file_path_compare);
     }
+    signature_mix(&hash, source_root, strlen(source_root));
+    signature_mix(&hash, template_root, strlen(template_root));
+    signature_mix(&hash, working_directory, strlen(working_directory));
+    signature_mix(&hash, g_output_path, strlen(g_output_path));
+    signature_mix(&hash, g_generated_dir, strlen(g_generated_dir));
+    signature_mix(&hash, GEN_GUARD, strlen(GEN_GUARD));
+    signature_mix(&hash, GEN_LSP_GUARD, strlen(GEN_LSP_GUARD));
+    signature_mix(&hash, GEN_TMPL_SUFFIX, strlen(GEN_TMPL_SUFFIX));
+    signature_mix(&hash, GEN_PREAMBLE, strlen(GEN_PREAMBLE));
+    (void)snprintf(config, sizeof(config), "%d:%d:%d:%d",
+                   g_dispatch_backend, g_emit_line, g_compiled_output,
+                   GEN_ENABLE_WATCH);
+    signature_mix(&hash, config, strlen(config));
+    signature_mix(&hash, __DATE__, strlen(__DATE__));
+    signature_mix(&hash, __TIME__, strlen(__TIME__));
+    if (g_executable_path != NULL &&
+        cache_file_hash(g_executable_path, &executable_hash1, &executable_hash2)) {
+        signature_mix(&hash, g_executable_path, strlen(g_executable_path));
+        (void)snprintf(config, sizeof(config), "%016llx:%016llx",
+                       executable_hash1, executable_hash2);
+        signature_mix(&hash, config, strlen(config));
+    } else if (g_cache_enabled) {
+        /* Without a stable binary identity, conservatively disable the cache. */
+        g_cache_enabled = 0;
+    }
+    for (i = 0U; i < g_clang_arg_count; ++i) {
+        signature_mix(&hash, g_clang_args[i], strlen(g_clang_args[i]));
+    }
+    {
+        static const char *const clang_environment[] = {
+            "CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH",
+            "OBJC_INCLUDE_PATH", "SDKROOT", "INCLUDE"
+        };
+        size_t environment_index;
+        for (environment_index = 0U;
+             environment_index < sizeof(clang_environment) /
+                                     sizeof(clang_environment[0]);
+             ++environment_index) {
+            const char *value = getenv(clang_environment[environment_index]);
+            signature_mix(&hash, clang_environment[environment_index],
+                          strlen(clang_environment[environment_index]));
+            if (value != NULL) signature_mix(&hash, value, strlen(value));
+        }
+    }
+    clang_version = clang_getClangVersion();
+    clang_version_text = copy_cx_string(clang_version);
+    signature_mix(&hash, clang_version_text, strlen(clang_version_text));
+    free(clang_version_text);
     for (i = 0U; i < files.count; ++i) {
         signature_mix(&hash, files.items[i].path, strlen(files.items[i].path));
         signature_mix(&hash, files.items[i].text.p, files.items[i].text.len);
@@ -7638,10 +8025,229 @@ static int compute_watch_signature(unsigned long long *signature)
     *signature = hash;
     free(source_root);
     free(template_root);
+    free(working_directory);
     source_list_free(&files);
     return 1;
 }
 
+static int cache_string_compare(const void *left, const void *right)
+{
+    const char *const *a = (const char *const *)left;
+    const char *const *b = (const char *const *)right;
+    return strcmp(*a, *b);
+}
+
+static void cache_manifest_free(CacheManifest *manifest)
+{
+    cache_record_list_free(&manifest->dependencies);
+    cache_record_list_free(&manifest->outputs);
+    memset(manifest, 0, sizeof(*manifest));
+}
+
+static int cache_hex_value(int character)
+{
+    if (character >= '0' && character <= '9') return character - '0';
+    if (character >= 'a' && character <= 'f') return character - 'a' + 10;
+    if (character >= 'A' && character <= 'F') return character - 'A' + 10;
+    return -1;
+}
+
+static int cache_read_record(FILE *file, CacheRecordList *records)
+{
+    unsigned long path_length;
+    unsigned long long hash1, hash2;
+    char *path;
+    unsigned long i;
+    if (fscanf(file, "%16llx %16llx %lu\n", &hash1, &hash2, &path_length) != 3 ||
+        path_length == 0UL || path_length > 1048576UL) return 0;
+    path = (char *)malloc((size_t)path_length + 1U);
+    if (path == NULL) die("out of memory");
+    for (i = 0UL; i < path_length; ++i) {
+        int high = cache_hex_value(fgetc(file));
+        int low = cache_hex_value(fgetc(file));
+        if (high < 0 || low < 0) {
+            free(path);
+            return 0;
+        }
+        path[i] = (char)((high << 4) | low);
+    }
+    if (fgetc(file) != '\n') {
+        free(path);
+        return 0;
+    }
+    path[path_length] = '\0';
+    cache_record_list_add(records, path, hash1, hash2);
+    free(path);
+    return 1;
+}
+
+static int cache_read_manifest(const char *path, CacheManifest *manifest)
+{
+    FILE *file = fopen(path, "rb");
+    char header[40];
+    unsigned long dependency_count, output_count, i;
+    int okay = 0;
+    memset(manifest, 0, sizeof(*manifest));
+    if (file == NULL) return 0;
+    if (fgets(header, sizeof(header), file) == NULL ||
+        !str_eq(header, "TMPLGEN-CACHE-1\n") ||
+        fscanf(file, "%16llx\n", &manifest->signature) != 1 ||
+        fscanf(file, "%lu %lu\n", &dependency_count, &output_count) != 2 ||
+        dependency_count > 1000000UL || output_count > 1000000UL) goto done;
+    for (i = 0UL; i < dependency_count; ++i) {
+        if (!cache_read_record(file, &manifest->dependencies)) goto done;
+    }
+    for (i = 0UL; i < output_count; ++i) {
+        if (!cache_read_record(file, &manifest->outputs)) goto done;
+    }
+    if (fgetc(file) == EOF && !ferror(file)) okay = 1;
+done:
+    (void)fclose(file);
+    if (!okay) cache_manifest_free(manifest);
+    return okay;
+}
+
+static int cache_write_record(FILE *file, const char *path)
+{
+    unsigned long long hash1, hash2;
+    size_t i;
+    if (!cache_file_hash(path, &hash1, &hash2) ||
+        fprintf(file, "%016llx %016llx %lu\n", hash1, hash2,
+                (unsigned long)strlen(path)) < 0) return 0;
+    for (i = 0U; path[i] != '\0'; ++i) {
+        if (fprintf(file, "%02x", (unsigned int)(unsigned char)path[i]) < 0) {
+            return 0;
+        }
+    }
+    return fputc('\n', file) != EOF;
+}
+
+static char *cache_manifest_path(void)
+{
+    return join_path(g_generated_dir, ".tmplgen.cache");
+}
+
+static void cache_expected_outputs(StringSet *outputs)
+{
+    size_t i;
+    for (i = 0U; i < gen_template_count(); ++i) {
+        char *path = generated_module_path(g_templates[i].stem);
+        string_set_add(outputs, path);
+        free(path);
+        if (g_compiled_output) {
+            path = generated_module_source_path(g_templates[i].stem);
+            string_set_add(outputs, path);
+            free(path);
+        }
+    }
+    string_set_add(outputs, g_output_path);
+}
+
+static int cache_try_hit(unsigned long long signature, int check_only)
+{
+    CacheManifest manifest;
+    StringSet expected_outputs;
+    char *path = cache_manifest_path();
+    size_t i;
+    int okay = 0;
+    memset(&expected_outputs, 0, sizeof(expected_outputs));
+    if (!cache_read_manifest(path, &manifest)) {
+        free(path);
+        return 0;
+    }
+    free(path);
+    cache_expected_outputs(&expected_outputs);
+    if (manifest.signature != signature ||
+        manifest.outputs.count != expected_outputs.count) goto done;
+    for (i = 0U; i < manifest.dependencies.count; ++i) {
+        CacheRecord *record = &manifest.dependencies.items[i];
+        unsigned long long hash1, hash2;
+        if (!cache_file_hash(record->path, &hash1, &hash2) ||
+            hash1 != record->hash1 || hash2 != record->hash2) goto done;
+    }
+    for (i = 0U; i < expected_outputs.count; ++i) {
+        CacheRecord *record = &manifest.outputs.items[i];
+        unsigned long long hash1, hash2;
+        if (!str_eq(record->path, expected_outputs.items[i]) ||
+            !cache_file_hash(record->path, &hash1, &hash2) ||
+            hash1 != record->hash1 || hash2 != record->hash2) goto done;
+    }
+    for (i = 0U; i < expected_outputs.count; ++i) {
+        printf("%s: %s\n", expected_outputs.items[i],
+               check_only ? "matches" : "unchanged");
+    }
+    if (g_verbose) fprintf(stderr, "tmplgen: unchanged-input cache hit\n");
+    okay = 1;
+done:
+    string_set_free(&expected_outputs);
+    cache_manifest_free(&manifest);
+    return okay;
+}
+
+static int cache_write_manifest(unsigned long long signature,
+                                const GeneratedFileList *outputs)
+{
+    CacheRecordList dependencies;
+    char *path = cache_manifest_path();
+    FILE *file;
+    size_t i;
+    int okay = 0;
+    memset(&dependencies, 0, sizeof(dependencies));
+    if (g_clang_dependencies.count > 1U) {
+        qsort(g_clang_dependencies.items, g_clang_dependencies.count,
+              sizeof(*g_clang_dependencies.items), cache_string_compare);
+    }
+    for (i = 0U; i < g_clang_dependencies.count; ++i) {
+        unsigned long long hash1, hash2;
+        if (!cache_file_hash(g_clang_dependencies.items[i], &hash1, &hash2)) {
+            cache_record_list_free(&dependencies);
+            free(path);
+            return 0;
+        }
+        cache_record_list_add(&dependencies, g_clang_dependencies.items[i],
+                              hash1, hash2);
+    }
+    if (!ensure_parent_directories(path)) {
+        cache_record_list_free(&dependencies);
+        free(path);
+        return 0;
+    }
+    file = fopen(path, "wb");
+    if (file == NULL) {
+        cache_record_list_free(&dependencies);
+        free(path);
+        return 0;
+    }
+    if (fprintf(file, "TMPLGEN-CACHE-1\n%016llx\n%lu %lu\n", signature,
+                (unsigned long)dependencies.count,
+                (unsigned long)outputs->count) < 0) goto done;
+    for (i = 0U; i < dependencies.count; ++i) {
+        CacheRecord *record = &dependencies.items[i];
+        size_t byte_index;
+        if (fprintf(file, "%016llx %016llx %lu\n", record->hash1,
+                    record->hash2, (unsigned long)strlen(record->path)) < 0) goto done;
+        for (byte_index = 0U; record->path[byte_index] != '\0'; ++byte_index) {
+            if (fprintf(file, "%02x",
+                        (unsigned int)(unsigned char)record->path[byte_index]) < 0) {
+                goto done;
+            }
+        }
+        if (fputc('\n', file) == EOF) goto done;
+    }
+    for (i = 0U; i < outputs->count; ++i) {
+        if (!cache_write_record(file, outputs->items[i].path)) goto done;
+    }
+    okay = 1;
+done:
+    if (fclose(file) != 0) okay = 0;
+    if (!okay) (void)remove(path);
+    else if (g_verbose) fprintf(stderr, "tmplgen: updated cache %s\n", path);
+    cache_record_list_free(&dependencies);
+    free(path);
+    return okay;
+}
+
+#if GEN_ENABLE_WATCH
 static void sleep_ms(unsigned ms)
 {
 #if defined(_WIN32)
@@ -7672,6 +8278,8 @@ static void usage(FILE *out)
             "Generate %s from templates and Clang type/macro-usage data.\n"
             "  --check    compare generated contents without writing\n"
             "  --watch    regenerate when sources or templates change (poll %u ms)\n"
+            "  --no-cache disable the unchanged-input generation cache\n"
+            "  --compiled emit function bodies in per-template .gen.c files\n"
             "  --verbose  report reads and writes to stderr\n"
             "  --source-root DIR   recursively scan this project tree\n"
             "  --template-dir DIR  discover *.tmpl.h templates in this directory\n"
@@ -7719,12 +8327,23 @@ static int parse_dispatch_backend(const char *name)
 static int run_once(int check_only)
 {
     GeneratedFileList files;
+    unsigned long long signature = 0ULL;
+    unsigned long long signature_after = 0ULL;
     int result;
     int exists;
     int changed;
+    int signature_ready = 0;
     size_t i;
     int status = 0;
     memset(&files, 0, sizeof(files));
+    if (g_cache_enabled) {
+        g_error_count = 0U;
+        if (discover_template_files() && compute_input_signature(&signature) &&
+            g_cache_enabled) {
+            signature_ready = 1;
+            if (cache_try_hit(signature, check_only)) return 0;
+        }
+    }
     if (!generate(&files)) {
         generated_file_list_free(&files);
         return 1;
@@ -7749,6 +8368,12 @@ static int run_once(int check_only)
             }
         }
     }
+    if (status == 0 && g_cache_enabled && signature_ready &&
+        compute_input_signature(&signature_after) && signature_after == signature) {
+        if (!cache_write_manifest(signature, &files) && g_verbose) {
+            fputs("tmplgen: could not update unchanged-input cache\n", stderr);
+        }
+    }
     generated_file_list_free(&files);
     return status;
 }
@@ -7763,6 +8388,7 @@ int main(int argc, char **argv)
     g_output_path = copy_string(GEN_OUTPUT);
     g_dispatch_backend = GEN_DISPATCH;
     g_emit_line = GEN_EMIT_LINE;
+    g_cache_enabled = 1;
     for (i = 1; i < argc; ++i) {
         if (str_eq(argv[i], "--help")) {
             usage(stdout);
@@ -7773,6 +8399,10 @@ int main(int argc, char **argv)
             check_only = 1;
         } else if (str_eq(argv[i], "--watch")) {
             watch = 1;
+        } else if (str_eq(argv[i], "--no-cache")) {
+            g_cache_enabled = 0;
+        } else if (str_eq(argv[i], "--compiled")) {
+            g_compiled_output = 1;
         } else if (str_eq(argv[i], "--source-root") ||
                    str_eq(argv[i], "--template-dir") ||
                    str_eq(argv[i], "--output") ||
@@ -7814,6 +8444,7 @@ int main(int argc, char **argv)
         usage(stderr);
         return 2;
     }
+    g_executable_path = resolve_executable_path(argv[0]);
     {
         char *parent = path_parent(g_output_path);
         g_generated_dir = absolute_path(parent);
@@ -7824,13 +8455,15 @@ int main(int argc, char **argv)
         free(g_source_root);
         g_source_root = absolute_root;
     }
+    g_absolute_template_dir = absolute_path(g_template_dir);
     if (watch) {
+        g_cache_enabled = 0;
 #if GEN_ENABLE_WATCH
         unsigned long long last_signature = 0ULL;
         int have_signature = 0;
         for (;;) {
             unsigned long long signature = 0ULL;
-            if (!compute_watch_signature(&signature)) {
+            if (!compute_input_signature(&signature)) {
                 (void)run_once(0);
             } else if (!have_signature || signature != last_signature) {
                 last_signature = signature;
