@@ -3,7 +3,7 @@
 <p align="center">
   <strong>Generic C. Specialized at build time.</strong><br>
   Write reusable C templates. Infer concrete types from real call sites.<br>
-  Generate ordinary C—ready for your compiler, debugger, and build system.
+  Generate ordinary C that's statically dispatched without runtime cost.
 </p>
 
 <p align="center">
