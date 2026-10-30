@@ -157,6 +157,58 @@ extern void mutual_first__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
+/// static inline void reorder_call_TestInt_double(TestInt first, double second)
+static inline void reorder_call_TestInt_double(TestInt first, double second);
+/* No dispatch association yet: either the argument type is wrong,
+   or generated headers need regeneration after requesting this type. */
+struct tmplgen_no_association_for_reorder_call_argument { int unused; };
+extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_association_for_reorder_call_argument, ...);
+#undef reorder_call
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+/// static inline void reorder_call(T first, U second)
+#define reorder_call(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
+    TestInt:     _Generic((GEN_ARG1(__VA_ARGS__)), \
+        double: reorder_call_TestInt_double, \
+        default: reorder_call__no_match_for_argument_type), \
+    default: reorder_call__no_match_for_argument_type)(__VA_ARGS__)
+
+#elif defined(__GNUC__) || defined(__clang__)
+/// static inline void reorder_call(T first, U second)
+#define reorder_call(...) \
+    __builtin_choose_expr( \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), double)), \
+        reorder_call_TestInt_double, \
+        reorder_call__no_match_for_argument_type)(__VA_ARGS__)
+
+#else
+#error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
+#endif
+
+/// static inline TestInt cross_root_TestInt(TestInt value)
+static inline TestInt cross_root_TestInt(TestInt value);
+/* No dispatch association yet: either the argument type is wrong,
+   or generated headers need regeneration after requesting this type. */
+struct tmplgen_no_association_for_cross_root_argument { int unused; };
+extern void cross_root__no_match_for_argument_type(struct tmplgen_no_association_for_cross_root_argument, ...);
+#undef cross_root
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+/// static inline T cross_root(T value)
+#define cross_root(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
+    TestInt: cross_root_TestInt, \
+    default: cross_root__no_match_for_argument_type)(__VA_ARGS__)
+
+#elif defined(__GNUC__) || defined(__clang__)
+/// static inline T cross_root(T value)
+#define cross_root(...) \
+    __builtin_choose_expr( \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt)), \
+        cross_root_TestInt, \
+        cross_root__no_match_for_argument_type)(__VA_ARGS__)
+
+#else
+#error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
+#endif
+
 /// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
 static inline void push_TestInt(Vec_TestInt * v, TestInt x);
 /// static inline void push_int(Vec_int * v, int x)

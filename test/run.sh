@@ -85,8 +85,18 @@ fi
 if ! grep -q 'chain_leaf_TestInt' gen/math.gen.h ||
    ! grep -q 'chain_middle_TestInt' gen/math.gen.h ||
    ! grep -q 'recursive_value_TestInt' gen/math.gen.h ||
-   ! grep -q 'mutual_other_TestInt' gen/math.gen.h; then
+   ! grep -q 'mutual_other_TestInt' gen/math.gen.h ||
+   ! grep -q 'reorder_sink_double_TestInt' gen/math.gen.h ||
+   ! grep -q 'cross_helper_TestInt' gen/result.gen.h; then
     printf '%s\n' 'nested or recursive generic function specialization was not emitted' >&2
+    exit 1
+fi
+if ! grep -q '^#include "result.gen.h"$' gen/math.gen.h; then
+    printf '%s\n' 'template include was not rewritten to the generated module' >&2
+    exit 1
+fi
+if ! grep -q '^static inline TestInt cross_helper_TestInt(TestInt value);$' gen/math.gen.h; then
+    printf '%s\n' 'cross-template helper prototype was not emitted before its caller' >&2
     exit 1
 fi
 

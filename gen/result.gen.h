@@ -67,6 +67,7 @@ static inline InferredError result_error_InferredLong_InferredError(Result_Infer
 static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode * result);
 static inline InferredError result_error_Tag_InferredError(Result_Tag_InferredError * result);
 static inline TestInt result_identity_TestInt(TestInt value);
+static inline TestInt cross_helper_TestInt(TestInt value);
 static inline TestInt result_pointer_TestInt(TestInt * value);
 static inline TestInt option_value_TestInt(Option_TestInt * option);
 static inline TestInt tagged_box_value_TestInt(struct TaggedBox_TestInt * box);
@@ -106,6 +107,9 @@ static inline InferredError result_error_Tag_InferredError(Result_Tag_InferredEr
 
 /* ---- result: result_identity_TestInt ---- */
 static inline TestInt result_identity_TestInt(TestInt value) { return value; }
+
+/* ---- result: cross_helper_TestInt ---- */
+static inline TestInt cross_helper_TestInt(TestInt value) { return value + 2; }
 
 /* ---- result: result_pointer_TestInt ---- */
 static inline TestInt result_pointer_TestInt(TestInt *value) { return *value; }

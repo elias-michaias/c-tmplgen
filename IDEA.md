@@ -105,7 +105,7 @@ or, for any number of variables:
 // @template T, E, A
 ```
 
-For standalone editor parsing, declare fallback typedefs inside `#ifndef TMPLGEN`; the generator strips that block while preserving source offsets. Ordinary `#include` lines are gathered into the generated preamble.
+For standalone editor parsing, declare fallback typedefs inside `#ifndef TMPLGEN`; the generator strips that block while preserving source offsets. Ordinary `#include` lines are gathered into the generated preamble. A template may include another configured `.tmpl.h`; the generated module rewrites that include to the matching `.gen.h`, making imported generic declarations visible to cross-file calls.
 
 ### Example `tmpl/math.tmpl.h`
 
@@ -182,7 +182,7 @@ For each call to a dependent function, libclang supplies the argument-expression
 
 Return types are rewritten after resolving variables from input types; they are not used as dispatch inputs. If a function uses a variable that cannot be recovered from any input type, no automatic call dispatch can be formed for that use.
 
-After source calls seed specializations, the generator follows generic calls inside each instantiated function until the set of function and type instances stops growing. Instances are deduplicated by their concrete type tuple, so self-recursive and mutually recursive calls converge; concrete forward declarations are emitted before definitions so recursive bodies have prototypes.
+After source calls seed specializations, the generator follows recognized generic calls across template files until the set of function and type instances stops growing. Callee variables are mapped from the caller's actual argument patterns, including renamed and reordered variables. Instances are deduplicated by their concrete type tuple, so self-recursive and mutually recursive calls converge; concrete forward declarations are emitted before definitions so recursive bodies have prototypes. A cross-file call needs the caller template to include the callee's `.tmpl.h`; constructor applications owned by another template file are not yet available as caller-side type patterns.
 
 The source-range rewriter substitutes declared type variables and suffixes dependent declarations. It skips comments and literals, and preserves offsets so emitted `#line` directives map declarations back to their template locations.
 

@@ -1339,13 +1339,83 @@ typedef struct {
     char *path;
 } TemplateInfo;
 
+typedef struct {
+    size_t caller_template_index;
+    char *caller_function;
+    char *caller_instance;
+    size_t callee_template_index;
+    char *callee_function;
+    char *callee_instance;
+} FunctionCallDependency;
+
+static TemplateInfo *g_all_template_infos;
+static size_t g_all_template_info_count;
+static FunctionCallDependency *g_function_call_dependencies;
+static size_t g_function_call_dependency_count;
+static size_t g_function_call_dependency_cap;
+
 static const TemplateType *find_template_type(const TemplateInfo *ti,
                                               const char *name);
 static const TemplateFunction *find_template_function(const TemplateInfo *ti,
                                                        const char *name);
+static char *specialize_function_calls(const char *fragment,
+                                       const TemplateInfo *ti,
+                                       const GenInstance *instance,
+                                       const TemplateFunction *caller,
+                                       int discover_dependencies,
+                                       int report_unresolved);
+
+static void add_function_call_dependency(size_t caller_template_index,
+                                         const TemplateFunction *caller,
+                                         const GenInstance *caller_instance,
+                                         size_t callee_template_index,
+                                         const TemplateFunction *callee,
+                                         const GenInstance *callee_instance)
+{
+    size_t i;
+    FunctionCallDependency *next;
+    size_t new_cap;
+    for (i = 0U; i < g_function_call_dependency_count; ++i) {
+        const FunctionCallDependency *dependency =
+            &g_function_call_dependencies[i];
+        if (dependency->caller_template_index == caller_template_index &&
+            dependency->callee_template_index == callee_template_index &&
+            str_eq(dependency->caller_function, caller->name) &&
+            str_eq(dependency->caller_instance, caller_instance->name) &&
+            str_eq(dependency->callee_function, callee->name) &&
+            str_eq(dependency->callee_instance, callee_instance->name)) return;
+    }
+    if (g_function_call_dependency_count == g_function_call_dependency_cap) {
+        new_cap = g_function_call_dependency_cap == 0U ? 8U :
+                  g_function_call_dependency_cap * 2U;
+        if (new_cap < g_function_call_dependency_cap ||
+            new_cap > (size_t)-1 / sizeof(*g_function_call_dependencies)) {
+            die("too many specialized function dependencies");
+        }
+        next = (FunctionCallDependency *)realloc(g_function_call_dependencies,
+            new_cap * sizeof(*g_function_call_dependencies));
+        if (next == NULL) die("out of memory");
+        g_function_call_dependencies = next;
+        g_function_call_dependency_cap = new_cap;
+    }
+    g_function_call_dependencies[g_function_call_dependency_count].caller_template_index =
+        caller_template_index;
+    g_function_call_dependencies[g_function_call_dependency_count].caller_function =
+        copy_string(caller->name);
+    g_function_call_dependencies[g_function_call_dependency_count].caller_instance =
+        copy_string(caller_instance->name);
+    g_function_call_dependencies[g_function_call_dependency_count].callee_template_index =
+        callee_template_index;
+    g_function_call_dependencies[g_function_call_dependency_count].callee_function =
+        copy_string(callee->name);
+    g_function_call_dependencies[g_function_call_dependency_count].callee_instance =
+        copy_string(callee_instance->name);
+    ++g_function_call_dependency_count;
+}
+
 static void emit_preamble(Buf *out, const char *guard,
                           const TemplateInfo *infos, size_t count,
-                          StringSet *includes);
+                          const char *current_stem, StringSet *includes);
 static void emit_type_functors(Buf *out, const TemplateInfo *ti);
 
 static void template_info_init(TemplateInfo *ti)
@@ -1669,61 +1739,6 @@ static void collect_type_spelling_parameters(const TemplateInfo *ti,
             if (!list_contains(*names, *count, parameter)) {
                 list_add(names, count, capacity, parameter);
             }
-        }
-    }
-}
-
-static void propagate_function_dependencies(TemplateInfo *ti)
-{
-    int changed = 1;
-    while (changed) {
-        size_t i;
-        changed = 0;
-        for (i = 0U; i < ti->function_count; ++i) {
-            TemplateFunction *function = &ti->functions[i];
-            char *body;
-            size_t j;
-            if (function->end_offset > ti->body.len ||
-                function->start_offset >= function->end_offset) continue;
-            body = copy_range(ti->body.p + function->start_offset,
-                              (size_t)(function->end_offset - function->start_offset));
-            for (j = 0U; j < ti->function_count; ++j) {
-                size_t k;
-                const TemplateFunction *callee = &ti->functions[j];
-                if (i == j || identifier_line_in_code(body, callee->name) == 0U) continue;
-                for (k = 0U; k < callee->type_parameter_count; ++k) {
-                    const char *parameter = callee->type_parameters[k];
-                    if (!list_contains(function->type_parameters,
-                                       function->type_parameter_count, parameter)) {
-                        list_add(&function->type_parameters,
-                                 &function->type_parameter_count,
-                                 &function->type_parameter_cap, parameter);
-                        changed = 1;
-                    }
-                }
-            }
-            free(body);
-        }
-    }
-    {
-        size_t i;
-        for (i = 0U; i < ti->function_count; ++i) {
-            TemplateFunction *function = &ti->functions[i];
-            char **ordered = NULL;
-            size_t ordered_count = 0U, ordered_cap = 0U;
-            size_t j;
-            for (j = 0U; j < ti->parameter_count; ++j) {
-                if (list_contains(function->type_parameters,
-                                  function->type_parameter_count,
-                                  ti->parameter_names[j])) {
-                    list_add(&ordered, &ordered_count, &ordered_cap,
-                             ti->parameter_names[j]);
-                }
-            }
-            list_free(function->type_parameters, function->type_parameter_count);
-            function->type_parameters = ordered;
-            function->type_parameter_count = ordered_count;
-            function->type_parameter_cap = ordered_cap;
         }
     }
 }
@@ -2312,7 +2327,6 @@ static int analyze_template(TemplateInfo *ti)
     analysis.failed = 0;
     clang_visitChildren(clang_getTranslationUnitCursor(tu),
                         collect_template_declarations, &analysis);
-    propagate_function_dependencies(ti);
     {
         size_t annotation_index;
         for (annotation_index = 0U; annotation_index < ti->annotation_count;
@@ -3137,14 +3151,30 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
                           unsigned start_line)
 {
     char *fragment;
+    char *specialized_calls = NULL;
+    const char *rewrite_source;
     Buf rewritten;
     Buf path;
+    size_t function_index;
     if (end_offset > ti->body.len || start_offset >= end_offset) return;
     fragment = copy_range(ti->body.p + start_offset,
                           (size_t)(end_offset - start_offset));
+    rewrite_source = fragment;
+    for (function_index = 0U; function_index < ti->function_count;
+         ++function_index) {
+        const TemplateFunction *function = &ti->functions[function_index];
+        if (function->start_offset == start_offset &&
+            function->end_offset == end_offset &&
+            function->type_parameter_count != 0U) {
+            specialized_calls = specialize_function_calls(fragment, ti, instance,
+                                                            function, 0, 0);
+            rewrite_source = specialized_calls;
+            break;
+        }
+    }
     buf_init(&rewritten);
     buf_init(&path);
-    rewrite(fragment, ti, instance, &rewritten);
+    rewrite(rewrite_source, ti, instance, &rewritten);
     buf_puts(out, "\n/* ---- ");
     buf_puts(out, stem);
     buf_puts(out, ": ");
@@ -3168,6 +3198,7 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
         emit_line_directive(out, resume_line, output_path);
     }
     free(fragment);
+    free(specialized_calls);
     buf_free(&rewritten);
     buf_free(&path);
 }
@@ -3659,6 +3690,37 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
             }
         }
     }
+    for (i = 0U; i < g_function_call_dependency_count; ++i) {
+        const FunctionCallDependency *dependency =
+            &g_function_call_dependencies[i];
+        const TemplateInfo *callee_ti;
+        const TemplateFunction *callee;
+        size_t *indices;
+        size_t j;
+        GenInstance *instance;
+        char *symbol;
+        if (dependency->caller_template_index != template_index ||
+            dependency->callee_template_index == template_index ||
+            dependency->callee_template_index >= g_all_template_info_count) continue;
+        callee_ti = &g_all_template_infos[dependency->callee_template_index];
+        callee = find_template_function(callee_ti, dependency->callee_function);
+        if (callee == NULL) continue;
+        indices = (size_t *)malloc(callee->type_parameter_count * sizeof(*indices));
+        if (indices == NULL) die("out of memory");
+        for (j = 0U; j < callee->type_parameter_count; ++j) {
+            int parameter = template_parameter_index(callee_ti,
+                callee->type_parameters[j]);
+            if (parameter < 0) die("invalid cross-template prototype parameter map");
+            indices[j] = (size_t)parameter;
+        }
+        instance = find_instance(dependency->callee_template_index,
+            dependency->callee_instance, indices, callee->type_parameter_count);
+        free(indices);
+        if (instance == NULL) continue;
+        symbol = join_suffix(callee->name, instance->name);
+        emit_function_signature(out, callee_ti, callee, instance, symbol, 0);
+        free(symbol);
+    }
     buf_putc(out, '\n');
 }
 
@@ -3674,7 +3736,7 @@ static void emit_template_module(Buf *out, size_t template_index,
     memset(&empty_instance, 0, sizeof(empty_instance));
     empty_instance.name = "";
     empty_instance.template_index = template_index;
-    emit_preamble(out, guard, ti, 1U, &includes);
+    emit_preamble(out, guard, ti, 1U, stem, &includes);
     for (i = 0U; i < ti->constructor_count; ++i) {
         const TemplateType *constructor = &ti->constructors[i];
         size_t j;
@@ -3866,9 +3928,125 @@ static void build_template_path(Buf *path, const char *stem)
     buf_puts(path, GEN_TMPL_SUFFIX);
 }
 
+static char *template_include_target(const char *header, const char *current_stem)
+{
+    const char *header_path = header;
+    char *current_template;
+    char *current_absolute;
+    char *last_separator;
+    char *directory;
+    char *candidate_path;
+    char *candidate_absolute;
+    size_t i;
+    char *result = NULL;
+    size_t header_length = strlen(header);
+    if (header_length >= 2U &&
+        ((header[0] == '"' && header[header_length - 1U] == '"') ||
+         (header[0] == '<' && header[header_length - 1U] == '>'))) {
+        header_path = copy_range(header + 1U, header_length - 2U);
+    } else {
+        header_path = copy_string(header);
+    }
+    if (strlen(header_path) < strlen(GEN_TMPL_SUFFIX) ||
+        !str_eq(header_path + strlen(header_path) - strlen(GEN_TMPL_SUFFIX),
+                GEN_TMPL_SUFFIX)) {
+        free((char *)header_path);
+        return NULL;
+    }
+    {
+        Buf current_path;
+        buf_init(&current_path);
+        build_template_path(&current_path, current_stem);
+        current_template = current_path.p;
+    }
+    current_absolute = absolute_path(current_template);
+    last_separator = strrchr(current_template, '/');
+#if defined(_WIN32)
+    {
+        char *backslash = strrchr(current_template, '\\');
+        if (backslash != NULL && (last_separator == NULL || backslash > last_separator)) {
+            last_separator = backslash;
+        }
+    }
+#endif
+    if (last_separator == NULL) directory = copy_string(".");
+    else directory = copy_range(current_template,
+                                (size_t)(last_separator - current_template));
+    candidate_path = join_path(directory, header_path);
+    candidate_absolute = absolute_path(candidate_path);
+    for (i = 0U; i < gen_template_count(); ++i) {
+        Buf template_path;
+        char *template_absolute;
+        buf_init(&template_path);
+        build_template_path(&template_path, GEN_TEMPLATES[i].stem);
+        template_absolute = absolute_path(template_path.p);
+        if (str_eq(candidate_absolute, template_absolute)) {
+            result = copy_string(GEN_TEMPLATES[i].stem);
+            free(template_absolute);
+            buf_free(&template_path);
+            break;
+        }
+        free(template_absolute);
+        buf_free(&template_path);
+    }
+    free((char *)header_path);
+    free(current_template);
+    free(current_absolute);
+    free(directory);
+    free(candidate_path);
+    free(candidate_absolute);
+    return result;
+}
+
+static char *relative_module_include(const char *current_stem,
+                                    const char *target_stem)
+{
+    const char *current_slash = strrchr(current_stem, '/');
+    const char *target_slash = strrchr(target_stem, '/');
+    size_t current_dir_length = current_slash != NULL ?
+        (size_t)(current_slash - current_stem) : 0U;
+    size_t target_dir_length = target_slash != NULL ?
+        (size_t)(target_slash - target_stem) : 0U;
+    size_t common = 0U;
+    size_t current_rest;
+    size_t target_rest;
+    Buf path;
+    while (common < current_dir_length && common < target_dir_length &&
+           current_stem[common] == target_stem[common]) ++common;
+    if (common < current_dir_length && common < target_dir_length) {
+        while (common != 0U && current_stem[common - 1U] != '/') --common;
+    }
+    current_rest = common;
+    target_rest = common;
+    while (current_rest < current_dir_length && current_stem[current_rest] == '/') {
+        ++current_rest;
+    }
+    while (target_rest < target_dir_length && target_stem[target_rest] == '/') {
+        ++target_rest;
+    }
+    buf_init(&path);
+    while (current_rest < current_dir_length) {
+        buf_puts(&path, "../");
+        while (current_rest < current_dir_length && current_stem[current_rest] != '/') {
+            ++current_rest;
+        }
+        while (current_rest < current_dir_length && current_stem[current_rest] == '/') {
+            ++current_rest;
+        }
+    }
+    if (target_rest < target_dir_length) {
+        buf_putn(&path, target_stem + target_rest,
+                 target_dir_length - target_rest);
+        buf_putc(&path, '/');
+    }
+    buf_puts(&path, target_slash != NULL ? target_slash + 1 : target_stem);
+    buf_puts(&path, ".gen.h");
+    return path.p;
+}
+
 static void emit_preamble(Buf *out, const char *guard,
                           const TemplateInfo *infos, size_t count,
-                          StringSet *includes)
+                          const char *current_stem, StringSet *includes)
 {
     size_t i;
     buf_puts(out, "#ifndef ");
@@ -3883,12 +4061,21 @@ static void emit_preamble(Buf *out, const char *guard,
     for (i = 0U; i < count; ++i) {
         size_t j;
         for (j = 0U; j < infos[i].include_count; ++j) {
-            char *key = include_key(infos[i].includes[j]);
+            const char *source_stem = current_stem != NULL ? current_stem :
+                GEN_TEMPLATES[infos[i].template_index].stem;
+            char *target_stem = template_include_target(infos[i].includes[j],
+                                                        source_stem);
+            char *include_path = target_stem != NULL ?
+                relative_module_include(source_stem, target_stem) :
+                copy_string(infos[i].includes[j]);
+            char *key = include_key(include_path);
             if (!string_set_has(includes, key)) {
                 string_set_add(includes, key);
-                emit_include(out, infos[i].includes[j]);
+                emit_include(out, include_path);
             }
             free(key);
+            free(include_path);
+            free(target_stem);
         }
     }
     if (count != 0U) buf_putc(out, '\n');
@@ -4838,7 +5025,7 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
     size_t i;
     memset(&includes, 0, sizeof(includes));
     memset(&type_stubs, 0, sizeof(type_stubs));
-    emit_preamble(out, GEN_GUARD, infos, template_count, &includes);
+    emit_preamble(out, GEN_GUARD, infos, template_count, NULL, &includes);
     for (i = 0U; i < template_count; ++i) {
         GenInstance empty_instance;
         size_t j;
@@ -5456,6 +5643,290 @@ static GenInstance *project_instance(const TemplateInfo *ti,
     return result;
 }
 
+static int find_function_parameter(const TemplateFunction *function,
+                                   const char *name)
+{
+    size_t i;
+    for (i = 0U; i < function->parameter_count; ++i) {
+        if (str_eq(function->parameters[i].name, name)) return (int)i;
+    }
+    return -1;
+}
+
+static int call_argument_parameter(const TemplateFunction *function,
+                                   const char *expression)
+{
+    const char *p = expression;
+    const char *start;
+    char *name;
+    int parameter;
+    while (isspace((unsigned char)*p)) ++p;
+    while (*p == '&' || *p == '*') {
+        ++p;
+        while (isspace((unsigned char)*p)) ++p;
+    }
+    if (!is_ident_start(*p)) return -1;
+    start = p++;
+    while (is_ident_char(*p)) ++p;
+    name = copy_range(start, (size_t)(p - start));
+    while (isspace((unsigned char)*p)) ++p;
+    if (*p != '\0') {
+        free(name);
+        return -1;
+    }
+    parameter = find_function_parameter(function, name);
+    free(name);
+    return parameter;
+}
+
+static int bind_callee_parameter(const TemplateInfo *caller_ti,
+                                 const TemplateInfo *callee_ti,
+                                 const TemplateFunction *callee,
+                                 const GenInstance *caller_instance,
+                                 const char *callee_name,
+                                 const char *caller_name,
+                                 char **spellings, char **canonicals,
+                                 unsigned char *assigned)
+{
+    size_t binding_index;
+    int callee_parameter = template_parameter_index(callee_ti, callee_name);
+    int caller_parameter = template_parameter_index(caller_ti, caller_name);
+    int caller_argument;
+    if (callee_parameter < 0 || caller_parameter < 0) return 0;
+    caller_argument = instance_parameter_position(caller_instance,
+                                                   (size_t)caller_parameter);
+    if (caller_argument < 0) return 0;
+    for (binding_index = 0U; binding_index < callee->type_parameter_count;
+         ++binding_index) {
+        if (!str_eq(callee->type_parameters[binding_index], callee_name)) continue;
+        return assign_template_argument(caller_ti, binding_index,
+            caller_instance->arguments[caller_argument].c_type,
+            caller_instance->arguments[caller_argument].canonical,
+            spellings, canonicals, assigned);
+    }
+    return 0;
+}
+
+static GenInstance *resolve_function_call_instance(const TemplateInfo *caller_ti,
+                                                   const TemplateFunction *caller,
+                                                   const GenInstance *caller_instance,
+                                                   const TemplateInfo *callee_ti,
+                                                   size_t callee_template_index,
+                                                   const TemplateFunction *callee,
+                                                   char **call_arguments,
+                                                   size_t call_argument_count)
+{
+    size_t binding_count = callee->type_parameter_count;
+    size_t *indices;
+    char **spellings;
+    char **canonicals;
+    unsigned char *assigned;
+    size_t i;
+    int okay = 1;
+    GenInstance *result;
+    if (binding_count == 0U) return add_instance(callee_template_index,
+                                                  NULL, NULL, NULL, 0U);
+    indices = (size_t *)malloc(binding_count * sizeof(*indices));
+    spellings = (char **)calloc(binding_count, sizeof(*spellings));
+    canonicals = (char **)calloc(binding_count, sizeof(*canonicals));
+    assigned = (unsigned char *)calloc(binding_count, sizeof(*assigned));
+    if (indices == NULL || spellings == NULL || canonicals == NULL || assigned == NULL) {
+        die("out of memory");
+    }
+    for (i = 0U; i < call_argument_count && i < caller->parameter_count &&
+         i < callee->parameter_count; ++i) {
+        int caller_parameter = call_argument_parameter(caller, call_arguments[i]);
+        const TemplateArgument *source_argument;
+        const TemplateArgument *target_argument;
+        size_t j;
+        if (caller_parameter < 0) continue;
+        source_argument = &caller->parameters[caller_parameter];
+        target_argument = &callee->parameters[i];
+        if (source_argument->application.constructor != NULL &&
+            target_argument->application.constructor != NULL &&
+            str_eq(source_argument->application.constructor,
+                   target_argument->application.constructor) &&
+            source_argument->application.argument_count ==
+            target_argument->application.argument_count) {
+            for (j = 0U; j < target_argument->application.argument_count; ++j) {
+                char *source_name = normalize_spaces(
+                    source_argument->application.arguments[j]);
+                char *target_name = normalize_spaces(
+                    target_argument->application.arguments[j]);
+                if (valid_identifier(source_name) && valid_identifier(target_name) &&
+                    !bind_callee_parameter(caller_ti, callee_ti, callee,
+                        caller_instance,
+                        target_name, source_name, spellings, canonicals, assigned)) {
+                    okay = 0;
+                }
+                free(source_name);
+                free(target_name);
+            }
+        } else if (source_argument->application.constructor == NULL &&
+                   target_argument->application.constructor == NULL &&
+                   source_argument->type_parameter_count ==
+                   target_argument->type_parameter_count) {
+            for (j = 0U; j < target_argument->type_parameter_count; ++j) {
+                if (!bind_callee_parameter(caller_ti, callee_ti, callee,
+                        caller_instance,
+                        target_argument->type_parameters[j],
+                        source_argument->type_parameters[j],
+                        spellings, canonicals, assigned)) okay = 0;
+            }
+        }
+    }
+    for (i = 0U; i < binding_count; ++i) {
+        int parameter;
+        int caller_argument;
+        if (assigned[i]) continue;
+        parameter = template_parameter_index(caller_ti,
+                                             callee->type_parameters[i]);
+        caller_argument = parameter >= 0 ? instance_parameter_position(
+            caller_instance, (size_t)parameter) : -1;
+        if (caller_argument >= 0) {
+            spellings[i] = copy_string(caller_instance->arguments[caller_argument].c_type);
+            canonicals[i] = copy_string(caller_instance->arguments[caller_argument].canonical);
+            assigned[i] = 1U;
+        } else {
+            okay = 0;
+        }
+    }
+    if (!okay) {
+        for (i = 0U; i < binding_count; ++i) {
+            free(spellings[i]);
+            free(canonicals[i]);
+        }
+        free(indices);
+        free(spellings);
+        free(canonicals);
+        free(assigned);
+        return NULL;
+    }
+    for (i = 0U; i < binding_count; ++i) {
+        int parameter = template_parameter_index(callee_ti,
+                                                 callee->type_parameters[i]);
+        if (parameter < 0) die("invalid callee specialization parameter");
+        indices[i] = (size_t)parameter;
+    }
+    result = add_instance(callee_template_index, indices,
+        (const char *const *)spellings, (const char *const *)canonicals,
+        binding_count);
+    for (i = 0U; i < binding_count; ++i) {
+        free(spellings[i]);
+        free(canonicals[i]);
+    }
+    free(indices);
+    free(spellings);
+    free(canonicals);
+    free(assigned);
+    return result;
+}
+
+static char *specialize_function_calls(const char *fragment,
+                                       const TemplateInfo *ti,
+                                       const GenInstance *instance,
+                                       const TemplateFunction *caller,
+                                       int discover_dependencies,
+                                       int report_unresolved)
+{
+    Buf output;
+    size_t i = 0U;
+    const char *body = strchr(fragment, '{');
+    buf_init(&output);
+    if (body == NULL) return copy_string(fragment);
+    i = (size_t)(body - fragment) + 1U;
+    buf_putn(&output, fragment, i);
+    while (fragment[i] != '\0') {
+        if (fragment[i] == '/' && fragment[i + 1U] == '/') {
+            size_t start = i;
+            while (fragment[i] != '\0' && fragment[i] != '\n') ++i;
+            if (fragment[i] == '\n') ++i;
+            buf_putn(&output, fragment + start, i - start);
+        } else if (fragment[i] == '/' && fragment[i + 1U] == '*') {
+            size_t start = i;
+            i += 2U;
+            while (fragment[i] != '\0' &&
+                   !(fragment[i] == '*' && fragment[i + 1U] == '/')) ++i;
+            if (fragment[i] != '\0') i += 2U;
+            buf_putn(&output, fragment + start, i - start);
+        } else if (fragment[i] == '"' || fragment[i] == '\'') {
+            char quote = fragment[i];
+            size_t start = i++;
+            while (fragment[i] != '\0' && fragment[i] != quote) {
+                if (fragment[i] == '\\' && fragment[i + 1U] != '\0') i += 2U;
+                else ++i;
+            }
+            if (fragment[i] != '\0') ++i;
+            buf_putn(&output, fragment + start, i - start);
+        } else if (is_ident_start(fragment[i])) {
+            size_t start = i++;
+            size_t open;
+            size_t argument_count = 0U, argument_end = 0U;
+            char *name;
+            char **arguments = NULL;
+            const TemplateFunction *callee;
+            const TemplateInfo *callee_ti = NULL;
+            size_t callee_template_index = 0U;
+            size_t template_index;
+            int arguments_parsed = 0;
+            GenInstance *callee_instance = NULL;
+            char *specialized_name = NULL;
+            while (is_ident_char(fragment[i])) ++i;
+            name = copy_range(fragment + start, i - start);
+            callee = NULL;
+            for (template_index = 0U;
+                 template_index < g_all_template_info_count;
+                 ++template_index) {
+                callee = find_template_function(&g_all_template_infos[template_index],
+                                                name);
+                if (callee != NULL) {
+                    callee_ti = &g_all_template_infos[template_index];
+                    callee_template_index = template_index;
+                    break;
+                }
+            }
+            open = i;
+            while (isspace((unsigned char)fragment[open])) ++open;
+            if (callee != NULL && callee->type_parameter_count != 0U &&
+                fragment[open] == '(') {
+                arguments_parsed = parse_text_type_arguments(fragment, open,
+                    &arguments, &argument_count, &argument_end);
+            }
+            if (callee != NULL && callee->type_parameter_count != 0U &&
+                fragment[open] == '(' && (arguments_parsed || argument_end > open)) {
+                callee_instance = resolve_function_call_instance(ti, caller,
+                    instance, callee_ti, callee_template_index, callee,
+                    arguments, argument_count);
+                if (callee_instance != NULL) {
+                    specialized_name = join_suffix(callee->name,
+                                                   callee_instance->name);
+                    if (discover_dependencies) {
+                        (void)add_generic_use(callee->name, callee_instance->name,
+                                              0, NULL, NULL, NULL, 0U);
+                        request_instance_types(callee_ti, callee, callee_instance);
+                        add_function_call_dependency(ti->template_index, caller,
+                            instance, callee_template_index, callee,
+                            callee_instance);
+                    }
+                } else if (report_unresolved) {
+                    report_error(ti->path, caller->start_line,
+                                 "cannot monomorphize call to '%s' from specialization '%s': call arguments do not bind every callee template parameter",
+                                 callee->name,
+                                 instance->name != NULL ? instance->name : "");
+                }
+            }
+            buf_puts(&output, specialized_name != NULL ? specialized_name : name);
+            free(specialized_name);
+            free(name);
+            list_free(arguments, argument_count);
+        } else {
+            buf_putc(&output, fragment[i++]);
+        }
+    }
+    if (output.p == NULL) return copy_string("");
+    return output.p;
+}
+
 static void expand_type_dependencies(const TemplateInfo *infos,
                                     size_t template_count)
 {
@@ -5555,26 +6026,10 @@ static void expand_function_dependencies(const TemplateInfo *infos,
         body = copy_range(ti->body.p + function->start_offset,
                           (size_t)(function->end_offset - function->start_offset));
         request_instance_types(ti, function, &instance_copy);
-        for (j = 0U; j < ti->function_count; ++j) {
-            const TemplateFunction *callee = &ti->functions[j];
-            GenInstance *callee_instance;
-            if (callee->type_parameter_count == 0U ||
-                identifier_line_in_code(body, callee->name) == 0U) continue;
-            callee_instance = project_instance(ti, &instance_copy, callee->type_parameters,
-                                               callee->type_parameter_count);
-            if (callee_instance == NULL) {
-                if (report_unresolved) {
-                    report_error(ti->path, function->start_line,
-                                 "cannot monomorphize call to '%s' from specialization '%s': the caller does not bind every callee template parameter",
-                                 callee->name, instance_copy.name);
-                }
-                continue;
-            }
-            if (!generic_use_matches(callee->name, callee_instance->name, 0)) {
-                (void)add_generic_use(callee->name, callee_instance->name, 0,
-                                      NULL, NULL, NULL, 0U);
-            }
-            request_instance_types(ti, callee, callee_instance);
+        {
+            char *rewritten_calls = specialize_function_calls(body, ti,
+                &instance_copy, function, 1, report_unresolved);
+            free(rewritten_calls);
         }
         free(body);
     }
@@ -5751,6 +6206,16 @@ static void clear_discovery_state(void)
     g_aliases = NULL;
     g_alias_count = 0U;
     g_alias_cap = 0U;
+    for (i = 0U; i < g_function_call_dependency_count; ++i) {
+        free(g_function_call_dependencies[i].caller_function);
+        free(g_function_call_dependencies[i].caller_instance);
+        free(g_function_call_dependencies[i].callee_function);
+        free(g_function_call_dependencies[i].callee_instance);
+    }
+    free(g_function_call_dependencies);
+    g_function_call_dependencies = NULL;
+    g_function_call_dependency_count = 0U;
+    g_function_call_dependency_cap = 0U;
 }
 
 static int generate(GeneratedFileList *out)
@@ -5766,6 +6231,8 @@ static int generate(GeneratedFileList *out)
     if (!config_validate()) return 0;
     infos = (TemplateInfo *)calloc(gen_template_count() + 1U, sizeof(*infos));
     if (infos == NULL) die("out of memory");
+    g_all_template_infos = infos;
+    g_all_template_info_count = gen_template_count();
     for (i = 0U; i < gen_template_count(); ++i) {
         template_info_init(&infos[i]);
         infos[i].template_index = i;
@@ -5838,6 +6305,8 @@ static int generate(GeneratedFileList *out)
     source_list_free(&source_files);
     for (i = 0U; i < gen_template_count(); ++i) template_info_free(&infos[i]);
     free(infos);
+    g_all_template_infos = NULL;
+    g_all_template_info_count = 0U;
     clear_discovery_state();
     return 1;
 
@@ -5846,6 +6315,8 @@ failed:
     source_list_free(&source_files);
     for (i = 0U; i < gen_template_count(); ++i) template_info_free(&infos[i]);
     free(infos);
+    g_all_template_infos = NULL;
+    g_all_template_info_count = 0U;
     clear_discovery_state();
     return 0;
 }

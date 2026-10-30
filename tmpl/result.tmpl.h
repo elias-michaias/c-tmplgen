@@ -1,8 +1,8 @@
 // clang-format off
-// result.tmpl.h
 #ifndef TMPLGEN
 typedef int T;
 typedef int E;
+typedef int U;
 #define Result(type0, type1) Result
 #define Option(type) Option
 #define TaggedBox(type) struct TaggedBox
@@ -42,6 +42,8 @@ static inline T result_value(Result(T, E) *result) { return result->value; }
 static inline E result_error(Result(T, E) *result) { return result->error; }
 // @template T
 static inline T result_identity(T value) { return value; }
+// @template U
+static inline U cross_helper(U value) { return value + 2; }
 // @template T
 static inline T result_pointer(T *value) { return *value; }
 // @template T
