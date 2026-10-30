@@ -1,0 +1,15 @@
+// clang-format off
+#include "../cases/test_types.h"
+#include "../../tmpl.h"
+
+void foo(Vec(TestInt) *v, TestInt t)
+{
+    push(&v, t);
+}
+
+int main(void)
+{
+    Vec(TestInt) values = {0};
+    foo(&values, 1);
+    return 0;
+}

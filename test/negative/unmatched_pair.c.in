@@ -1,0 +1,10 @@
+#include "../cases/test_types.h"
+#include "../../tmpl.h"
+
+int main(void)
+{
+    TestInt value = 1;
+    double wrong_error_type = 2.0;
+    (void)result_make(value, wrong_error_type);
+    return 0;
+}

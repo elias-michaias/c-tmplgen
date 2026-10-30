@@ -1,0 +1,19 @@
+CompileFlags:
+  Add: [-std=c99]
+---
+If:
+  PathMatch: tmpl/.*[.]tmpl[.]h
+CompileFlags:
+  Add: [-x, c]
+---
+If:
+  PathMatch: test/cases/(generic_dispatch|string_dispatch|result_dispatch|triple_dispatch|builtin_types)[.]c
+CompileFlags:
+  Remove: [-std=*]
+  Add: [-std=c11]
+---
+If:
+  PathMatch: test/cases/gnu_dispatch[.]c
+CompileFlags:
+  Remove: [-std=*]
+  Add: [-std=gnu99]
