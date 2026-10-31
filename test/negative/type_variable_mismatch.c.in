@@ -1,0 +1,17 @@
+#include "test/cases/test_types.h"
+#include "gen/all.gen.h"
+
+int main(void)
+{
+    TestInt fallback = 0;
+    Option(TestInt) integer_option = option_some((TestInt)1);
+    Option(double) double_option = option_some(2.0);
+    double real_value = 3.0;
+    int integer_value = 4;
+    (void)max(1, 2);
+    (void)max(1.0f, "foo");
+    (void)option_choose(fallback, &integer_option);
+    (void)option_choose(fallback, &double_option);
+    (void)swap_values(&real_value, &integer_value);
+    return 0;
+}

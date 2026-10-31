@@ -119,6 +119,14 @@ typedef struct {
     char **dispatch_canonicals;
     size_t dispatch_count;
 } GenericUse;
+typedef struct {
+    char *path;
+    size_t line;
+    char *function_name;
+    char *parameter_name;
+    char *first_type;
+    char *second_type;
+} TypeVariableMismatch;
 typedef struct { char *name; char *canonical; } TypeAlias;
 typedef struct {
     char *name;
@@ -172,6 +180,8 @@ static TypeUse *g_type_uses;
 static size_t g_type_use_count, g_type_use_cap;
 static GenericUse *g_generic_uses;
 static size_t g_generic_use_count, g_generic_use_cap;
+static TypeVariableMismatch *g_type_variable_mismatches;
+static size_t g_type_variable_mismatch_count, g_type_variable_mismatch_cap;
 static TypeAlias *g_aliases;
 static size_t g_alias_count, g_alias_cap;
 static StructuralSchema *g_structural_schemas;
@@ -203,6 +213,7 @@ static void die(const char *fmt, ...);
 static void report_error(const char *path, size_t line, const char *fmt, ...);
 static int str_eq(const char *a, const char *b);
 static int is_ident_char(char c);
+static int valid_identifier(const char *s);
 static char *copy_string(const char *s);
 static char *generated_module_source_path(const char *stem);
 static char *normalize_spaces(const char *s);
@@ -270,6 +281,22 @@ static void add_alias(const char *name, const char *canonical)
     g_aliases[g_alias_count].name = copy_string(name);
     g_aliases[g_alias_count].canonical = copy_string(canonical != NULL ? canonical : name);
     ++g_alias_count;
+}
+
+static int type_arguments_compatible(const char *left_spelling,
+                                     const char *left_canonical,
+                                     const char *right_spelling,
+                                     const char *right_canonical)
+{
+    const char *left_alias = valid_identifier(left_spelling) ?
+        find_alias_canonical(left_spelling) : NULL;
+    const char *right_alias = valid_identifier(right_spelling) ?
+        find_alias_canonical(right_spelling) : NULL;
+    const char *left = left_alias != NULL ? left_alias :
+                       (left_canonical != NULL ? left_canonical : left_spelling);
+    const char *right = right_alias != NULL ? right_alias :
+                        (right_canonical != NULL ? right_canonical : right_spelling);
+    return left != NULL && right != NULL && str_eq(left, right);
 }
 
 static char *type_suffix(const char *c_type)
@@ -545,6 +572,67 @@ static void set_generic_use_origin(const char *name, const char *type_name,
             return;
         }
     }
+}
+
+static void record_type_variable_mismatch(const char *path, size_t line,
+                                         const char *function_name,
+                                         const char *parameter_name,
+                                         const char *first_type,
+                                         const char *second_type)
+{
+    TypeVariableMismatch *next;
+    size_t i;
+    size_t new_cap;
+    if (path == NULL || line == 0U || first_type == NULL ||
+        second_type == NULL || str_eq(first_type, second_type)) return;
+    for (i = 0U; i < g_type_variable_mismatch_count; ++i) {
+        const TypeVariableMismatch *mismatch = &g_type_variable_mismatches[i];
+        if (mismatch->line == line &&
+            str_eq(mismatch->path, path) &&
+            str_eq(mismatch->function_name, function_name) &&
+            str_eq(mismatch->parameter_name, parameter_name) &&
+            ((str_eq(mismatch->first_type, first_type) &&
+              str_eq(mismatch->second_type, second_type)) ||
+             (str_eq(mismatch->first_type, second_type) &&
+              str_eq(mismatch->second_type, first_type)))) return;
+    }
+    if (g_type_variable_mismatch_count == g_type_variable_mismatch_cap) {
+        new_cap = g_type_variable_mismatch_cap == 0U ? 4U :
+                  g_type_variable_mismatch_cap * 2U;
+        if (new_cap < g_type_variable_mismatch_cap ||
+            new_cap > (size_t)-1 / sizeof(*g_type_variable_mismatches)) {
+            die("too many type-variable mismatches");
+        }
+        next = (TypeVariableMismatch *)realloc(g_type_variable_mismatches,
+            new_cap * sizeof(*g_type_variable_mismatches));
+        if (next == NULL) die("out of memory");
+        g_type_variable_mismatches = next;
+        g_type_variable_mismatch_cap = new_cap;
+    }
+    g_type_variable_mismatches[g_type_variable_mismatch_count].path =
+        copy_string(path);
+    g_type_variable_mismatches[g_type_variable_mismatch_count].line = line;
+    g_type_variable_mismatches[g_type_variable_mismatch_count].function_name =
+        copy_string(function_name);
+    g_type_variable_mismatches[g_type_variable_mismatch_count].parameter_name =
+        copy_string(parameter_name);
+    g_type_variable_mismatches[g_type_variable_mismatch_count].first_type =
+        copy_string(first_type);
+    g_type_variable_mismatches[g_type_variable_mismatch_count].second_type =
+        copy_string(second_type);
+    ++g_type_variable_mismatch_count;
+}
+
+static int has_type_variable_mismatch(const char *path, size_t line,
+                                      const char *function_name)
+{
+    size_t i;
+    for (i = 0U; i < g_type_variable_mismatch_count; ++i) {
+        const TypeVariableMismatch *mismatch = &g_type_variable_mismatches[i];
+        if (mismatch->line == line && str_eq(mismatch->path, path) &&
+            str_eq(mismatch->function_name, function_name)) return 1;
+    }
+    return 0;
 }
 
 static int generic_use_matches(const char *name, const char *type_name,
@@ -5277,6 +5365,29 @@ static void emit_dispatch_macro(Buf *out, const char *name,
     }
 }
 
+static int function_has_type_variable_mismatch(const char *function_name)
+{
+    size_t i;
+    for (i = 0U; i < g_type_variable_mismatch_count; ++i) {
+        if (str_eq(g_type_variable_mismatches[i].function_name, function_name)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void emit_mismatch_only_macro(Buf *out, const TemplateFunction *function)
+{
+    char *return_type = normalize_spaces(function->return_type);
+    buf_puts(out, "#undef ");
+    buf_puts(out, function->name);
+    buf_puts(out, "\n#define ");
+    buf_puts(out, function->name);
+    buf_puts(out, "(...) ");
+    buf_puts(out, str_eq(return_type, "void") ? "((void)0)\n\n" : "(0)\n\n");
+    free(return_type);
+}
+
 static void emit_dispatch(Buf *out, const TemplateInfo *ti)
 {
     size_t i;
@@ -5301,9 +5412,44 @@ static void emit_dispatch(Buf *out, const TemplateInfo *ti)
             }
             emit_dispatch_macro(out, ti->functions[i].name, ti,
                                 &ti->functions[i], &assocs);
+        } else if (function_has_type_variable_mismatch(
+                       ti->functions[i].name)) {
+            emit_mismatch_only_macro(out, &ti->functions[i]);
         }
         assoc_list_free(&assocs);
     }
+}
+
+static void emit_type_variable_mismatch_assertions(Buf *out)
+{
+    size_t i;
+    if (g_type_variable_mismatch_count == 0U) return;
+    for (i = 0U; i < g_type_variable_mismatch_count; ++i) {
+        const TypeVariableMismatch *mismatch = &g_type_variable_mismatches[i];
+        Buf message;
+        buf_init(&message);
+        buf_puts(&message, "tmplgen: ");
+        buf_puts(&message, mismatch->function_name);
+        buf_puts(&message, " type variable ");
+        buf_puts(&message, mismatch->parameter_name);
+        buf_puts(&message,
+                 " must be consistent across arguments (got ");
+        buf_puts(&message, mismatch->first_type);
+        buf_puts(&message, " vs ");
+        buf_puts(&message, mismatch->second_type);
+        buf_putc(&message, ')');
+        buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
+        emit_line_directive(out, (unsigned long)mismatch->line, mismatch->path);
+        buf_puts(out, "_Static_assert(0, \"");
+        emit_escaped_c_string(out, message.p != NULL ? message.p : "");
+        buf_puts(out, "\");\n#elif defined(__GNUC__) || defined(__clang__)\n");
+        emit_line_directive(out, (unsigned long)mismatch->line, mismatch->path);
+        buf_puts(out, "__extension__ _Static_assert(0, \"");
+        emit_escaped_c_string(out, message.p != NULL ? message.p : "");
+        buf_puts(out, "\");\n#else\n#error \"tmplgen type-variable mismatch requires C11 or GNU C\"\n#endif\n");
+        buf_free(&message);
+    }
+    emit_line_directive(out, (unsigned long)out->newlines + 2UL, g_output_path);
 }
 
 static size_t template_dispatch_count(const TemplateInfo *ti)
@@ -5312,12 +5458,16 @@ static size_t template_dispatch_count(const TemplateInfo *ti)
     size_t count = 0U;
     for (i = 0U; i < ti->function_count; ++i) {
         size_t j;
+        int found = 0;
         for (j = 0U; j < g_generic_use_count; ++j) {
             if (str_eq(g_generic_uses[j].name, ti->functions[i].name) &&
                 g_generic_uses[j].dispatch) {
-                ++count;
+                found = 1;
                 break;
             }
+        }
+        if (found || function_has_type_variable_mismatch(ti->functions[i].name)) {
+            ++count;
         }
     }
     return count;
@@ -5502,6 +5652,7 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
             }
         }
     }
+    emit_type_variable_mismatch_assertions(out);
     buf_puts(out, "\n#endif /* " GEN_GUARD " */\n");
 }
 
@@ -6893,8 +7044,8 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                     &context->infos[template_index], name);
                 if (function != NULL) {
                     size_t k;
-                    for (k = 0U; k < function->dispatch_count; ++k) {
-                        unsigned argument = function->dispatch_indices[k];
+                    for (k = 0U; k < function->parameter_count; ++k) {
+                        unsigned argument = (unsigned)k;
                         char *argument_path = NULL;
                         unsigned argument_start = 0U;
                         unsigned argument_end = 0U;
@@ -7339,6 +7490,8 @@ static void emit_bootstrap_function_macros(Buf *out, const TemplateInfo *infos,
                 emit_bootstrap_function_macro(out, function->name, function,
                                               &assocs, 1);
                 buf_puts(out, "#else\n#error \"tmplgen bootstrap dispatch requires C11 or GNU C\"\n#endif\n\n");
+            } else if (function_has_type_variable_mismatch(function->name)) {
+                emit_mismatch_only_macro(out, function);
             }
             assoc_list_free(&assocs);
         }
@@ -7527,10 +7680,12 @@ static int extract_template_argument(const char *pattern, const char *actual,
 static int assign_template_argument(const TemplateInfo *ti, size_t parameter_index,
                                     const char *spelling, const char *canonical,
                                     char **spellings, char **canonicals,
-                                    unsigned char *assigned)
+    unsigned char *assigned)
 {
     if (assigned[parameter_index]) {
-        return str_eq(canonicals[parameter_index], canonical);
+        return type_arguments_compatible(spellings[parameter_index],
+                                         canonicals[parameter_index],
+                                         spelling, canonical);
     }
     spellings[parameter_index] = copy_string(spelling);
     canonicals[parameter_index] = copy_string(canonical != NULL ? canonical : spelling);
@@ -7741,7 +7896,9 @@ static void assign_application_parameters(const TemplateInfo *ti,
                                           const TemplateApplication *application,
                                           const GenInstance *candidate,
                                           char **spellings, char **canonicals,
-                                          unsigned char *assigned, int *okay)
+                                          unsigned char *assigned,
+                                          int exact_match,
+                                          const ClangUse *use, int *okay)
 {
     size_t i;
     for (i = 0U; i < application->argument_count &&
@@ -7757,6 +7914,13 @@ static void assign_application_parameters(const TemplateInfo *ti,
                         candidate->arguments[i].c_type,
                         candidate->arguments[i].canonical,
                         spellings, canonicals, assigned)) {
+                    if (exact_match && assigned[function_parameter]) {
+                        record_type_variable_mismatch(use->path, use->line,
+                            function->name,
+                            function->type_parameters[function_parameter],
+                            spellings[function_parameter],
+                            candidate->arguments[i].c_type);
+                    }
                     *okay = 0;
                 }
             }
@@ -7814,7 +7978,32 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
         processed[i] = 1U;
         if (use->type_spelling == NULL || use->type_spelling[0] == '\0' ||
             use->argument_index >= function->parameter_count) {
-            okay = 0;
+            int binding_required = use->argument_index >= function->parameter_count;
+            if (!binding_required) {
+                const TemplateArgument *parameter =
+                    &function->parameters[use->argument_index];
+                size_t parameter_index;
+                size_t dispatch_index;
+                for (parameter_index = 0U;
+                     parameter_index < parameter->type_parameter_count;
+                     ++parameter_index) {
+                    int mapped = template_parameter_index(
+                        ti, parameter->type_parameters[parameter_index]);
+                    if (mapped < 0 || !assigned[(size_t)mapped]) {
+                        binding_required = 1;
+                        break;
+                    }
+                }
+                for (dispatch_index = 0U;
+                     dispatch_index < function->dispatch_count;
+                     ++dispatch_index) {
+                    if (function->dispatch_indices[dispatch_index] ==
+                        use->argument_index) {
+                        binding_required = 1;
+                    }
+                }
+            }
+            if (binding_required) okay = 0;
             continue;
         }
         if (g_verbose) {
@@ -7846,8 +8035,20 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                                                   use->canonical_spelling != NULL ?
                                                   use->canonical_spelling : use->type_spelling,
                                                   function->type_parameters[k], &canonical)) {
+                        if (g_verbose && assigned[k]) {
+                            fprintf(stderr,
+                                "DEBUG assign %s %s: '%s' (%s) vs '%s' (%s)\n",
+                                function->name, function->type_parameters[k],
+                                spellings[k], canonicals[k], spelling, canonical);
+                        }
                         if (!assign_template_argument(ti, k, spelling, canonical,
                                                       spellings, canonicals, assigned)) {
+                            if (assigned[k]) {
+                                record_type_variable_mismatch(use->path,
+                                    use->line, function->name,
+                                    function->type_parameters[k], spellings[k],
+                                    spelling);
+                            }
                             okay = 0;
                         }
                     }
@@ -7892,7 +8093,8 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                         if (application_match == 0) continue;
                         assign_application_parameters(ti, function,
                             &parameter->application, candidate, spellings,
-                            canonicals, assigned, &okay);
+                            canonicals, assigned, application_match == 1,
+                            use, &okay);
                         if (application_match == 2) {
                             size_t dispatch_index;
                             for (dispatch_index = 0U;
@@ -7979,7 +8181,8 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
             }
         }
         free(dispatch_indices);
-    } else if (report_incomplete) {
+    } else if (report_incomplete &&
+               !has_type_variable_mismatch(call->path, call->line, call->name)) {
         report_warning(call->path, call->line,
                        "cannot infer all template parameters for %s() from its input types",
                        call->name);
@@ -8899,6 +9102,17 @@ static void clear_discovery_state(void)
     g_generic_uses = NULL;
     g_generic_use_count = 0U;
     g_generic_use_cap = 0U;
+    for (i = 0U; i < g_type_variable_mismatch_count; ++i) {
+        free(g_type_variable_mismatches[i].path);
+        free(g_type_variable_mismatches[i].function_name);
+        free(g_type_variable_mismatches[i].parameter_name);
+        free(g_type_variable_mismatches[i].first_type);
+        free(g_type_variable_mismatches[i].second_type);
+    }
+    free(g_type_variable_mismatches);
+    g_type_variable_mismatches = NULL;
+    g_type_variable_mismatch_count = 0U;
+    g_type_variable_mismatch_cap = 0U;
     for (i = 0U; i < g_alias_count; ++i) {
         free(g_aliases[i].name);
         free(g_aliases[i].canonical);

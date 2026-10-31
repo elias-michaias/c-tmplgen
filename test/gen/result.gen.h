@@ -459953,7 +459953,7 @@ extern void pair_flip__no_match_for_argument_type(struct tmplgen_no_association_
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 200 "test/tmpl/result.tmpl.h"
+#line 205 "test/tmpl/result.tmpl.h"
 /// static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error)
 static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);
 /// static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error)
@@ -459973,7 +459973,7 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef result_make
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Result(T, E) result_make(ResultTag tag, T value, E error)
-#line 200 "test/tmpl/result.tmpl.h"
+#line 205 "test/tmpl/result.tmpl.h"
 #define result_make(...) _Generic((GEN_ARG1(__VA_ARGS__)), \
     TestInt:     _Generic((GEN_ARG2(__VA_ARGS__)), \
         ErrorCode: result_make_TestInt_ErrorCode, \
@@ -459995,7 +459995,7 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Result(T, E) result_make(ResultTag tag, T value, E error)
-#line 200 "test/tmpl/result.tmpl.h"
+#line 205 "test/tmpl/result.tmpl.h"
 #define result_make(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), ErrorCode)), \

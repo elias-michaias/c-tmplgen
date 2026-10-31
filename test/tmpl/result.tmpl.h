@@ -195,6 +195,11 @@ static inline Pair(U, T) pair_flip(Pair(T, U) pair)
     Pair(U, T) flipped = { pair.second, pair.first };
     return flipped;
 }
+// @template T
+static inline T option_choose(T fallback, Option(T) *option)
+{
+    return option->tag == OPTION_SOME ? option->payload.some : fallback;
+}
 static inline int result_version(void) { return 1; }
 // @template T, E
 static inline Result(T, E) result_make(ResultTag tag, T value, E error)

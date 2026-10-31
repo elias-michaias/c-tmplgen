@@ -42,11 +42,68 @@ if ! (CDPATH= cd -- "$SUBTYPE" && "$BUILD/tmplgen" \
     printf '%s\n' 'tmplgen failed before compiling unmatched_structural_rows.c.in' >&2
     failed=1
 elif (CDPATH= cd -- "$SUBTYPE" && "$CC" -std=c11 -Wall -Wextra \
-    -pedantic -Wconversion -Wshadow "$SUBTYPE/main.c" -o "$BUILD/unmatched-structural"); then
+    -pedantic -Wconversion -Wshadow "$SUBTYPE/main.c" \
+    -o "$BUILD/unmatched-structural" >"$BUILD/subtyping.log" 2>&1); then
+    cat "$BUILD/subtyping.log" >&2
     printf '%s\n' 'ERROR: unmatched_structural_rows.c.in unexpectedly compiled' >&2
     failed=1
 else
+    cat "$BUILD/subtyping.log" >&2
     printf '%s\n' 'Expected compile failure for unmatched_structural_rows.c.in (diagnostics above).'
+fi
+
+TYPEVAR="$BUILD/type-variable"
+mkdir -p "$TYPEVAR/tmpl" "$TYPEVAR/gen" "$TYPEVAR/test/cases" \
+    "$TYPEVAR/test/lib" "$TYPEVAR/lib"
+cp -R "$ROOT/test/tmpl/." "$TYPEVAR/tmpl/"
+cp "$ROOT/test/cases/test_types.h" "$TYPEVAR/test/cases/test_types.h"
+cp "$ROOT/test/lib/physics.h" "$TYPEVAR/test/lib/physics.h"
+cp "$ROOT/test/lib/physics.h" "$TYPEVAR/lib/physics.h"
+cp "$ROOT/test/negative/type_variable_mismatch.c.in" "$TYPEVAR/main.c"
+printf '\n===== type_variable_mismatch.c.in =====\n'
+if ! "$BUILD/tmplgen" --source-root "$TYPEVAR" \
+    --template-dir "$TYPEVAR/tmpl" --output "$TYPEVAR/gen/all.gen.h" \
+    --clang-arg=-std=c11; then
+    printf '%s\n' 'tmplgen failed before compiling type_variable_mismatch.c.in' >&2
+    failed=1
+elif (CDPATH= cd -- "$TYPEVAR" && "$CC" -std=c11 -Wall -Wextra \
+    -pedantic -Wconversion -Wshadow main.c -o "$BUILD/type-variable" \
+    >"$BUILD/type-variable.log" 2>&1); then
+    cat "$BUILD/type-variable.log" >&2
+    printf '%s\n' 'ERROR: type_variable_mismatch.c.in unexpectedly compiled' >&2
+    failed=1
+else
+    cat "$BUILD/type-variable.log" >&2
+    if ! grep -Fq 'tmplgen: max type variable T must be consistent across arguments (got float vs char *)' \
+        "$BUILD/type-variable.log"; then
+        printf '%s\n' 'same-variable argument mismatch was not diagnosed clearly' >&2
+        failed=1
+    fi
+    if ! grep -Fq 'tmplgen: option_choose type variable T must be consistent across arguments (got TestInt vs double)' \
+        "$BUILD/type-variable.log"; then
+        printf '%s\n' 'nested constructor mismatch was not diagnosed clearly' >&2
+        failed=1
+    fi
+    if ! grep -Fq 'tmplgen: swap_values type variable T must be consistent across arguments (got double vs int)' \
+        "$BUILD/type-variable.log"; then
+        printf '%s\n' 'zero-association mismatch was not diagnosed clearly' >&2
+        failed=1
+    fi
+    if ! grep -Fq 'main.c:12:' "$BUILD/type-variable.log" ||
+       ! grep -Fq 'main.c:14:' "$BUILD/type-variable.log" ||
+       ! grep -Fq 'main.c:15:' "$BUILD/type-variable.log"; then
+        printf '%s\n' 'type-variable mismatch diagnostics were not mapped to their callsites' >&2
+        failed=1
+    fi
+    if grep -Fq "call to undeclared function 'swap_values'" "$BUILD/type-variable.log"; then
+        printf '%s\n' 'mismatch-only generic call fell through to an undeclared function' >&2
+        failed=1
+    fi
+    if grep -Fq '__builtin_types_compatible_p' "$BUILD/type-variable.log"; then
+        printf '%s\n' 'type-variable diagnostics exposed the generated compatibility expression' >&2
+        failed=1
+    fi
+    printf '%s\n' 'Expected compile failure for type_variable_mismatch.c.in (diagnostics above).'
 fi
 
 exit "$failed"
