@@ -25,11 +25,11 @@
 #define GEN_DISPATCH_GNU     2  /* emit __builtin_choose_expr/__typeof__ chains      */
 #define GEN_DISPATCH_AUTO    3  /* use _Generic in C11+, GNU builtins in GNU C       */
 
-#define GEN_TMPL_DIR    "test/tmpl"  /* directory holding the example templates        */
+#define GEN_TMPL_DIR    "tmpl"       /* project templates, relative to the project root */
 #define GEN_TMPL_SUFFIX ".tmpl.h"    /* appended to each template stem                */
 #define GEN_SCAN_ROOT  "."           /* recursively scan this tree for C source usages */
 #ifndef GEN_OUTPUT
-#define GEN_OUTPUT      "test/gen/all.gen.h" /* aggregate header, relative to cwd      */
+#define GEN_OUTPUT      "gen/all.gen.h" /* aggregate header, relative to project root    */
 #endif
 #define GEN_GUARD       "TMPL_H"     /* include guard for the aggregate header           */
 #define GEN_LSP_GUARD "TMPLGEN" /* #ifndef block stripped from generated bodies */

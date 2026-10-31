@@ -80,10 +80,13 @@ cc -std=c99 -Wall -Wextra -pedantic tmplgen.c -lclang -o tmplgen
 ./tmplgen --check --clang-arg=-std=c11
 ```
 
-For this repository, the defaults are `--source-root .`, `--template-dir
-test/tmpl`, and `--output test/gen/all.gen.h`. Module headers are written beside
-the aggregate, for example `test/gen/math.gen.h`. `--check` compares every
-expected generated file and returns failure if one is missing or stale.
+The normal project defaults are `--source-root .`, `--template-dir tmpl`, and
+`--output gen/all.gen.h`. Module headers are written beside the aggregate, for
+example `gen/math.gen.h`. This repository keeps its example project under
+`test/`, so its scripts pass `--template-dir test/tmpl --output
+test/gen/all.gen.h` explicitly while keeping `--source-root .` at the repository
+root. `--check` compares every expected generated file and returns failure if
+one is missing or stale.
 
 For a project in a different directory, specify its paths explicitly:
 

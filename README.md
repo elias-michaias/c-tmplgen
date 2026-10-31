@@ -52,12 +52,14 @@ cc -std=c99 -Wall -Wextra -pedantic tmplgen.c -lclang -o tmplgen
 ### 2. Generate concrete code
 
 ```sh
-./tmplgen --clang-arg=-std=c23
+./tmplgen --template-dir test/tmpl --output test/gen/all.gen.h \
+  --clang-arg=-std=c23
 ```
 
-The default scan discovers `test/tmpl/*.tmpl.h` and C source/header files under
-the current directory. Generated modules go to `test/gen/`;
-`test/gen/all.gen.h` is the aggregate include.
+The generator’s normal project defaults are `tmpl/` and `gen/all.gen.h`, with
+the source root set to `.`. This repository keeps its example project under
+`test/`, so the command above selects `test/tmpl/` and `test/gen/` explicitly;
+the source root remains the repository root.
 
 ### 3. Call the generic API
 

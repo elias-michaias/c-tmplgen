@@ -116,13 +116,14 @@ installed by the generator.
 ## Generated files and build integration
 
 Treat `<output-dir>/<stem>.gen.h`, `<output-dir>/<stem>.gen.c`, and the aggregate
-header as generated outputs. This repository’s examples live in `test/gen/`;
-another project can choose its output directory with `--output`. Build systems
-should run `tmplgen` before compiling files that include the generated headers.
-Regenerate when templates change or when source changes add, remove, or alter
-generic calls or constructor uses. A generated header can be committed if
-consumers should not need the generator at build time, but it must be refreshed
-when those inputs change.
+header as generated outputs. The normal project defaults are `tmpl/` and
+`gen/all.gen.h`, relative to the source root (`.`). This repository’s example
+project lives under `test/`; its scripts pass `--template-dir test/tmpl` and
+`--output test/gen/all.gen.h` explicitly. Build systems should run `tmplgen`
+before compiling files that include generated headers. Regenerate when templates
+change or when source changes add, remove, or alter generic calls or constructor
+uses. A generated header can be committed if consumers should not need the
+generator at build time, but it must be refreshed when those inputs change.
 
 Header-only output is convenient and has no extra generated compilation unit;
 it can increase repeated parse and compile work when large specializations are

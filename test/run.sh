@@ -11,9 +11,12 @@ cd "$ROOT"
 
 "$CC" -std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     tmplgen.c -lclang -o "$BUILD/tmplgen"
-"$BUILD/tmplgen" --clang-arg=-std=c23
-"$BUILD/tmplgen" --check --clang-arg=-std=c23
-"$BUILD/tmplgen" --check --no-cache --clang-arg=-std=c23
+"$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
+    --clang-arg=-std=c23
+"$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
+    --check --clang-arg=-std=c23
+"$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
+    --check --no-cache --clang-arg=-std=c23
 if grep -R -q 'typedef int int' test/gen; then
     printf '%s\n' 'template LSP fallback leaked into generated output' >&2
     exit 1
@@ -150,7 +153,8 @@ int main(void)
     return values.data[0] != 2.0;
 }
 EOF
-"$BUILD/tmplgen" --source-root "$NEWTYPE" --output "$NEWTYPE/gen/all.gen.h" \
+"$BUILD/tmplgen" --source-root "$NEWTYPE" --template-dir test/tmpl \
+    --output "$NEWTYPE/gen/all.gen.h" \
     --clang-arg=-std=c11
 if ! grep -q 'Vec_Fresh' "$NEWTYPE/gen/vec.gen.h"; then
     printf '%s\n' 'generator did not discover a new type from a stale header' >&2
@@ -199,7 +203,8 @@ mkdir -p "$SUBTYPE/gen" "$SUBTYPE/test/lib" "$SUBTYPE/lib"
 cp test/lib/physics.h "$SUBTYPE/test/lib/physics.h"
 cp test/lib/physics.h "$SUBTYPE/lib/physics.h"
 cp test/negative/unmatched_structural_rows.c.in "$SUBTYPE/main.c"
-"$BUILD/tmplgen" --source-root "$SUBTYPE" --output "$SUBTYPE/gen/all.gen.h" \
+"$BUILD/tmplgen" --source-root "$SUBTYPE" --template-dir test/tmpl \
+    --output "$SUBTYPE/gen/all.gen.h" \
     --clang-arg=-std=c11
 if "$CC" -std=c11 -Wall -Wextra -pedantic "$SUBTYPE/main.c" \
     -o "$SUBTYPE/main" >"$BUILD/subtyping.log" 2>&1; then
