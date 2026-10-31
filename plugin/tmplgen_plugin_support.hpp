@@ -1,0 +1,327 @@
+#ifndef TMPLGEN_PLUGIN_SUPPORT_HPP
+#define TMPLGEN_PLUGIN_SUPPORT_HPP
+
+#include "tmplgen_plugin_api.h"
+
+#include "clang/Basic/SourceManager.h"
+#include "clang/Frontend/CompilerInstance.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringRef.h"
+#include "llvm/Support/Error.h"
+#include "llvm/Support/FileSystem.h"
+#include "llvm/Support/LockFileManager.h"
+#include "llvm/Support/Path.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <chrono>
+#include <cstdlib>
+#include <string>
+#include <vector>
+
+namespace tmplgen_plugin_support {
+
+inline std::string absolutePath(llvm::StringRef path,
+                                llvm::StringRef workingDirectory)
+{
+    llvm::SmallString<256> result(path);
+    if (llvm::sys::path::is_relative(result)) {
+        llvm::SmallString<256> base(workingDirectory);
+        if (base.empty() && llvm::sys::fs::current_path(base)) base = ".";
+        llvm::sys::path::append(base, result);
+        result = base;
+    }
+    llvm::sys::path::remove_dots(result, true);
+    return result.str().str();
+}
+
+inline void appendEnvironmentOptions(std::vector<std::string> &options)
+{
+    struct EnvironmentOption {
+        const char *variable;
+        const char *option;
+    };
+    static const EnvironmentOption Paths[] = {
+        {"TMPLGEN_SOURCE_ROOT", "source-root"},
+        {"TMPLGEN_TEMPLATE_DIR", "template-dir"},
+        {"TMPLGEN_OUTPUT", "output"},
+        {"TMPLGEN_DISPATCH", "dispatch"},
+    };
+    size_t i;
+    for (i = 0U; i < sizeof(Paths) / sizeof(Paths[0]); ++i) {
+        const char *value = std::getenv(Paths[i].variable);
+        if (value != nullptr && value[0] != '\0') {
+            options.emplace_back(std::string(Paths[i].option) + "=" + value);
+        }
+    }
+    if (const char *value = std::getenv("TMPLGEN_CLANG_ARGS")) {
+        llvm::StringRef remaining(value);
+        while (!remaining.empty()) {
+            size_t end = remaining.find('\n');
+            llvm::StringRef argument = end == llvm::StringRef::npos
+                ? remaining : remaining.take_front(end);
+            if (!argument.empty()) options.emplace_back("clang-arg=" + argument.str());
+            if (end == llvm::StringRef::npos) break;
+            remaining = remaining.drop_front(end + 1U);
+        }
+    }
+    if (const char *value = std::getenv("TMPLGEN_VERBOSE")) {
+        if (value[0] != '\0' && std::string(value) != "0") {
+            options.emplace_back("verbose");
+        }
+    }
+    if (const char *value = std::getenv("TMPLGEN_COMPILED")) {
+        if (value[0] != '\0' && std::string(value) != "0") {
+            options.emplace_back("compiled");
+        }
+    }
+    if (const char *value = std::getenv("TMPLGEN_NO_CACHE")) {
+        if (value[0] != '\0' && std::string(value) != "0") {
+            options.emplace_back("no-cache");
+        }
+    }
+    if (const char *value = std::getenv("TMPLGEN_EMIT_LINE")) {
+        if (value[0] != '\0' && std::string(value) != "0") {
+            options.emplace_back("emit-line");
+        }
+    }
+}
+
+inline bool appendOption(llvm::StringRef argument,
+                         llvm::StringRef workingDirectory,
+                         std::vector<std::string> &cliArguments,
+                         bool &hasSourceRoot, bool &hasTemplateDir,
+                         bool &hasOutput)
+{
+    (void)argument.consume_front("--");
+    size_t equals = argument.find('=');
+    llvm::StringRef name = equals == llvm::StringRef::npos
+        ? argument : argument.take_front(equals);
+    llvm::StringRef value = equals == llvm::StringRef::npos
+        ? llvm::StringRef() : argument.drop_front(equals + 1U);
+    const char *option = nullptr;
+    bool pathOption = false;
+
+    if (name == "source-root") {
+        option = "--source-root";
+        pathOption = true;
+        hasSourceRoot = true;
+    } else if (name == "template-dir") {
+        option = "--template-dir";
+        pathOption = true;
+        hasTemplateDir = true;
+    } else if (name == "output") {
+        option = "--output";
+        pathOption = true;
+        hasOutput = true;
+    } else if (name == "dispatch") {
+        option = "--dispatch";
+    } else if (name == "clang-arg") {
+        option = "--clang-arg";
+    } else if (name == "check" || name == "compiled" ||
+               name == "no-cache" || name == "verbose" ||
+               name == "emit-line" || name == "no-emit-line") {
+        if (equals != llvm::StringRef::npos) {
+            llvm::errs() << "tmplgen: plugin flag '" << name
+                         << "' does not take a value\n";
+            return false;
+        }
+        cliArguments.push_back("--" + name.str());
+        return true;
+    } else {
+        llvm::errs() << "tmplgen: unknown plugin argument '" << argument << "'\n"
+                     << "expected source-root=DIR, template-dir=DIR, output=FILE, "
+                        "dispatch=MODE, clang-arg=ARG, or a flag\n";
+        return false;
+    }
+
+    if (equals == llvm::StringRef::npos || value.empty()) {
+        llvm::errs() << "tmplgen: plugin argument '" << name
+                     << "' requires a value\n";
+        return false;
+    }
+    cliArguments.push_back(option);
+    cliArguments.push_back(pathOption
+        ? absolutePath(value, workingDirectory) : value.str());
+    return true;
+}
+
+inline llvm::StringRef optionValue(const std::vector<std::string> &arguments,
+                                   llvm::StringRef option)
+{
+    for (size_t i = 1U; i + 1U < arguments.size(); ++i) {
+        if (arguments[i] == option) return arguments[i + 1U];
+    }
+    return {};
+}
+
+inline bool findTemplateDirectory(llvm::StringRef startDirectory,
+                                  std::string &projectRoot,
+                                  std::string &templateDirectory,
+                                  bool &testLayout)
+{
+    llvm::SmallString<256> current(startDirectory);
+    for (;;) {
+        llvm::SmallString<256> candidate(current);
+        llvm::sys::path::append(candidate, "tmpl");
+        if (llvm::sys::fs::is_directory(candidate)) {
+            projectRoot = current.str().str();
+            templateDirectory = candidate.str().str();
+            testLayout = false;
+            return true;
+        }
+
+        candidate = current;
+        llvm::sys::path::append(candidate, "test", "tmpl");
+        if (llvm::sys::fs::is_directory(candidate)) {
+            projectRoot = current.str().str();
+            templateDirectory = candidate.str().str();
+            testLayout = true;
+            return true;
+        }
+
+        llvm::SmallString<256> parent(llvm::sys::path::parent_path(current));
+        if (parent.empty() || parent == current) return false;
+        current = parent;
+    }
+}
+
+inline int runTmplgen(const clang::CompilerInstance &compiler,
+                      const std::vector<std::string> &pluginArguments,
+                      bool useEnvironment = false)
+{
+    llvm::SmallString<256> absoluteWorkingDirectory(
+        compiler.getFileSystemOpts().WorkingDir);
+    if (absoluteWorkingDirectory.empty()) {
+        if (llvm::sys::fs::current_path(absoluteWorkingDirectory)) {
+            absoluteWorkingDirectory = ".";
+        }
+    } else if (llvm::sys::path::is_relative(absoluteWorkingDirectory)) {
+        llvm::SmallString<256> currentDirectory;
+        if (!llvm::sys::fs::current_path(currentDirectory)) {
+            llvm::sys::path::append(currentDirectory, absoluteWorkingDirectory);
+            absoluteWorkingDirectory = currentDirectory;
+        }
+    }
+    llvm::sys::path::remove_dots(absoluteWorkingDirectory, true);
+    std::string workingDirectoryStorage = absoluteWorkingDirectory.str().str();
+    llvm::StringRef workingDirectory = workingDirectoryStorage;
+
+    std::vector<std::string> options;
+    llvm::StringRef resourceDirectory =
+        compiler.getHeaderSearchOpts().ResourceDir;
+    if (!resourceDirectory.empty()) {
+        options.emplace_back("clang-arg=-resource-dir=" +
+                             resourceDirectory.str());
+    }
+    if (useEnvironment) appendEnvironmentOptions(options);
+    options.insert(options.end(), pluginArguments.begin(), pluginArguments.end());
+
+    std::vector<std::string> arguments;
+    arguments.emplace_back("tmplgen-plugin");
+    bool hasSourceRoot = false;
+    bool hasTemplateDir = false;
+    bool hasOutput = false;
+    for (const std::string &option : options) {
+        if (!appendOption(option, workingDirectory, arguments,
+                          hasSourceRoot, hasTemplateDir, hasOutput)) {
+            return 2;
+        }
+    }
+    llvm::StringRef configuredRoot = optionValue(arguments, "--source-root");
+    llvm::StringRef configuredTemplateDir = optionValue(arguments, "--template-dir");
+    llvm::StringRef configuredOutput = optionValue(arguments, "--output");
+    std::string projectRoot;
+    std::string templateDirectory;
+    bool testLayout = false;
+
+    if (hasTemplateDir) {
+        templateDirectory = configuredTemplateDir.str();
+        projectRoot = hasSourceRoot ? configuredRoot.str() : workingDirectory.str();
+    } else {
+        llvm::StringRef searchRoot = hasSourceRoot ? configuredRoot : workingDirectory;
+        if (!findTemplateDirectory(searchRoot, projectRoot,
+                                   templateDirectory, testLayout)) {
+            // A globally loaded plugin should quietly ignore unrelated projects.
+            return 0;
+        }
+    }
+
+    if (!hasSourceRoot) {
+        arguments.emplace_back("--source-root");
+        arguments.push_back(projectRoot);
+    }
+    if (!hasTemplateDir) {
+        arguments.emplace_back("--template-dir");
+        arguments.push_back(templateDirectory);
+    }
+    if (!hasOutput) {
+        arguments.emplace_back("--output");
+        if (testLayout) {
+            arguments.push_back(absolutePath("test/gen/all.gen.h", projectRoot));
+        } else {
+            arguments.push_back(absolutePath("gen/all.gen.h", projectRoot));
+        }
+    }
+
+    std::vector<char *> argv;
+    argv.reserve(arguments.size());
+    for (std::string &argument : arguments) {
+        argv.push_back(const_cast<char *>(argument.c_str()));
+    }
+
+    llvm::StringRef outputPath;
+    for (size_t i = 0U; i + 1U < arguments.size(); ++i) {
+        if (arguments[i] == "--output") {
+            outputPath = arguments[i + 1U];
+            break;
+        }
+    }
+    if (outputPath.empty()) {
+        llvm::errs() << "tmplgen: plugin invocation has no output path\n";
+        return 2;
+    }
+    llvm::SmallString<256> lockName(llvm::sys::path::parent_path(outputPath));
+    llvm::sys::path::append(lockName, ".tmplgen-plugin");
+    if (std::error_code error = llvm::sys::fs::create_directories(
+            llvm::sys::path::parent_path(lockName))) {
+        llvm::errs() << "tmplgen: cannot create plugin output directory: "
+                     << error.message() << '\n';
+        return 1;
+    }
+    llvm::LockFileManager lock(lockName);
+    for (;;) {
+        auto acquired = lock.tryLock();
+        if (!acquired) {
+            llvm::errs() << "tmplgen: unable to acquire plugin generation lock: "
+                         << llvm::toString(acquired.takeError()) << '\n';
+            return 1;
+        }
+        if (*acquired) break;
+        (void)lock.waitForUnlockFor(std::chrono::seconds(30));
+    }
+    tmplgen_plugin_clear_unsaved_source();
+    if (compiler.hasSourceManager()) {
+        const clang::SourceManager &sourceManager = compiler.getSourceManager();
+        clang::FileID mainFile = sourceManager.getMainFileID();
+        if (mainFile.isValid()) {
+            bool invalid = false;
+            llvm::StringRef contents = sourceManager.getBufferData(mainFile,
+                                                                    &invalid);
+            llvm::StringRef path = sourceManager.getFilename(
+                sourceManager.getLocForStartOfFile(mainFile));
+            if (!invalid && !path.empty()) {
+                std::string pathStorage = path.str();
+                tmplgen_plugin_set_unsaved_source(pathStorage.c_str(),
+                                                   contents.data(),
+                                                   contents.size());
+            }
+        }
+    }
+    int result = tmplgen_plugin_main(static_cast<int>(argv.size()), argv.data());
+    tmplgen_plugin_clear_unsaved_source();
+    return result;
+}
+
+} // namespace tmplgen_plugin_support
+
+#endif

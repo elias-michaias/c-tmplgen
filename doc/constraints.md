@@ -9,9 +9,9 @@
 
 Constraints are attached to declarations using the normal `// @template`
 annotations. For each specialization discovered from project source, `tmplgen`
-emits compile-time assertions. A mismatch is therefore reported by the
-application compiler at the generated specialization, with a message mapped
-back to the template declaration.
+emits compile-time assertions. A mismatch is reported by the application
+compiler at the source call that requested the specialization; the diagnostic
+message names the violated row or satisfaction expression from the template.
 
 ## Structural subtyping with `<:`
 

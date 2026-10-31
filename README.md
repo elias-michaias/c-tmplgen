@@ -18,6 +18,7 @@
   <a href="#highlights">Features</a> ·
   <a href="doc/usage.md">Usage</a> ·
   <a href="doc/constraints.md">Constraints</a> ·
+  <a href="doc/plugins.md">Plugins</a> ·
   <a href="doc/paradigm.md">How It Works</a> ·
   <a href="#develop-and-test">Tests</a>
 </p>
@@ -92,6 +93,8 @@ For a walkthrough of your own templates and build integration, start with
 | **Expressive constraints** | Require structural fields with `<:` or assert compile-time properties with satisfaction annotations and `@where`. |
 | **Two output modes** | Use convenient header-only output, or move implementations into `.gen.c` files with `--compiled`. |
 | **Incremental analysis** | Reuse validated whole-project and per-source facts; check generated files with `--check`. |
+| **Optional plugin adapters** | Invoke the shared generator core from Clang and plugin-enabled clangd. |
+| **Optional compiler plugins** | Load a thin adapter in Clang or plugin-enabled clangd while reusing the same generator core. |
 
 Generated dispatch can use C11 `_Generic`, GNU type-selection builtins, automatic
 backend selection, or suffixed functions without dispatch macros. The chosen
@@ -105,6 +108,8 @@ backend must be supported by the application compiler; see
 | [Usage & template syntax](doc/usage.md) | Annotations, type inference, CLI options, and output modes |
 | [Constraints](doc/constraints.md) | Structural subtyping, compile-time satisfaction, examples, and diagnostics |
 | [Tooling & integration](doc/tooling.md) | libclang, compiler flags, clangd, diagnostics and `#line` mapping, caches, and tests |
+| [Plugin modes](doc/plugins.md) | Build and load Clang and clangd adapters that reuse the C generator core |
+| [Plugin modes](doc/plugins.md) | Build and load the optional Clang frontend and clangd feature-module plugins |
 | [Design & alternatives](doc/paradigm.md) | The specialization model and trade-offs versus hidden metadata, pointer-fictions, `void *`, `_Generic`, repeated-include templates, C++, and script generators |
 | [Benchmarks](test/bench/README.md) | Benchmark methodology, workload controls, and recorded results |
 

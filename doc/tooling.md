@@ -161,3 +161,8 @@ The benchmark runner and incremental-cache measurements are documented in
 compiler-dependent; use them to understand a project’s own analysis, generation,
 and generated-code compilation costs rather than as universal performance
 claims.
+
+Optional integration builds are described in
+[Plugin modes](plugins.md). Clang frontend plugins and clangd FeatureModules are
+different host APIs; both reuse the C generator core, but each needs a
+host-specific adapter and matching LLVM/Clang build.

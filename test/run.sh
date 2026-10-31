@@ -230,17 +230,17 @@ if ! grep -q 'tmplgen: @where failed to satisfy SAME_SIZE(T, U)' \
     printf '%s\n' '@where failure did not include its cross-variable expression' >&2
     exit 1
 fi
-if ! grep -q 'test/tmpl/result.tmpl.h' "$BUILD/subtyping.log"; then
-    printf '%s\n' 'structural constraint diagnostics were not mapped to the template' >&2
+if ! grep -q 'subtyping/main.c' "$BUILD/subtyping.log"; then
+    printf '%s\n' 'structural constraint diagnostics were not mapped to a source callsite' >&2
     exit 1
 fi
-if ! grep -q 'test/tmpl/result.tmpl.h:101:' "$BUILD/subtyping.log" ||
-   ! grep -q 'test/tmpl/result.tmpl.h:104:' "$BUILD/subtyping.log"; then
-    printf '%s\n' 'structural constraint diagnostics did not point at the constrained functions' >&2
+if ! grep -q 'subtyping/main.c:23:' "$BUILD/subtyping.log" ||
+   ! grep -q 'subtyping/main.c:24:' "$BUILD/subtyping.log"; then
+    printf '%s\n' 'structural constraint diagnostics did not point at the failing calls' >&2
     exit 1
 fi
-if ! grep -q 'test/tmpl/result.tmpl.h:112:' "$BUILD/subtyping.log"; then
-    printf '%s\n' 'expression constraint diagnostics did not point at the constrained function' >&2
+if ! grep -q 'subtyping/main.c:24:' "$BUILD/subtyping.log"; then
+    printf '%s\n' 'expression constraint diagnostics did not point at the failing call' >&2
     exit 1
 fi
 

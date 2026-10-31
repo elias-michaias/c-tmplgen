@@ -12,6 +12,12 @@ CompileFlags:
   Add: [-x, c]
 ---
 If:
+  PathMatch: plugin/.*[.]cpp
+CompileFlags:
+  Remove: [-std=*]
+  Add: [-std=c++17]
+---
+If:
   PathMatch: test/cases/(generic_dispatch|string_dispatch|result_dispatch|triple_dispatch|builtin_types|module_include|tagged_struct|function_recursion)[.]c
 CompileFlags:
   Remove: [-std=*]

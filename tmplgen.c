@@ -77,6 +77,12 @@
 #include <unistd.h>
 #endif
 
+#if defined(CLANGPLUGIN)
+#define TMPLGEN_PLUGIN_BUILD 1
+#else
+#define TMPLGEN_PLUGIN_BUILD 0
+#endif
+
 typedef struct { char *p; size_t len, cap, newlines; } Buf;
 typedef struct { char *path; Buf contents; } GeneratedFile;
 typedef struct { GeneratedFile *items; size_t count, cap; } GeneratedFileList;
@@ -98,12 +104,16 @@ typedef struct {
     size_t *parameter_indices;
     size_t argument_count;
     size_t template_index;
+    char *origin_path;
+    size_t origin_line;
 } GenInstance;
 typedef struct { char *functor; char *type_name; } TypeUse;
 typedef struct {
     char *name;
     char *type_name;
     int dispatch;
+    char *origin_path;
+    size_t origin_line;
     unsigned *dispatch_indices;
     char **dispatch_types;
     char **dispatch_canonicals;
@@ -183,6 +193,11 @@ static StringSet g_clang_dependencies;
 static char **g_clang_args;
 static size_t g_clang_arg_count, g_clang_arg_cap;
 static size_t g_error_count;
+#if defined(CLANGPLUGIN)
+static char *g_unsaved_source_path;
+static char *g_unsaved_source_contents;
+static size_t g_unsaved_source_length;
+#endif
 
 static void die(const char *fmt, ...);
 static void report_error(const char *path, size_t line, const char *fmt, ...);
@@ -376,6 +391,8 @@ static GenInstance *add_instance(size_t template_index,
     g_instances[g_instance_count].template_index = template_index;
     g_instances[g_instance_count].arguments = NULL;
     g_instances[g_instance_count].parameter_indices = NULL;
+    g_instances[g_instance_count].origin_path = NULL;
+    g_instances[g_instance_count].origin_line = 0U;
     if (count != 0U) {
         g_instances[g_instance_count].parameter_indices =
             (size_t *)malloc(count * sizeof(*g_instances[g_instance_count].parameter_indices));
@@ -392,6 +409,15 @@ static GenInstance *add_instance(size_t template_index,
         }
     }
     return &g_instances[g_instance_count++];
+}
+
+static void set_instance_origin(GenInstance *instance, const char *path,
+                                size_t line)
+{
+    if (instance == NULL || instance->origin_path != NULL ||
+        path == NULL || path[0] == '\0' || line == 0U) return;
+    instance->origin_path = copy_string(path);
+    instance->origin_line = line;
 }
 
 static int add_type_use(const char *functor, const char *type_name)
@@ -491,6 +517,8 @@ static int add_generic_use(const char *name, const char *type_name, int dispatch
     g_generic_uses[g_generic_use_count].name = copy_string(name);
     g_generic_uses[g_generic_use_count].type_name = copy_string(type_name);
     g_generic_uses[g_generic_use_count].dispatch = dispatch;
+    g_generic_uses[g_generic_use_count].origin_path = NULL;
+    g_generic_uses[g_generic_use_count].origin_line = 0U;
     g_generic_uses[g_generic_use_count].dispatch_indices = NULL;
     g_generic_uses[g_generic_use_count].dispatch_types = NULL;
     g_generic_uses[g_generic_use_count].dispatch_canonicals = NULL;
@@ -501,6 +529,22 @@ static int add_generic_use(const char *name, const char *type_name, int dispatch
     }
     ++g_generic_use_count;
     return 1;
+}
+
+static void set_generic_use_origin(const char *name, const char *type_name,
+                                   const char *path, size_t line)
+{
+    size_t i;
+    if (path == NULL || path[0] == '\0' || line == 0U) return;
+    for (i = 0U; i < g_generic_use_count; ++i) {
+        GenericUse *use = &g_generic_uses[i];
+        if (str_eq(use->name, name) && str_eq(use->type_name, type_name) &&
+            use->origin_path == NULL) {
+            use->origin_path = copy_string(path);
+            use->origin_line = line;
+            return;
+        }
+    }
 }
 
 static int generic_use_matches(const char *name, const char *type_name,
@@ -829,6 +873,35 @@ static char *absolute_path(const char *path)
     return normalized;
 #endif
 }
+
+#if defined(CLANGPLUGIN)
+void tmplgen_plugin_clear_unsaved_source(void)
+{
+    free(g_unsaved_source_path);
+    free(g_unsaved_source_contents);
+    g_unsaved_source_path = NULL;
+    g_unsaved_source_contents = NULL;
+    g_unsaved_source_length = 0U;
+}
+
+void tmplgen_plugin_set_unsaved_source(const char *path,
+                                       const char *contents, size_t length)
+{
+    char *absolute;
+    char *copy;
+    if (path == NULL || path[0] == '\0' ||
+        (contents == NULL && length != 0U)) {
+        tmplgen_plugin_clear_unsaved_source();
+        return;
+    }
+    absolute = absolute_path(path);
+    copy = copy_range(contents != NULL ? contents : "", length);
+    tmplgen_plugin_clear_unsaved_source();
+    g_unsaved_source_path = absolute;
+    g_unsaved_source_contents = copy;
+    g_unsaved_source_length = length;
+}
+#endif
 
 static char *resolve_executable_path(const char *argument_zero)
 {
@@ -1178,6 +1251,21 @@ static int source_list_add_file(SourceList *files, const char *path)
         source_file_free(file);
         return 0;
     }
+#if defined(CLANGPLUGIN)
+    if (g_unsaved_source_path != NULL &&
+        str_eq(file->path, g_unsaved_source_path)) {
+        if (g_unsaved_source_length != 0U &&
+            memchr(g_unsaved_source_contents, '\0',
+                   g_unsaved_source_length) != NULL) {
+            report_error(file->path, 0U, "source contains a NUL byte");
+            source_file_free(file);
+            return 0;
+        }
+        buf_free(&file->text);
+        buf_putn(&file->text, g_unsaved_source_contents,
+                 g_unsaved_source_length);
+    }
+#endif
     ++files->count;
     return 1;
 }
@@ -4255,6 +4343,74 @@ static void emit_line_directive(Buf *out, unsigned long line, const char *path)
     buf_puts(out, "\"\n");
 }
 
+static void emit_origin_mapped_fragment(Buf *out, const char *text,
+                                        size_t length, unsigned line,
+                                        const char *path)
+{
+    size_t offset = 0U;
+    int in_block_comment = 0;
+    int in_line_comment = 0;
+    int map_next_line = 0;
+    char quote = '\0';
+    emit_line_directive(out, line, path);
+    while (offset < length) {
+        char c = text[offset];
+        if (map_next_line && !in_block_comment && quote == '\0') {
+            emit_line_directive(out, line, path);
+            map_next_line = 0;
+        }
+        if (c == '\\' && offset + 1U < length &&
+            text[offset + 1U] == '\n') {
+            buf_putn(out, text + offset, 2U);
+            offset += 2U;
+            map_next_line = 0;
+            continue;
+        }
+        if (quote != '\0') {
+            buf_putc(out, c);
+            ++offset;
+            if (c == quote) quote = '\0';
+            if (c == '\n') map_next_line = 0;
+            continue;
+        }
+        if (in_block_comment) {
+            if (c == '*' && offset + 1U < length && text[offset + 1U] == '/') {
+                buf_putn(out, text + offset, 2U);
+                offset += 2U;
+                in_block_comment = 0;
+                continue;
+            }
+            buf_putc(out, c);
+            ++offset;
+            if (c == '\n') map_next_line = 0;
+            continue;
+        }
+        if (in_line_comment) {
+            buf_putc(out, c);
+            ++offset;
+            if (c == '\n') {
+                in_line_comment = 0;
+                map_next_line = 1;
+            }
+            continue;
+        }
+        if (c == '/' && offset + 1U < length && text[offset + 1U] == '/') {
+            buf_putn(out, text + offset, 2U);
+            offset += 2U;
+            in_line_comment = 1;
+        } else if (c == '/' && offset + 1U < length && text[offset + 1U] == '*') {
+            buf_putn(out, text + offset, 2U);
+            offset += 2U;
+            in_block_comment = 1;
+        } else {
+            buf_putc(out, c);
+            ++offset;
+            if (c == '"' || c == '\'') quote = c;
+            if (c == '\n') map_next_line = 1;
+        }
+    }
+}
+
 static char *substitute_template_identifier(const char *source,
                                             const char *parameter,
                                             const char *concrete_type)
@@ -4359,16 +4515,18 @@ static void emit_escaped_c_string(Buf *out, const char *text)
 static void emit_template_static_assert(Buf *out, const char *expression,
                                         const char *message,
                                         const TemplateInfo *ti,
-                                        unsigned source_line)
+                                        unsigned source_line,
+                                        const char *source_path)
 {
+    if (source_path == NULL) source_path = ti->path;
     buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
-    emit_line_directive(out, source_line, ti->path);
+    emit_line_directive(out, source_line, source_path);
     buf_puts(out, "_Static_assert((");
     buf_puts(out, expression);
     buf_puts(out, "), \"");
     emit_escaped_c_string(out, message);
     buf_puts(out, "\");\n#elif defined(__GNUC__) || defined(__clang__)\n");
-    emit_line_directive(out, source_line, ti->path);
+    emit_line_directive(out, source_line, source_path);
     buf_puts(out, "__extension__ _Static_assert((");
     buf_puts(out, expression);
     buf_puts(out, "), \"");
@@ -4379,7 +4537,9 @@ static void emit_template_static_assert(Buf *out, const char *expression,
 static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
                                       const GenInstance *instance,
                                       const char *symbol, const char *output_path,
-                                      unsigned declaration_line)
+                                      unsigned declaration_line,
+                                      const char *origin_path,
+                                      size_t origin_line)
 {
     const TemplateConstraint *constraints = NULL;
     size_t constraint_count = 0U;
@@ -4387,6 +4547,11 @@ static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
     const TemplateType *type = function == NULL ? find_template_type(ti, symbol) : NULL;
     size_t constraint_index;
     int emitted = 0;
+    const char *source_path = origin_path != NULL ? origin_path :
+        (instance->origin_path != NULL ? instance->origin_path : ti->path);
+    unsigned source_line = origin_line != 0U ? (unsigned)origin_line :
+        (instance->origin_line != 0U ? (unsigned)instance->origin_line :
+                                       declaration_line);
     if (function != NULL) {
         constraints = function->constraints;
         constraint_count = function->constraint_count;
@@ -4415,7 +4580,7 @@ static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
             for (field_index = 0U; field_index < schema->field_count; ++field_index) {
                 const char *field = schema->fields[field_index];
                 buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
-                emit_line_directive(out, declaration_line, ti->path);
+                emit_line_directive(out, source_line, source_path);
                 buf_puts(out, "_Static_assert(__builtin_types_compatible_p(__typeof__(((");
                 buf_puts(out, instance->arguments[argument].c_type);
                 buf_puts(out, " *)0)->");
@@ -4433,7 +4598,7 @@ static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
                 buf_puts(out, field);
                 buf_puts(out, ")\");");
                 buf_puts(out, "\n#elif defined(__GNUC__) || defined(__clang__)\n");
-                emit_line_directive(out, declaration_line, ti->path);
+                emit_line_directive(out, source_line, source_path);
                 buf_puts(out, "__extension__ _Static_assert(__builtin_types_compatible_p(__typeof__(((");
                 buf_puts(out, instance->arguments[argument].c_type);
                 buf_puts(out, " *)0)->");
@@ -4495,7 +4660,7 @@ static int emit_structural_assertions(Buf *out, const TemplateInfo *ti,
             }
             buf_puts(&message, constraint->expressions[expression_index]);
             emit_template_static_assert(out, expression, message.p, ti,
-                                        declaration_line);
+                                        source_line, source_path);
             buf_free(&message);
             free(expanded);
             free(expression);
@@ -4603,6 +4768,9 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
     Buf rewritten;
     Buf path;
     size_t function_index;
+    const char *origin_path = instance->origin_path;
+    size_t origin_line = instance->origin_line;
+    int map_body_to_origin;
     if (end_offset > ti->body.len || start_offset >= end_offset) return;
     fragment = copy_range(ti->body.p + start_offset,
                           (size_t)(end_offset - start_offset));
@@ -4620,6 +4788,22 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
             break;
         }
     }
+    if (matched_function != NULL) {
+        size_t use_index;
+        for (use_index = 0U; use_index < g_generic_use_count; ++use_index) {
+            const GenericUse *use = &g_generic_uses[use_index];
+            if (str_eq(use->name, matched_function->name) &&
+                str_eq(use->type_name, instance->name) &&
+                use->origin_path != NULL) {
+                origin_path = use->origin_path;
+                origin_line = use->origin_line;
+                break;
+            }
+        }
+    }
+    map_body_to_origin = !g_emit_line && matched_function != NULL &&
+        matched_function->constraint_count != 0U && origin_path != NULL &&
+        origin_line != 0U;
     buf_init(&rewritten);
     buf_init(&path);
     rewrite(rewrite_source, ti, instance, &rewritten);
@@ -4642,7 +4826,8 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
     }
     buf_puts(out, " ---- */\n");
     (void)emit_structural_assertions(out, ti, instance, symbol,
-                                     output_path, start_line);
+                                     output_path, start_line,
+                                     origin_path, origin_line);
     if (g_emit_line) {
         buf_puts(&path, g_template_dir);
         buf_putc(&path, '/');
@@ -4650,9 +4835,14 @@ static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *i
         buf_puts(&path, GEN_TMPL_SUFFIX);
         emit_line_directive(out, (unsigned long)start_line, path.p);
     }
-    buf_putn(out, rewritten.p, rewritten.len);
+    if (map_body_to_origin) {
+        emit_origin_mapped_fragment(out, rewritten.p, rewritten.len,
+                                    (unsigned)origin_line, origin_path);
+    } else {
+        buf_putn(out, rewritten.p, rewritten.len);
+    }
     if (out->len == 0U || out->p[out->len - 1U] != '\n') buf_putc(out, '\n');
-    if (g_emit_line) {
+    if (g_emit_line || map_body_to_origin) {
         unsigned long resume_line = (unsigned long)out->newlines + 2UL;
         emit_line_directive(out, resume_line, output_path);
     }
@@ -5827,6 +6017,53 @@ static void source_variable_add(SourceVariableList *variables, const char *name,
     ++variables->count;
 }
 
+typedef struct {
+    CXType type;
+} InitializerTypeSearch;
+
+static enum CXChildVisitResult find_concrete_initializer_type(
+    CXCursor cursor, CXCursor parent, CXClientData client_data)
+{
+    InitializerTypeSearch *search = (InitializerTypeSearch *)client_data;
+    (void)parent;
+    if (clang_isExpression(clang_getCursorKind(cursor)) != 0U) {
+        CXType type = clang_getCursorType(cursor);
+        if (type.kind != CXType_Invalid) {
+            char *spelling = copy_cx_string(clang_getTypeSpelling(type));
+            int is_auto = str_eq(spelling, "__auto_type") ||
+                          str_eq(spelling, "auto");
+            free(spelling);
+            if (!is_auto) {
+                search->type = type;
+                return CXChildVisit_Break;
+            }
+        }
+    }
+    return CXChildVisit_Recurse;
+}
+
+static CXType source_variable_initializer_type(CXCursor variable)
+{
+    CXCursor initializer = clang_Cursor_getVarDeclInitializer(variable);
+    CXType type;
+    if (clang_Cursor_isNull(initializer) == 0U) {
+        type = clang_getCursorType(initializer);
+        if (type.kind != CXType_Invalid) {
+            char *spelling = copy_cx_string(clang_getTypeSpelling(type));
+            int is_auto = str_eq(spelling, "__auto_type") ||
+                          str_eq(spelling, "auto");
+            free(spelling);
+            if (!is_auto) return type;
+        }
+    }
+    {
+        InitializerTypeSearch search;
+        search.type = clang_getCursorType(clang_getNullCursor());
+        clang_visitChildren(variable, find_concrete_initializer_type, &search);
+        return search.type;
+    }
+}
+
 static void source_variable_list_free(SourceVariableList *variables)
 {
     size_t i;
@@ -6354,6 +6591,144 @@ static void source_facts_apply(SourceFacts *facts)
     }
 }
 
+static int infer_auto_variable_from_call(const ClangContext *context,
+                                         size_t file_index,
+                                         const char *variable_name,
+                                         unsigned declaration_line,
+                                         char **type_out,
+                                         char **canonical_out)
+{
+    const SourceFile *source;
+    const char *text;
+    size_t line_start = 0U;
+    size_t line_number = 1U;
+    size_t position;
+    size_t declaration_end;
+    size_t call_line;
+    char *call_name = NULL;
+    size_t template_index;
+    const TemplateFunction *function;
+    const TemplateInfo *ti;
+    size_t *indices;
+    size_t parameter_index;
+    GenInstance *instance = NULL;
+    size_t use_index;
+    if (file_index >= context->files->count) return 0;
+    source = &context->files->items[file_index];
+    text = source->text.p != NULL ? source->text.p : "";
+    while (line_number < declaration_line && text[line_start] != '\0') {
+        if (text[line_start++] == '\n') ++line_number;
+    }
+    if (line_number != declaration_line) return 0;
+    position = line_start;
+    declaration_end = line_start;
+    while (text[declaration_end] != '\0' && text[declaration_end] != ';') {
+        ++declaration_end;
+    }
+    while (position < declaration_end) {
+        size_t start;
+        size_t end;
+        position = skip_c_trivia(text, position);
+        if (position >= declaration_end) break;
+        if (text[position] == '"' || text[position] == '\'') {
+            position = skip_c_literal(text, position);
+            continue;
+        }
+        if (!is_ident_start(text[position])) {
+            ++position;
+            continue;
+        }
+        start = position++;
+        while (is_ident_char(text[position])) ++position;
+        end = position;
+        if (end - start != strlen(variable_name) ||
+            memcmp(text + start, variable_name, end - start) != 0) continue;
+        position = skip_c_trivia(text, position);
+        if (text[position] != '=') continue;
+        position = skip_c_trivia(text, position + 1U);
+        if (!is_ident_start(text[position])) return 0;
+        start = position++;
+        while (is_ident_char(text[position])) ++position;
+        call_name = copy_range(text + start, position - start);
+        position = skip_c_trivia(text, position);
+        if (text[position] != '(') {
+            free(call_name);
+            return 0;
+        }
+        call_line = declaration_line;
+        for (start = line_start; start < position; ++start) {
+            if (text[start] == '\n') ++call_line;
+        }
+        break;
+    }
+    if (call_name == NULL ||
+        !generic_function_template(context->infos, context->template_count,
+                                   call_name, &template_index)) {
+        free(call_name);
+        return 0;
+    }
+    ti = &context->infos[template_index];
+    function = find_template_function(ti, call_name);
+    if (function == NULL || function->return_type == NULL) {
+        free(call_name);
+        return 0;
+    }
+    indices = (size_t *)malloc(function->type_parameter_count * sizeof(*indices));
+    if (indices == NULL) die("out of memory");
+    for (parameter_index = 0U; parameter_index < function->type_parameter_count;
+         ++parameter_index) {
+        int mapped = template_parameter_index(
+            ti, function->type_parameters[parameter_index]);
+        if (mapped < 0) die("invalid auto variable return parameter map");
+        indices[parameter_index] = (size_t)mapped;
+    }
+    for (use_index = 0U; use_index < g_generic_use_count; ++use_index) {
+        const GenericUse *use = &g_generic_uses[use_index];
+        if (!str_eq(use->name, call_name) || use->origin_path == NULL ||
+            !str_eq(use->origin_path, source->path) ||
+            use->origin_line != call_line) continue;
+        instance = find_instance(template_index, use->type_name, indices,
+                                 function->type_parameter_count);
+        if (instance != NULL) break;
+    }
+    free(indices);
+    free(call_name);
+    if (instance == NULL) return 0;
+    {
+        Buf rewritten;
+        const char *alias;
+        buf_init(&rewritten);
+        if (function->return_application.constructor != NULL) {
+            rewrite_c_type(function->return_type, ti, instance,
+                           &function->return_application, &rewritten);
+        } else {
+            rewrite(function->return_type, ti, instance, &rewritten);
+        }
+        *type_out = copy_string(rewritten.p != NULL ? rewritten.p : "");
+        alias = valid_identifier(*type_out) ? find_alias_canonical(*type_out) : NULL;
+        *canonical_out = NULL;
+        if (function->return_application.constructor == NULL &&
+            function->return_parameter_count == 1U) {
+            int return_parameter = template_parameter_index(
+                ti, function->return_parameters[0]);
+            int return_argument = return_parameter >= 0 ?
+                instance_parameter_position(instance,
+                                            (size_t)return_parameter) : -1;
+            if (return_argument >= 0) {
+                free(*type_out);
+                *type_out = copy_string(instance->arguments[return_argument].c_type);
+                *canonical_out = copy_string(
+                    instance->arguments[return_argument].canonical);
+            }
+        }
+        if (*canonical_out == NULL) {
+            *canonical_out = copy_string(alias != NULL ? alias : *type_out);
+        }
+        buf_free(&rewritten);
+    }
+    return (*type_out)[0] != '\0';
+}
+
 static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                                                            CXCursor parent,
                                                            CXClientData client_data)
@@ -6399,6 +6774,42 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
         char *type_spelling = copy_cx_string(clang_getTypeSpelling(declared_type));
         char *canonical_spelling = copy_cx_string(
             clang_getTypeSpelling(canonical_type));
+        if (str_eq(type_spelling, "__auto_type") ||
+            str_eq(type_spelling, "auto")) {
+            CXType initializer_type = source_variable_initializer_type(cursor);
+            if (initializer_type.kind != CXType_Invalid) {
+                char *inferred_spelling = copy_cx_string(
+                    clang_getTypeSpelling(initializer_type));
+                char *inferred_canonical = copy_cx_string(clang_getTypeSpelling(
+                    clang_getCanonicalType(initializer_type)));
+                if (inferred_spelling[0] != '\0' &&
+                    !str_eq(inferred_spelling, "__auto_type") &&
+                    !str_eq(inferred_spelling, "auto")) {
+                    free(type_spelling);
+                    free(canonical_spelling);
+                    type_spelling = inferred_spelling;
+                    canonical_spelling = inferred_canonical;
+                } else {
+                    free(inferred_spelling);
+                    free(inferred_canonical);
+                }
+            }
+            if (str_eq(type_spelling, "__auto_type") ||
+                str_eq(type_spelling, "auto")) {
+                char *inferred_spelling = NULL;
+                char *inferred_canonical = NULL;
+                if (infer_auto_variable_from_call(context, source_file_index,
+                        name, line, &inferred_spelling, &inferred_canonical)) {
+                    free(type_spelling);
+                    free(canonical_spelling);
+                    type_spelling = inferred_spelling;
+                    canonical_spelling = inferred_canonical;
+                } else {
+                    free(inferred_spelling);
+                    free(inferred_canonical);
+                }
+            }
+        }
         if (valid_identifier(name) && type_spelling[0] != '\0') {
             source_variable_add(&context->variables, name, source_file_index,
                                 type_spelling,
@@ -6461,6 +6872,7 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                         type_template_index, parameter_indices,
                         (const char *const *)arguments,
                         (const char *const *)canonical_arguments, argument_count);
+                    set_instance_origin(instance, path, line);
                     (void)add_type_use(name, instance->name);
                     source_facts_add_constructor(context->facts,
                         type_template_index, name, parameter_indices,
@@ -6655,7 +7067,8 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
     int i;
     struct CXUnsavedFile *unsaved;
     char **unsaved_paths;
-    size_t unsaved_count = gen_template_count() + 1U;
+    size_t unsaved_count = gen_template_count() + 2U;
+    size_t source_unsaved_index = unsaved_count - 1U;
     size_t unsaved_index;
     CXTranslationUnit tu = NULL;
     enum CXErrorCode result;
@@ -6673,13 +7086,24 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
     if (unsaved == NULL || unsaved_paths == NULL) die("out of memory");
     unsaved_paths[0] = absolute_path(g_output_path);
     for (unsaved_index = 1U; unsaved_index < unsaved_count; ++unsaved_index) {
-        unsaved_paths[unsaved_index] = generated_module_path(
-            g_templates[unsaved_index - 1U].stem);
+        if (unsaved_index == source_unsaved_index) {
+            unsaved_paths[unsaved_index] = copy_string(source->path);
+        } else {
+            unsaved_paths[unsaved_index] = generated_module_path(
+                g_templates[unsaved_index - 1U].stem);
+        }
     }
     for (unsaved_index = 0U; unsaved_index < unsaved_count; ++unsaved_index) {
         unsaved[unsaved_index].Filename = unsaved_paths[unsaved_index];
-        unsaved[unsaved_index].Contents = bootstrap->p != NULL ? bootstrap->p : "";
-        unsaved[unsaved_index].Length = (unsigned long)bootstrap->len;
+        if (unsaved_index == source_unsaved_index) {
+            unsaved[unsaved_index].Contents =
+                source->text.p != NULL ? source->text.p : "";
+            unsaved[unsaved_index].Length = (unsigned long)source->text.len;
+        } else {
+            unsaved[unsaved_index].Contents =
+                bootstrap->p != NULL ? bootstrap->p : "";
+            unsaved[unsaved_index].Length = (unsigned long)bootstrap->len;
+        }
     }
     result = clang_parseTranslationUnit2(index, source->path, arguments,
         argument_count, unsaved, (unsigned)unsaved_count,
@@ -7115,58 +7539,145 @@ static int assign_template_argument(const TemplateInfo *ti, size_t parameter_ind
     return 1;
 }
 
+static void request_type_application(const TemplateInfo *ti,
+                                     const GenInstance *instance,
+                                     const char *name,
+                                     char **arguments,
+                                     size_t argument_count)
+{
+    const TemplateType *constructor = NULL;
+    size_t template_index;
+    size_t *indices;
+    const char **spellings;
+    const char **canonicals;
+    unsigned char *owned;
+    size_t i;
+    if (argument_count == 0U ||
+        !find_type_constructor(g_all_template_infos, g_all_template_info_count,
+                               name, &template_index, &constructor) ||
+        constructor == NULL ||
+        constructor->parameter_count != argument_count) return;
+    indices = (size_t *)malloc(argument_count * sizeof(*indices));
+    spellings = (const char **)calloc(argument_count, sizeof(*spellings));
+    canonicals = (const char **)calloc(argument_count, sizeof(*canonicals));
+    owned = (unsigned char *)calloc(argument_count, sizeof(*owned));
+    if (indices == NULL || spellings == NULL || canonicals == NULL || owned == NULL) {
+        die("out of memory");
+    }
+    for (i = 0U; i < argument_count; ++i) {
+        const TemplateInfo *constructor_ti =
+            &g_all_template_infos[template_index];
+        int parameter = template_parameter_index(
+            constructor_ti, constructor->parameter_names[i]);
+        char *argument = normalize_spaces(arguments[i]);
+        int source_parameter = valid_identifier(argument) ?
+            template_parameter_index(ti, argument) : -1;
+        int source_argument = source_parameter >= 0 ?
+            instance_parameter_position(instance, (size_t)source_parameter) : -1;
+        if (parameter < 0) die("invalid type constructor parameter map");
+        indices[i] = (size_t)parameter;
+        if (source_parameter >= 0 && source_argument < 0) {
+            size_t cleanup_index;
+            free(argument);
+            for (cleanup_index = 0U; cleanup_index < i; ++cleanup_index) {
+                if (owned[cleanup_index]) {
+                    free((char *)spellings[cleanup_index]);
+                    free((char *)canonicals[cleanup_index]);
+                }
+            }
+            free(indices);
+            free(spellings);
+            free(canonicals);
+            free(owned);
+            return;
+        }
+        if (source_argument >= 0) {
+            spellings[i] = instance->arguments[source_argument].c_type;
+            canonicals[i] = instance->arguments[source_argument].canonical;
+        } else {
+            Buf rewritten;
+            const char *alias;
+            buf_init(&rewritten);
+            rewrite(argument, ti, instance, &rewritten);
+            spellings[i] = rewritten.p != NULL ? rewritten.p : copy_string(argument);
+            owned[i] = 1U;
+            alias = valid_identifier(spellings[i]) ?
+                find_alias_canonical(spellings[i]) : NULL;
+            canonicals[i] = copy_string(alias != NULL ? alias : spellings[i]);
+        }
+        free(argument);
+    }
+    {
+        GenInstance *type_instance = add_instance(template_index, indices,
+            spellings, canonicals, argument_count);
+        set_instance_origin(type_instance, instance->origin_path,
+                            instance->origin_line);
+        (void)add_type_use(name, type_instance->name);
+    }
+    for (i = 0U; i < argument_count; ++i) {
+        if (owned[i]) {
+            free((char *)spellings[i]);
+            free((char *)canonicals[i]);
+        }
+    }
+    free(indices);
+    free(spellings);
+    free(canonicals);
+    free(owned);
+}
+
+static void request_type_applications(const TemplateInfo *ti,
+                                     const GenInstance *instance,
+                                     const char *fragment)
+{
+    size_t offset = 0U;
+    while (fragment[offset] != '\0') {
+        size_t start;
+        size_t open;
+        size_t argument_count = 0U;
+        size_t end = 0U;
+        char *name;
+        char **arguments = NULL;
+        size_t template_index;
+        const TemplateType *constructor = NULL;
+        offset = skip_c_trivia(fragment, offset);
+        if (fragment[offset] == '\0') break;
+        if (fragment[offset] == '"' || fragment[offset] == '\'') {
+            offset = skip_c_literal(fragment, offset);
+            continue;
+        }
+        if (!is_ident_start(fragment[offset])) {
+            ++offset;
+            continue;
+        }
+        start = offset++;
+        while (is_ident_char(fragment[offset])) ++offset;
+        name = copy_range(fragment + start, offset - start);
+        open = skip_c_trivia(fragment, offset);
+        if (find_type_constructor(g_all_template_infos,
+                                  g_all_template_info_count,
+                                  name, &template_index, &constructor) &&
+            constructor != NULL && fragment[open] == '(' &&
+            parse_text_type_arguments(fragment, open, &arguments,
+                                      &argument_count, &end)) {
+            request_type_application(ti, instance, name, arguments,
+                                     argument_count);
+            list_free(arguments, argument_count);
+        }
+        free(name);
+    }
+}
+
 static void request_instance_types(const TemplateInfo *ti,
                                    const TemplateFunction *requester,
                                    const GenInstance *instance)
 {
-    size_t i;
-    char *fragment = NULL;
-    if (requester != NULL && requester->end_offset <= ti->body.len &&
-        requester->start_offset < requester->end_offset) {
-        fragment = copy_range(ti->body.p + requester->start_offset,
-                              (size_t)(requester->end_offset - requester->start_offset));
-    }
-    for (i = 0U; i < ti->constructor_count; ++i) {
-        size_t j;
-        size_t count = ti->constructors[i].parameter_count;
-        size_t *indices;
-        const char **spellings;
-        const char **canonicals;
-        int covered = 1;
-        if (count == 0U) continue;
-        if (fragment == NULL ||
-            identifier_line_in_code(fragment, ti->constructors[i].name) == 0U) continue;
-        for (j = 0U; j < count; ++j) {
-            int parameter = template_parameter_index(ti,
-                ti->constructors[i].parameter_names[j]);
-            if (parameter < 0 ||
-                instance_parameter_position(instance, (size_t)parameter) < 0) {
-                covered = 0;
-                break;
-            }
-        }
-        if (!covered) continue;
-        indices = (size_t *)malloc(count * sizeof(*indices));
-        spellings = (const char **)malloc(count * sizeof(*spellings));
-        canonicals = (const char **)malloc(count * sizeof(*canonicals));
-        if (indices == NULL || spellings == NULL || canonicals == NULL) die("out of memory");
-        for (j = 0U; j < count; ++j) {
-            size_t parameter = (size_t)template_parameter_index(
-                ti, ti->constructors[i].parameter_names[j]);
-            size_t argument = (size_t)instance_parameter_position(instance, parameter);
-            indices[j] = parameter;
-            spellings[j] = instance->arguments[argument].c_type;
-            canonicals[j] = instance->arguments[argument].canonical;
-        }
-        {
-            GenInstance *type_instance = add_instance(instance->template_index,
-                indices, spellings, canonicals, count);
-            (void)add_type_use(ti->constructors[i].name, type_instance->name);
-        }
-        free(indices);
-        free(spellings);
-        free(canonicals);
-    }
+    char *fragment;
+    if (requester == NULL || requester->end_offset > ti->body.len ||
+        requester->start_offset >= requester->end_offset) return;
+    fragment = copy_range(ti->body.p + requester->start_offset,
+                          (size_t)(requester->end_offset - requester->start_offset));
+    request_type_applications(ti, instance, fragment);
     free(fragment);
 }
 
@@ -7442,6 +7953,7 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                                              (const char *const *)canonicals,
                                              binding_count);
         unsigned *dispatch_indices = NULL;
+        set_instance_origin(instance, call->path, call->line);
         if (function->dispatch_count != 0U) {
             dispatch_indices = (unsigned *)malloc(function->dispatch_count *
                                                    sizeof(*dispatch_indices));
@@ -7462,6 +7974,8 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                                       dispatch_indices, dispatch_types,
                                       dispatch_canonicals,
                                       function->dispatch_count);
+                set_generic_use_origin(call->name, instance->name,
+                                       call->path, call->line);
             }
         }
         free(dispatch_indices);
@@ -7541,6 +8055,7 @@ static GenInstance *project_instance(const TemplateInfo *ti,
     }
     result = add_instance(source->template_index, indices, spellings, canonicals,
                           parameter_count);
+    set_instance_origin(result, source->origin_path, source->origin_line);
     free(indices);
     free(spellings);
     free(canonicals);
@@ -7715,6 +8230,8 @@ static GenInstance *resolve_function_call_instance(const TemplateInfo *caller_ti
     result = add_instance(callee_template_index, indices,
         (const char *const *)spellings, (const char *const *)canonicals,
         binding_count);
+    set_instance_origin(result, caller_instance->origin_path,
+                        caller_instance->origin_line);
     for (i = 0U; i < binding_count; ++i) {
         free(spellings[i]);
         free(canonicals[i]);
@@ -7807,6 +8324,9 @@ static char *specialize_function_calls(const char *fragment,
                     if (discover_dependencies) {
                         (void)add_generic_use(callee->name, callee_instance->name,
                                               0, NULL, NULL, NULL, 0U);
+                        set_generic_use_origin(callee->name,
+                            callee_instance->name, instance->origin_path,
+                            instance->origin_line);
                         request_instance_types(callee_ti, callee, callee_instance);
                         add_function_call_dependency(ti->template_index, caller,
                             instance, callee_template_index, callee,
@@ -7995,6 +8515,8 @@ static void collect_suffix_api_uses(SourceFile *file, const TemplateInfo *infos,
                                                 spellings, canonicals, 1U);
                         (void)add_generic_use(base, instance->name, 0,
                                               NULL, NULL, NULL, 0U);
+                        set_generic_use_origin(base, instance->name,
+                            file->path, file->tokens[i].line);
                     } else if (function != NULL) {
                         size_t use_index;
                         for (use_index = 0U; use_index < g_instance_count; ++use_index) {
@@ -8006,6 +8528,8 @@ static void collect_suffix_api_uses(SourceFile *file, const TemplateInfo *infos,
                                 str_eq(instance->name, type_name)) {
                                 (void)add_generic_use(base, instance->name, 0,
                                                       NULL, NULL, NULL, 0U);
+                                set_generic_use_origin(base, instance->name,
+                                    file->path, file->tokens[i].line);
                             }
                         }
                     }
@@ -8338,6 +8862,7 @@ static void clear_discovery_state(void)
         size_t j;
         free(g_instances[i].name);
         free(g_instances[i].key);
+        free(g_instances[i].origin_path);
         free(g_instances[i].parameter_indices);
         for (j = 0U; j < g_instances[i].argument_count; ++j) {
             free(g_instances[i].arguments[j].c_type);
@@ -8361,6 +8886,7 @@ static void clear_discovery_state(void)
         size_t j;
         free(g_generic_uses[i].name);
         free(g_generic_uses[i].type_name);
+        free(g_generic_uses[i].origin_path);
         for (j = 0U; j < g_generic_uses[i].dispatch_count; ++j) {
             free(g_generic_uses[i].dispatch_types[j]);
             free(g_generic_uses[i].dispatch_canonicals[j]);
@@ -8782,8 +9308,10 @@ static int cache_try_hit(unsigned long long signature, int check_only)
             hash1 != record->hash1 || hash2 != record->hash2) goto done;
     }
     for (i = 0U; i < expected_outputs.count; ++i) {
-        printf("%s: %s\n", expected_outputs.items[i],
-               check_only ? "matches" : "unchanged");
+        if (!TMPLGEN_PLUGIN_BUILD) {
+            printf("%s: %s\n", expected_outputs.items[i],
+                   check_only ? "matches" : "unchanged");
+        }
     }
     if (g_verbose) fprintf(stderr, "tmplgen: unchanged-input cache hit\n");
     okay = 1;
@@ -9341,6 +9869,66 @@ static void replace_option_string(char **target, const char *value)
     *target = copy;
 }
 
+static void reset_invocation_state(void)
+{
+    size_t i;
+    free(g_source_root);
+    free(g_template_dir);
+    free(g_absolute_template_dir);
+    free(g_output_path);
+    free(g_generated_dir);
+    free(g_executable_path);
+    g_source_root = NULL;
+    g_template_dir = NULL;
+    g_absolute_template_dir = NULL;
+    g_output_path = NULL;
+    g_generated_dir = NULL;
+    g_executable_path = NULL;
+    for (i = 0U; i < g_clang_arg_count; ++i) free(g_clang_args[i]);
+    free(g_clang_args);
+    g_clang_args = NULL;
+    g_clang_arg_count = 0U;
+    g_clang_arg_cap = 0U;
+    string_set_free(&g_clang_dependencies);
+    clear_template_registry();
+    g_error_count = 0U;
+    g_verbose = 0;
+    g_compiled_output = 0;
+}
+
+#if defined(CLANGPLUGIN)
+static int ensure_plugin_placeholder(const char *path)
+{
+    FILE *file = fopen(path, "ab");
+    if (file == NULL) {
+        report_error(path, 0U, "cannot create plugin bootstrap file: %s",
+                     strerror(errno));
+        return 0;
+    }
+    if (fclose(file) != 0) {
+        report_error(path, 0U, "cannot close plugin bootstrap file: %s",
+                     strerror(errno));
+        return 0;
+    }
+    return 1;
+}
+
+static int ensure_plugin_bootstrap_files(void)
+{
+    size_t i;
+    if (!discover_template_files() || !ensure_plugin_placeholder(g_output_path)) {
+        return 0;
+    }
+    for (i = 0U; i < g_template_count; ++i) {
+        char *path = generated_module_path(g_templates[i].stem);
+        int okay = ensure_plugin_placeholder(path);
+        free(path);
+        if (!okay) return 0;
+    }
+    return 1;
+}
+#endif
+
 static void add_clang_argument(const char *argument)
 {
     char **next;
@@ -9397,16 +9985,19 @@ static int run_once(int check_only)
             if (result < 0) {
                 status = 1;
             } else if (result == 0) {
-                printf("%s: differs\n", file->path);
+                if (!TMPLGEN_PLUGIN_BUILD) printf("%s: differs\n", file->path);
                 status = 1;
             } else {
-                printf("%s: matches\n", file->path);
+                if (!TMPLGEN_PLUGIN_BUILD) printf("%s: matches\n", file->path);
             }
         } else {
             if (!write_file_if_changed(file->path, &file->contents, &changed)) {
                 status = 1;
             } else {
-                printf("%s: %s\n", file->path, changed ? "written" : "unchanged");
+                if (!TMPLGEN_PLUGIN_BUILD) {
+                    printf("%s: %s\n", file->path,
+                           changed ? "written" : "unchanged");
+                }
             }
         }
     }
@@ -9420,11 +10011,12 @@ static int run_once(int check_only)
     return status;
 }
 
-int main(int argc, char **argv)
+static int tmplgen_main(int argc, char **argv)
 {
     int check_only = 0;
     int watch = 0;
     int i;
+    reset_invocation_state();
     g_source_root = copy_string(GEN_SCAN_ROOT);
     g_template_dir = copy_string(GEN_TMPL_DIR);
     g_output_path = copy_string(GEN_OUTPUT);
@@ -9488,7 +10080,9 @@ int main(int argc, char **argv)
         usage(stderr);
         return 2;
     }
-    g_executable_path = resolve_executable_path(argv[0]);
+    if (!TMPLGEN_PLUGIN_BUILD) {
+        g_executable_path = resolve_executable_path(argv[0]);
+    }
     {
         char *parent = path_parent(g_output_path);
         g_generated_dir = absolute_path(parent);
@@ -9500,6 +10094,9 @@ int main(int argc, char **argv)
         g_source_root = absolute_root;
     }
     g_absolute_template_dir = absolute_path(g_template_dir);
+#if defined(CLANGPLUGIN)
+    if (!check_only && !ensure_plugin_bootstrap_files()) return 1;
+#endif
     if (watch) {
         g_cache_enabled = 0;
 #if GEN_ENABLE_WATCH
@@ -9523,3 +10120,15 @@ int main(int argc, char **argv)
     }
     return run_once(check_only);
 }
+
+#if defined(CLANGPLUGIN)
+int tmplgen_plugin_main(int argc, char **argv)
+{
+    return tmplgen_main(argc, argv);
+}
+#else
+int main(int argc, char **argv)
+{
+    return tmplgen_main(argc, argv);
+}
+#endif

@@ -22,6 +22,7 @@ typedef int AI;
 #define TaggedBox(type) struct TaggedBox
 #define TaggedChoice(type) union TaggedChoice
 #define Box(type) Box
+#define Pair(type0, type1) Pair
 #endif
 
 typedef enum {
@@ -71,6 +72,12 @@ union TaggedChoice {
 typedef struct {
     T value;
 } Box;
+
+// @template T, U
+typedef struct {
+    T first;
+    U second;
+} Pair;
 
 // @template T, E
 static inline int result_is_ok(Result(T, E) *result)
@@ -164,6 +171,29 @@ static inline Box(U) box_select(Box(T) *first, Box(U) *second)
 {
     (void)first;
     return *second;
+}
+// @template T
+static inline Box(T) box_make(T value)
+{
+    Box(T) box = { value };
+    return box;
+}
+// @template T
+static inline T box_get(Box(T) *box)
+{
+    return box->value;
+}
+// @template T, U
+static inline Pair(T, U) pair_make(T first, U second)
+{
+    Pair(T, U) pair = { first, second };
+    return pair;
+}
+// @template T, U
+static inline Pair(U, T) pair_flip(Pair(T, U) pair)
+{
+    Pair(U, T) flipped = { pair.second, pair.first };
+    return flipped;
 }
 static inline int result_version(void) { return 1; }
 // @template T, E

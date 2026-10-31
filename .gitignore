@@ -1,3 +1,5 @@
 .tmplgen.cache
 .tmplgen-facts-*.cache
 .tmplgen-tu-*
+.tmplgen-plugin*
+/build/
