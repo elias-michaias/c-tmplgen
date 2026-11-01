@@ -43,13 +43,17 @@ clang \
 ```
 
 Plugin arguments use `key=value` after the `-fplugin-arg-tmplgen-` prefix. The
-supported keys are `source-root`, `template-dir`, `output`, `dispatch`, and
-repeatable `clang-arg`; the flags `compiled`, `no-cache`, `verbose`, `emit-line`,
+supported keys are `source-root`, `template-dir`, `output`, `line-path-base`,
+`dispatch`, and repeatable `clang-arg`; the flags `compiled`, `no-cache`, `verbose`, `emit-line`,
 `no-emit-line`, and `check` are also accepted. If paths are omitted, the plugin
 searches upward from the compilation command’s working directory for a project
 template directory. It recognizes both the normal `tmpl/` layout and this
 repository’s `test/tmpl/` fixture layout; if no templates are found, it does
-nothing. Explicit plugin arguments override the discovered paths.
+nothing. Explicit plugin arguments override the discovered paths. Template
+`#line` paths are written relative to the project root (as if the standalone
+tool ran there with a relative `--template-dir`) unless `line-path-base` says
+otherwise; this is skipped when only `template-dir` is configured, because the
+root would be a guess.
 
 The plugin invokes the same project-wide source scan as the standalone tool.
 It runs before the main translation unit is parsed, so generated headers can be
@@ -117,6 +121,7 @@ match the workspace:
 | `TMPLGEN_TEMPLATE_DIR` | Directory containing `*.tmpl.h` files |
 | `TMPLGEN_OUTPUT` | Aggregate generated header path |
 | `TMPLGEN_DISPATCH` | Dispatch backend: `auto`, `generic`, `gnu`, or `none` |
+| `TMPLGEN_LINE_PATH_BASE` | Directory that template `#line` paths are relative to |
 | `TMPLGEN_CLANG_ARGS` | Newline-separated arguments passed to libclang |
 | `TMPLGEN_COMPILED` | Set to a nonzero value to emit `.gen.c` files |
 | `TMPLGEN_NO_CACHE` | Set to a nonzero value to disable caches |

@@ -17,8 +17,19 @@ cd "$ROOT"
     --check --clang-arg=-std=c23
 "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
     --check --no-cache --clang-arg=-std=c23
+# An absolute template directory (as the clang/clangd plugins pass it) must
+# produce the same root-relative #line paths when given --line-path-base.
+"$BUILD/tmplgen" --template-dir "$ROOT/test/tmpl" --line-path-base "$ROOT" \
+    --output test/gen/all.gen.h --check --clang-arg=-std=c23
 if grep -R -q 'typedef int int' test/gen; then
     printf '%s\n' 'template LSP fallback leaked into generated output' >&2
+    exit 1
+fi
+# Structural schemas are merged from every scanned source; each specialization
+# must still assert each required field exactly once.
+if ! awk '/^\/\* ---- / { split("", seen) } /^_Static_assert/ { if (seen[$0]++) exit 1 }' \
+        test/gen/*.gen.h; then
+    printf '%s\n' 'a specialization repeats the same constraint assertion' >&2
     exit 1
 fi
 if grep -Eq 'max_long' test/gen/math.gen.h || grep -q 'Vec_double' test/gen/vec.gen.h; then
@@ -134,6 +145,28 @@ fi
 "$CC" -std=gnu99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/gnu_dispatch.c -o "$BUILD/gnu-dispatch"
 "$BUILD/gnu-dispatch"
+
+# A first run without any generated headers must produce the complete output
+# (sources include headers that do not exist yet), and must not cache anything
+# less: compare it with an uncached run once the headers exist. (The copy of
+# the first output lives outside $FRESH, which is the scanned source root.)
+FRESH="$BUILD/fresh"
+mkdir -p "$FRESH/test"
+cp -R test/tmpl test/cases test/lib "$FRESH/test/"
+(
+    cd "$FRESH"
+    "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
+        --clang-arg=-std=c23 >/dev/null
+    cp -R test/gen "$BUILD/fresh-first-run"
+    "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
+        --clang-arg=-std=c23 --no-cache >/dev/null
+)
+for generated in "$FRESH"/test/gen/*.gen.h; do
+    if ! cmp -s "$generated" "$BUILD/fresh-first-run/${generated##*/}"; then
+        printf '%s\n' "first run without generated headers differs: ${generated##*/}" >&2
+        exit 1
+    fi
+done
 
 NEWTYPE="$BUILD/newtype"
 mkdir -p "$NEWTYPE/lib"

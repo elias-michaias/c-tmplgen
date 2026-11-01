@@ -99,7 +99,12 @@ the generator restores the generated-file location after each body. Use
 `--no-emit-line` to return to the default for a run. Source paths in `#line`
 directives follow the paths used when loading templates; running from the
 project root gives concise project-relative locations, while an absolute
-`--template-dir` produces absolute paths.
+`--template-dir` produces absolute paths. Pass `--line-path-base DIR` to write
+template paths relative to `DIR` however the template directory was spelled;
+for example `--template-dir "$PWD/tmpl" --line-path-base "$PWD"` produces the
+same output as `--template-dir tmpl` run from the project root. The Clang and
+clangd plugins pass the discovered project root this way, so editor and
+standalone generation write identical headers.
 
 The generator uses libclang for parsing and type extraction; it is not a
 replacement for the application compiler’s diagnostic output. When a generated

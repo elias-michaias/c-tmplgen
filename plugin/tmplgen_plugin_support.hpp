@@ -45,6 +45,7 @@ inline void appendEnvironmentOptions(std::vector<std::string> &options)
         {"TMPLGEN_TEMPLATE_DIR", "template-dir"},
         {"TMPLGEN_OUTPUT", "output"},
         {"TMPLGEN_DISPATCH", "dispatch"},
+        {"TMPLGEN_LINE_PATH_BASE", "line-path-base"},
     };
     size_t i;
     for (i = 0U; i < sizeof(Paths) / sizeof(Paths[0]); ++i) {
@@ -90,7 +91,7 @@ inline bool appendOption(llvm::StringRef argument,
                          llvm::StringRef workingDirectory,
                          std::vector<std::string> &cliArguments,
                          bool &hasSourceRoot, bool &hasTemplateDir,
-                         bool &hasOutput)
+                         bool &hasOutput, bool &hasLinePathBase)
 {
     (void)argument.consume_front("--");
     size_t equals = argument.find('=');
@@ -113,6 +114,10 @@ inline bool appendOption(llvm::StringRef argument,
         option = "--output";
         pathOption = true;
         hasOutput = true;
+    } else if (name == "line-path-base") {
+        option = "--line-path-base";
+        pathOption = true;
+        hasLinePathBase = true;
     } else if (name == "dispatch") {
         option = "--dispatch";
     } else if (name == "clang-arg") {
@@ -130,7 +135,8 @@ inline bool appendOption(llvm::StringRef argument,
     } else {
         llvm::errs() << "tmplgen: unknown plugin argument '" << argument << "'\n"
                      << "expected source-root=DIR, template-dir=DIR, output=FILE, "
-                        "dispatch=MODE, clang-arg=ARG, or a flag\n";
+                        "line-path-base=DIR, dispatch=MODE, clang-arg=ARG, "
+                        "or a flag\n";
         return false;
     }
 
@@ -185,9 +191,21 @@ inline bool findTemplateDirectory(llvm::StringRef startDirectory,
     }
 }
 
+// How the main file's text is handed to the generator.
+enum class MainFileText {
+    // Use the compiler's main-file buffer (may contain unsaved edits).
+    CompilerBuffer,
+    // Use `mainFileContents` instead of the compiler buffer.
+    Override,
+    // Let the generator read the main file from disk.
+    Disk,
+};
+
 inline int runTmplgen(const clang::CompilerInstance &compiler,
                       const std::vector<std::string> &pluginArguments,
-                      bool useEnvironment = false)
+                      bool useEnvironment = false,
+                      MainFileText mainFileText = MainFileText::CompilerBuffer,
+                      llvm::StringRef mainFileContents = {})
 {
     llvm::SmallString<256> absoluteWorkingDirectory(
         compiler.getFileSystemOpts().WorkingDir);
@@ -221,9 +239,11 @@ inline int runTmplgen(const clang::CompilerInstance &compiler,
     bool hasSourceRoot = false;
     bool hasTemplateDir = false;
     bool hasOutput = false;
+    bool hasLinePathBase = false;
     for (const std::string &option : options) {
         if (!appendOption(option, workingDirectory, arguments,
-                          hasSourceRoot, hasTemplateDir, hasOutput)) {
+                          hasSourceRoot, hasTemplateDir, hasOutput,
+                          hasLinePathBase)) {
             return 2;
         }
     }
@@ -253,6 +273,14 @@ inline int runTmplgen(const clang::CompilerInstance &compiler,
     if (!hasTemplateDir) {
         arguments.emplace_back("--template-dir");
         arguments.push_back(templateDirectory);
+    }
+    // The standalone tool is conventionally run from the project root with a
+    // relative template directory, which yields root-relative #line paths.
+    // Produce the same output here instead of absolute paths, unless the
+    // project root is only a guess (template dir configured without a root).
+    if (!hasLinePathBase && (hasSourceRoot || !hasTemplateDir)) {
+        arguments.emplace_back("--line-path-base");
+        arguments.push_back(projectRoot);
     }
     if (!hasOutput) {
         arguments.emplace_back("--output");
@@ -300,13 +328,14 @@ inline int runTmplgen(const clang::CompilerInstance &compiler,
         (void)lock.waitForUnlockFor(std::chrono::seconds(30));
     }
     tmplgen_plugin_clear_unsaved_source();
-    if (compiler.hasSourceManager()) {
+    if (mainFileText != MainFileText::Disk && compiler.hasSourceManager()) {
         const clang::SourceManager &sourceManager = compiler.getSourceManager();
         clang::FileID mainFile = sourceManager.getMainFileID();
         if (mainFile.isValid()) {
             bool invalid = false;
-            llvm::StringRef contents = sourceManager.getBufferData(mainFile,
-                                                                    &invalid);
+            llvm::StringRef contents = mainFileText == MainFileText::Override
+                ? mainFileContents
+                : sourceManager.getBufferData(mainFile, &invalid);
             llvm::StringRef path = sourceManager.getFilename(
                 sourceManager.getLocForStartOfFile(mainFile));
             if (!invalid && !path.empty()) {

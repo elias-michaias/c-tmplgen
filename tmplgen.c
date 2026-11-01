@@ -189,6 +189,10 @@ static size_t g_structural_schema_count, g_structural_schema_cap;
 static char *g_source_root;
 static char *g_template_dir;
 static char *g_absolute_template_dir;
+/* When set (absolute), #line paths of template files below it are written
+ * relative to it, so output does not depend on how the template directory
+ * was spelled (e.g. relative on the command line, absolute from a plugin). */
+static char *g_line_path_base;
 static GenTemplate *g_templates;
 static size_t g_template_count, g_template_cap;
 static char *g_output_path;
@@ -4419,9 +4423,32 @@ static void collect_preamble_includes(StringSet *includes, const char *preamble)
     }
 }
 
-static void emit_line_directive(Buf *out, unsigned long line, const char *path)
+static char *line_directive_path(const char *path)
+{
+    char *absolute;
+    const char *relative;
+    char *result;
+    if (g_line_path_base == NULL || g_absolute_template_dir == NULL) {
+        return copy_string(path);
+    }
+    absolute = absolute_path(path);
+    if (!path_is_within_directory(absolute, g_absolute_template_dir) ||
+        !path_is_within_directory(absolute, g_line_path_base)) {
+        free(absolute);
+        return copy_string(path);
+    }
+    relative = absolute + strlen(g_line_path_base);
+    while (*relative == '/' || *relative == '\\') ++relative;
+    result = copy_string(relative);
+    free(absolute);
+    return result;
+}
+
+static void emit_line_directive(Buf *out, unsigned long line,
+                                const char *original_path)
 {
     size_t i;
+    char *path = line_directive_path(original_path);
     buf_puts(out, "#line ");
     buf_put_uint(out, line);
     buf_puts(out, " \"");
@@ -4430,6 +4457,7 @@ static void emit_line_directive(Buf *out, unsigned long line, const char *path)
         buf_putc(out, path[i]);
     }
     buf_puts(out, "\"\n");
+    free(path);
 }
 
 static void emit_origin_mapped_fragment(Buf *out, const char *text,
@@ -6031,6 +6059,15 @@ static char *copy_cx_string(CXString value)
     return copy;
 }
 
+/* A schema is a set of field names. Schemas are merged from every source file
+ * (and from cached facts), so additions must not duplicate existing fields:
+ * appending blindly doubled the list for each file that saw the schema. */
+static void schema_add_field(StructuralSchema *schema, const char *field)
+{
+    if (list_contains(schema->fields, schema->field_count, field)) return;
+    list_add(&schema->fields, &schema->field_count, &schema->field_cap, field);
+}
+
 static enum CXChildVisitResult collect_structural_schema_field(CXCursor cursor,
                                                                CXCursor parent,
                                                                CXClientData client_data)
@@ -6038,10 +6075,7 @@ static enum CXChildVisitResult collect_structural_schema_field(CXCursor cursor,
     StructuralSchema *schema = (StructuralSchema *)client_data;
     if (clang_getCursorKind(cursor) == CXCursor_FieldDecl) {
         char *name = copy_cx_string(clang_getCursorSpelling(cursor));
-        if (valid_identifier(name) &&
-            !list_contains(schema->fields, schema->field_count, name)) {
-            list_add(&schema->fields, &schema->field_count, &schema->field_cap, name);
-        }
+        if (valid_identifier(name)) schema_add_field(schema, name);
         free(name);
     }
     (void)parent;
@@ -6681,8 +6715,7 @@ static void source_facts_add_schema(SourceFacts *facts,
             str_eq(existing->name, schema->name)) {
             size_t field_index;
             for (field_index = 0U; field_index < schema->field_count; ++field_index) {
-                list_add(&existing->fields, &existing->field_count,
-                         &existing->field_cap, schema->fields[field_index]);
+                schema_add_field(existing, schema->fields[field_index]);
             }
             return;
         }
@@ -6704,8 +6737,7 @@ static void source_facts_add_schema(SourceFacts *facts,
     copy->name = copy_string(schema->name);
     copy->is_union = schema->is_union;
     for (i = 0U; i < schema->field_count; ++i) {
-        list_add(&copy->fields, &copy->field_count, &copy->field_cap,
-                 schema->fields[i]);
+        schema_add_field(copy, schema->fields[i]);
     }
 }
 
@@ -6761,8 +6793,7 @@ static void source_facts_apply(SourceFacts *facts)
             target->is_union = source->is_union;
         }
         for (schema_index = 0U; schema_index < source->field_count; ++schema_index) {
-            list_add(&target->fields, &target->field_count, &target->field_cap,
-                     source->fields[schema_index]);
+            schema_add_field(target, source->fields[schema_index]);
         }
     }
 }
@@ -9339,6 +9370,9 @@ static int compute_input_signature(unsigned long long *signature)
     signature_mix(&hash, working_directory, strlen(working_directory));
     signature_mix(&hash, g_output_path, strlen(g_output_path));
     signature_mix(&hash, g_generated_dir, strlen(g_generated_dir));
+    if (g_line_path_base != NULL) {
+        signature_mix(&hash, g_line_path_base, strlen(g_line_path_base));
+    }
     signature_mix(&hash, GEN_GUARD, strlen(GEN_GUARD));
     signature_mix(&hash, GEN_LSP_GUARD, strlen(GEN_LSP_GUARD));
     signature_mix(&hash, GEN_TMPL_SUFFIX, strlen(GEN_TMPL_SUFFIX));
@@ -9644,6 +9678,9 @@ static unsigned long long source_facts_key(const SourceFile *source,
     signature_mix(&hash, working_directory, strlen(working_directory));
     signature_mix(&hash, g_output_path, strlen(g_output_path));
     signature_mix(&hash, g_generated_dir, strlen(g_generated_dir));
+    if (g_line_path_base != NULL) {
+        signature_mix(&hash, g_line_path_base, strlen(g_line_path_base));
+    }
     (void)snprintf(config, sizeof(config), "%d:%d:%d:%d", pass,
                    g_dispatch_backend, g_emit_line, g_compiled_output);
     signature_mix(&hash, config, strlen(config));
@@ -10095,6 +10132,7 @@ static void usage(FILE *out)
             "  --output FILE       write the aggregate header here (modules beside it)\n"
             "  --dispatch MODE     auto, generic, gnu, or none\n"
             "  --clang-arg ARG     pass one argument to libclang (repeatable)\n"
+            "  --line-path-base DIR  write template #line paths relative to DIR\n"
             "  --emit-line         map generated definitions to template locations\n"
             "  --no-emit-line      keep generated locations in the output header\n",
             g_output_path != NULL ? g_output_path : GEN_OUTPUT,
@@ -10116,12 +10154,14 @@ static void reset_invocation_state(void)
     free(g_absolute_template_dir);
     free(g_output_path);
     free(g_generated_dir);
+    free(g_line_path_base);
     free(g_executable_path);
     g_source_root = NULL;
     g_template_dir = NULL;
     g_absolute_template_dir = NULL;
     g_output_path = NULL;
     g_generated_dir = NULL;
+    g_line_path_base = NULL;
     g_executable_path = NULL;
     for (i = 0U; i < g_clang_arg_count; ++i) free(g_clang_args[i]);
     free(g_clang_args);
@@ -10135,38 +10175,68 @@ static void reset_invocation_state(void)
     g_compiled_output = 0;
 }
 
-#if defined(CLANGPLUGIN)
-static int ensure_plugin_placeholder(const char *path)
+/* Sources are parsed with the generated headers replaced by an in-memory
+ * bootstrap, but libclang only applies such an override to a file that exists:
+ * `#include "../gen/all.gen.h"` is resolved on disk first. Without the files,
+ * a first run sees no generated API at all, emits incomplete output, and the
+ * unchanged-input cache then keeps returning it. Create empty placeholders for
+ * missing outputs before parsing; `created` records the ones made here. */
+static int ensure_bootstrap_placeholder(const char *path, StringSet *created)
 {
-    FILE *file = fopen(path, "ab");
+    FILE *file = fopen(path, "rb");
+    if (file != NULL) {
+        (void)fclose(file);
+        return 1;
+    }
+    if (!ensure_parent_directories(path)) return 0;
+    file = fopen(path, "ab");
     if (file == NULL) {
-        report_error(path, 0U, "cannot create plugin bootstrap file: %s",
+        report_error(path, 0U, "cannot create bootstrap placeholder: %s",
                      strerror(errno));
         return 0;
     }
     if (fclose(file) != 0) {
-        report_error(path, 0U, "cannot close plugin bootstrap file: %s",
+        report_error(path, 0U, "cannot close bootstrap placeholder: %s",
                      strerror(errno));
         return 0;
     }
+    string_set_add(created, path);
     return 1;
 }
 
-static int ensure_plugin_bootstrap_files(void)
+static int ensure_bootstrap_placeholders(StringSet *created)
 {
     size_t i;
-    if (!discover_template_files() || !ensure_plugin_placeholder(g_output_path)) {
+    if (!discover_template_files() ||
+        !ensure_bootstrap_placeholder(g_output_path, created)) {
         return 0;
     }
     for (i = 0U; i < g_template_count; ++i) {
         char *path = generated_module_path(g_templates[i].stem);
-        int okay = ensure_plugin_placeholder(path);
+        int okay = ensure_bootstrap_placeholder(path, created);
         free(path);
         if (!okay) return 0;
     }
     return 1;
 }
-#endif
+
+/* After a failed run, drop placeholders that are still empty so a broken
+ * generation does not leave misleading empty headers behind. The editor
+ * plugins keep them: an empty header beats a missing one for a live parse. */
+static void remove_unused_placeholders(const StringSet *created)
+{
+    size_t i;
+    if (TMPLGEN_PLUGIN_BUILD) return;
+    for (i = 0U; i < created->count; ++i) {
+        FILE *file = fopen(created->items[i], "rb");
+        int empty = 0;
+        if (file != NULL) {
+            empty = fgetc(file) == EOF;
+            (void)fclose(file);
+        }
+        if (empty) (void)remove(created->items[i]);
+    }
+}
 
 static void add_clang_argument(const char *argument)
 {
@@ -10204,19 +10274,29 @@ static int run_once(int check_only)
     int signature_ready = 0;
     size_t i;
     int status = 0;
+    StringSet placeholders;
     memset(&files, 0, sizeof(files));
+    memset(&placeholders, 0, sizeof(placeholders));
+    if (!check_only && !ensure_bootstrap_placeholders(&placeholders)) {
+        remove_unused_placeholders(&placeholders);
+        string_set_free(&placeholders);
+        return 1;
+    }
     if (g_cache_enabled) {
         g_error_count = 0U;
         if (discover_template_files() && compute_input_signature(&signature) &&
             g_cache_enabled) {
             signature_ready = 1;
             if (cache_try_hit(signature, check_only)) {
+                string_set_free(&placeholders);
                 return 0;
             }
         }
     }
     if (!generate(&files)) {
         generated_file_list_free(&files);
+        remove_unused_placeholders(&placeholders);
+        string_set_free(&placeholders);
         return 1;
     }
     for (i = 0U; i < files.count; ++i) {
@@ -10249,6 +10329,8 @@ static int run_once(int check_only)
         }
     }
     generated_file_list_free(&files);
+    if (status != 0) remove_unused_placeholders(&placeholders);
+    string_set_free(&placeholders);
     return status;
 }
 
@@ -10284,6 +10366,7 @@ static int tmplgen_main(int argc, char **argv)
                    str_eq(argv[i], "--template-dir") ||
                    str_eq(argv[i], "--output") ||
                    str_eq(argv[i], "--dispatch") ||
+                   str_eq(argv[i], "--line-path-base") ||
                    str_eq(argv[i], "--clang-arg")) {
             const char *option = argv[i];
             const char *value;
@@ -10296,6 +10379,7 @@ static int tmplgen_main(int argc, char **argv)
             else if (str_eq(option, "--template-dir")) replace_option_string(&g_template_dir, value);
             else if (str_eq(option, "--output")) replace_option_string(&g_output_path, value);
             else if (str_eq(option, "--clang-arg")) add_clang_argument(value);
+            else if (str_eq(option, "--line-path-base")) replace_option_string(&g_line_path_base, value);
             else {
                 int backend = parse_dispatch_backend(value);
                 if (backend < 0) {
@@ -10335,9 +10419,11 @@ static int tmplgen_main(int argc, char **argv)
         g_source_root = absolute_root;
     }
     g_absolute_template_dir = absolute_path(g_template_dir);
-#if defined(CLANGPLUGIN)
-    if (!check_only && !ensure_plugin_bootstrap_files()) return 1;
-#endif
+    if (g_line_path_base != NULL) {
+        char *absolute_base = absolute_path(g_line_path_base);
+        free(g_line_path_base);
+        g_line_path_base = absolute_base;
+    }
     if (watch) {
         g_cache_enabled = 0;
 #if GEN_ENABLE_WATCH
