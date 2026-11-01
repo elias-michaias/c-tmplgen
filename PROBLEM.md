@@ -127,9 +127,9 @@ type declared in a `.c` file, or a header that includes the generated header.
   as soon as any file adds a new argument type, in every other open file that
   includes the generated header.
 - **Reflection** (`REFLECTION.md`) has the same root problem at a larger scale.
-  Its table would name *every* project type. There it's addressed by moving
-  the tables into a `.gen.c` and making dispatch use tag pointers. That split
-  isn't directly available to templates, whose bodies are header-only.
+  Its table would name *every* project type. *(Since revised: the tables now
+  hold libclang layout numbers that name no type, and the same guarded
+  sections verify them and extend `typeid_of`; see REFLECTION.md §3, §6.1.)*
 
 ## Possible directions (not decided)
 
