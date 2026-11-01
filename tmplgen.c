@@ -635,6 +635,7 @@ static int has_type_variable_mismatch(const char *path, size_t line,
     return 0;
 }
 
+
 static int generic_use_matches(const char *name, const char *type_name,
                                int dispatch_only)
 {
@@ -5414,6 +5415,8 @@ static void emit_dispatch(Buf *out, const TemplateInfo *ti)
                                 &ti->functions[i], &assocs);
         } else if (function_has_type_variable_mismatch(
                        ti->functions[i].name)) {
+            emit_line_directive(out,
+                (unsigned long)ti->functions[i].start_line, ti->path);
             emit_mismatch_only_macro(out, &ti->functions[i]);
         }
         assoc_list_free(&assocs);
@@ -5439,11 +5442,13 @@ static void emit_type_variable_mismatch_assertions(Buf *out)
         buf_puts(&message, mismatch->second_type);
         buf_putc(&message, ')');
         buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
-        emit_line_directive(out, (unsigned long)mismatch->line, mismatch->path);
+        emit_line_directive(out, (unsigned long)mismatch->line,
+                            mismatch->path);
         buf_puts(out, "_Static_assert(0, \"");
         emit_escaped_c_string(out, message.p != NULL ? message.p : "");
         buf_puts(out, "\");\n#elif defined(__GNUC__) || defined(__clang__)\n");
-        emit_line_directive(out, (unsigned long)mismatch->line, mismatch->path);
+        emit_line_directive(out, (unsigned long)mismatch->line,
+                            mismatch->path);
         buf_puts(out, "__extension__ _Static_assert(0, \"");
         emit_escaped_c_string(out, message.p != NULL ? message.p : "");
         buf_puts(out, "\");\n#else\n#error \"tmplgen type-variable mismatch requires C11 or GNU C\"\n#endif\n");
@@ -10185,7 +10190,9 @@ static int run_once(int check_only)
         if (discover_template_files() && compute_input_signature(&signature) &&
             g_cache_enabled) {
             signature_ready = 1;
-            if (cache_try_hit(signature, check_only)) return 0;
+            if (cache_try_hit(signature, check_only)) {
+                return 0;
+            }
         }
     }
     if (!generate(&files)) {

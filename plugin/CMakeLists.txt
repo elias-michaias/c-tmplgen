@@ -59,7 +59,8 @@ if(BUILD_CLANGD_PLUGIN)
     target_include_directories(tmplgen-clangd-plugin SYSTEM PRIVATE
         ${LLVM_INCLUDE_DIRS}
         ${CLANG_INCLUDE_DIRS}
-        "${CLANGD_SOURCE_DIR}")
+        "${CLANGD_SOURCE_DIR}"
+        "${CLANGD_SOURCE_DIR}/../include-cleaner/include")
     target_compile_definitions(tmplgen-clangd-plugin PRIVATE CLANGDPLUGIN)
     if(NOT LLVM_ENABLE_RTTI)
         target_compile_options(tmplgen-clangd-plugin PRIVATE -fno-rtti)
