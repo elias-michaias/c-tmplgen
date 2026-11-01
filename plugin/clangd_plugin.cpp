@@ -2,10 +2,16 @@
 
 #include "FeatureModule.h"
 #include "LSPBinder.h"
+#include "SourceCode.h"
 #include "XRefs.h"
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/Decl.h"
 #include "clang/Basic/Diagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include "clang/Lex/Lexer.h"
+#include "clang/Lex/MacroInfo.h"
+#include "clang/Lex/Preprocessor.h"
 #include "Diagnostics.h"
 #include "TUScheduler.h"
 #include "llvm/ADT/SmallVector.h"
@@ -40,6 +46,318 @@ std::optional<std::string> decodeLineDirectivePath(llvm::StringRef Directive)
         Path.push_back(C);
     }
     return std::nullopt;
+}
+
+bool isIdentifierChar(char C)
+{
+    return std::isalnum(static_cast<unsigned char>(C)) || C == '_';
+}
+
+std::optional<size_t> identifierPosition(llvm::StringRef Text,
+                                         llvm::StringRef Name)
+{
+    size_t Position = 0U;
+    while ((Position = Text.find(Name, Position)) != llvm::StringRef::npos) {
+        size_t End = Position + Name.size();
+        if ((Position == 0U || !isIdentifierChar(Text[Position - 1U])) &&
+            (End == Text.size() || !isIdentifierChar(Text[End]))) {
+            return Position;
+        }
+        Position = End;
+    }
+    return std::nullopt;
+}
+
+int braceDepthAt(llvm::StringRef Text, size_t Position)
+{
+    int Depth = 0;
+    for (size_t I = 0U; I < Position; ++I) {
+        if (Text[I] == '{') ++Depth;
+        else if (Text[I] == '}' && Depth > 0) --Depth;
+    }
+    return Depth;
+}
+
+bool namesTypeDeclaration(llvm::StringRef Code, llvm::StringRef Name,
+                          size_t &Column)
+{
+    std::optional<size_t> Position = identifierPosition(Code, Name);
+    if (!Position || braceDepthAt(Code, *Position) != 0) return false;
+    size_t End = *Position + Name.size();
+    bool HasSemicolon = Code.find(';', End) != llvm::StringRef::npos;
+    bool HasClosingBrace = Code.rfind('}', *Position) != llvm::StringRef::npos;
+    bool HasTagKeyword = false;
+    for (llvm::StringRef Keyword : {"struct", "union"}) {
+        size_t Found = Code.take_front(*Position).rfind(Keyword);
+        if (Found == llvm::StringRef::npos) continue;
+        size_t KeywordEnd = Found + Keyword.size();
+        if (KeywordEnd <= *Position &&
+            Code.slice(KeywordEnd, *Position).trim().empty()) {
+            HasTagKeyword = true;
+            break;
+        }
+    }
+    if (!HasSemicolon && !HasClosingBrace && !HasTagKeyword) return false;
+    Column = *Position;
+    return true;
+}
+
+std::optional<Location> fallbackTemplateTypeLocation(
+    const LocatedSymbol &Symbol, const Location &Definition,
+    llvm::StringRef MainPath)
+{
+    llvm::StringRef Path = Definition.uri.file();
+    if (!Path.ends_with(".tmpl.h") && !Path.ends_with(".tmpl.c")) {
+        return std::nullopt;
+    }
+    auto Buffer = llvm::MemoryBuffer::getFile(Path);
+    if (!Buffer) return std::nullopt;
+    llvm::SmallVector<llvm::StringRef, 256> Lines;
+    (*Buffer)->getBuffer().split(Lines, '\n');
+    size_t TargetLine = Definition.range.start.line;
+    if (TargetLine >= Lines.size()) return std::nullopt;
+
+    llvm::StringRef MacroLine = Lines[TargetLine].trim();
+    if (!MacroLine.consume_front("#define")) return std::nullopt;
+    MacroLine = MacroLine.ltrim();
+    llvm::StringRef MacroName = MacroLine.take_while(isIdentifierChar);
+    if (MacroName != Symbol.Name) return std::nullopt;
+
+    bool PendingTemplate = false;
+    bool InTypeDeclaration = false;
+    int Depth = 0;
+    for (size_t I = TargetLine + 1U; I < Lines.size(); ++I) {
+        llvm::StringRef Trimmed = Lines[I].trim();
+        if (Trimmed.starts_with("// @template")) {
+            PendingTemplate = true;
+            InTypeDeclaration = false;
+            Depth = 0;
+            continue;
+        }
+        if (!PendingTemplate || Trimmed.empty() ||
+            Trimmed.starts_with("//") || Trimmed.starts_with("#")) {
+            continue;
+        }
+        llvm::StringRef Code = Trimmed;
+        size_t Comment = Code.find("//");
+        if (Comment != llvm::StringRef::npos) Code = Code.take_front(Comment);
+        if (!InTypeDeclaration) {
+            if (!Code.starts_with("typedef") && !Code.starts_with("struct") &&
+                !Code.starts_with("union")) {
+                PendingTemplate = false;
+                continue;
+            }
+            InTypeDeclaration = true;
+            Depth = 0;
+        }
+        size_t Column = 0U;
+        if (namesTypeDeclaration(Code, Symbol.Name, Column)) {
+            return Location{
+                URIForFile::canonicalize(Path, MainPath),
+                Range{{static_cast<int>(I), static_cast<int>(Column)},
+                      {static_cast<int>(I),
+                       static_cast<int>(Column + Symbol.Name.size())}}};
+        }
+        for (char C : Code) {
+            if (C == '{') ++Depth;
+            else if (C == '}' && Depth > 0) --Depth;
+        }
+        if (Depth == 0 && Code.contains(';')) {
+            PendingTemplate = false;
+            InTypeDeclaration = false;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<std::pair<llvm::StringRef, size_t>> constraintWordAt(
+    llvm::StringRef Line, size_t Cursor)
+{
+    size_t Comment = Line.find("//");
+    if (Comment == llvm::StringRef::npos) return std::nullopt;
+    llvm::StringRef Annotation = Line.drop_front(Comment + 2U);
+    if (!Annotation.contains("@template") && !Annotation.contains("@where")) {
+        return std::nullopt;
+    }
+
+    struct Operator {
+        size_t Start;
+        size_t End;
+    };
+    llvm::SmallVector<Operator, 4> Operators;
+    for (size_t I = Comment + 2U; I + 1U < Line.size(); ++I) {
+        llvm::StringRef Candidate = Line.substr(I, 2U);
+        if (Candidate == "<:" || Candidate == "|=") {
+            Operators.push_back({I, I + 2U});
+            ++I;
+        }
+    }
+
+    const Operator *Current = nullptr;
+    for (const Operator &Candidate : Operators) {
+        if (Candidate.Start <= Cursor) Current = &Candidate;
+    }
+    if (Current == nullptr) return std::nullopt;
+
+    size_t ExpressionEnd = Line.size();
+    int Depth = 0;
+    for (size_t I = Current->End; I < Line.size(); ++I) {
+        char Character = Line[I];
+        if (Character == '(' || Character == '[' || Character == '{') {
+            ++Depth;
+        } else if (Character == ')' || Character == ']' || Character == '}') {
+            if (Depth > 0) --Depth;
+        } else if (Character == ',' && Depth == 0) {
+            ExpressionEnd = I;
+            break;
+        }
+    }
+    if (Cursor > ExpressionEnd) return std::nullopt;
+
+    size_t TokenStart = Cursor;
+    while (TokenStart > 0U && isIdentifierChar(Line[TokenStart - 1U])) {
+        --TokenStart;
+    }
+    size_t TokenEnd = Cursor;
+    while (TokenEnd < Line.size() && isIdentifierChar(Line[TokenEnd])) {
+        ++TokenEnd;
+    }
+    bool OnOperator = Cursor >= Current->Start && Cursor <= Current->End;
+    if (!OnOperator && TokenStart < TokenEnd &&
+        TokenStart >= Current->End && TokenStart < ExpressionEnd) {
+        return std::pair<llvm::StringRef, size_t>{
+            Line.slice(TokenStart, TokenEnd), TokenStart};
+    }
+
+    size_t Search = std::max(Cursor, Current->End);
+    while (Search < ExpressionEnd && !isIdentifierChar(Line[Search])) ++Search;
+    if (Search == ExpressionEnd) return std::nullopt;
+    size_t Start = Search;
+    while (Start < ExpressionEnd && isIdentifierChar(Line[Start])) ++Start;
+    return std::pair<llvm::StringRef, size_t>{
+        Line.slice(Search, Start), Search};
+}
+
+std::optional<Location> sourceLocationToDefinition(
+    const SourceManager &SourceMgr, const LangOptions &LangOpts,
+    SourceLocation Loc, llvm::StringRef MainPath)
+{
+    if (Loc.isInvalid()) return std::nullopt;
+    Loc = SourceMgr.getSpellingLoc(Loc);
+    if (Loc.isInvalid()) return std::nullopt;
+    FileID FID = SourceMgr.getFileID(Loc);
+    if (FID.isInvalid()) return std::nullopt;
+    auto File = SourceMgr.getFileEntryRefForID(FID);
+    if (!File) return std::nullopt;
+    std::optional<std::string> Path =
+        getCanonicalPath(*File, SourceMgr.getFileManager());
+    if (!Path) return std::nullopt;
+    unsigned Length = Lexer::MeasureTokenLength(Loc, SourceMgr, LangOpts);
+    if (Length == 0U) return std::nullopt;
+    return Location{
+        URIForFile::canonicalize(*Path, MainPath),
+        halfOpenToRange(
+            SourceMgr,
+            CharSourceRange::getCharRange(
+                Loc, Loc.getLocWithOffset(Length)))};
+}
+
+std::optional<Location> macroDefinitionLocation(
+    ParsedAST &AST, llvm::StringRef Name, SourceLocation UseLoc,
+    llvm::StringRef MainPath)
+{
+    Preprocessor &PP = AST.getPreprocessor();
+    IdentifierInfo *Identifier = PP.getIdentifierInfo(Name);
+    if (Identifier == nullptr || !Identifier->hadMacroDefinition()) {
+        return std::nullopt;
+    }
+
+    MacroDefinition Definition;
+    if (UseLoc.isValid()) {
+        Definition = PP.getMacroDefinitionAtLoc(Identifier, UseLoc);
+    }
+    const MacroInfo *Info = Definition.getMacroInfo();
+    if (Info == nullptr) {
+        Definition = PP.getMacroDefinition(Identifier);
+        Info = Definition.getMacroInfo();
+    }
+    if (Info == nullptr) return std::nullopt;
+    return sourceLocationToDefinition(
+        AST.getSourceManager(), AST.getLangOpts(),
+        Info->getDefinitionLoc(), MainPath);
+}
+
+const NamedDecl *findTypeDeclaration(const DeclContext &Context,
+                                     llvm::StringRef Name)
+{
+    const NamedDecl *Fallback = nullptr;
+    for (const Decl *Declaration : Context.decls()) {
+        const auto *Named = dyn_cast<NamedDecl>(Declaration);
+        if (Named == nullptr || Named->getIdentifier() == nullptr ||
+            Named->getName() != Name ||
+            (!isa<TagDecl>(Named) && !isa<TypedefNameDecl>(Named))) {
+            continue;
+        }
+        if (const auto *Tag = dyn_cast<TagDecl>(Named);
+            Tag != nullptr && Tag->isThisDeclarationADefinition()) {
+            return Named;
+        }
+        if (Fallback == nullptr) Fallback = Named;
+    }
+    for (const Decl *Declaration : Context.decls()) {
+        const auto *Inner = dyn_cast<DeclContext>(Declaration);
+        if (Inner == nullptr) continue;
+        if (const NamedDecl *Found = findTypeDeclaration(*Inner, Name)) {
+            return Found;
+        }
+    }
+    return Fallback;
+}
+
+std::vector<Location> constraintDefinitionLocations(
+    ParsedAST &AST, const TextDocumentPositionParams &Params,
+    llvm::StringRef MainPath)
+{
+    const SourceManager &SourceMgr = AST.getSourceManager();
+    FileID MainFile = SourceMgr.getMainFileID();
+    if (MainFile.isInvalid()) return {};
+    llvm::StringRef Code =
+        SourceMgr.getBufferOrFake(MainFile).getBuffer();
+    llvm::Expected<size_t> Offset =
+        positionToOffset(Code, Params.position, false);
+    if (!Offset) {
+        llvm::consumeError(Offset.takeError());
+        return {};
+    }
+
+    size_t Cursor = *Offset;
+    size_t LineStart = 0U;
+    if (Cursor > 0U) {
+        size_t Newline = Code.rfind('\n', Cursor - 1U);
+        if (Newline != llvm::StringRef::npos) LineStart = Newline + 1U;
+    }
+    size_t LineEnd = Code.find('\n', Cursor);
+    if (LineEnd == llvm::StringRef::npos) LineEnd = Code.size();
+    llvm::StringRef Line = Code.slice(LineStart, LineEnd);
+    std::optional<std::pair<llvm::StringRef, size_t>> Word =
+        constraintWordAt(Line, Cursor - LineStart);
+    if (!Word) return {};
+
+    SourceLocation UseLoc = SourceMgr
+        .getLocForStartOfFile(MainFile)
+        .getLocWithOffset(LineStart + Word->second);
+    if (std::optional<Location> Macro = macroDefinitionLocation(
+            AST, Word->first, UseLoc, MainPath)) {
+        return {std::move(*Macro)};
+    }
+    const NamedDecl *Type = findTypeDeclaration(
+        *AST.getASTContext().getTranslationUnitDecl(), Word->first);
+    if (Type == nullptr) return {};
+    if (std::optional<Location> Declaration = sourceLocationToDefinition(
+            SourceMgr, AST.getLangOpts(), Type->getLocation(), MainPath)) {
+        return {std::move(*Declaration)};
+    }
+    return {};
 }
 
 std::optional<Location> templateFunctionLocation(
@@ -192,6 +510,12 @@ private:
             [this, Params, Reply = std::move(Reply)](
                 llvm::Expected<InputsAndAST> In) mutable {
                 if (!In) return Reply(In.takeError());
+                std::vector<Location> ConstraintDefinitions =
+                    constraintDefinitionLocations(
+                        In->AST, Params, Params.textDocument.uri.file());
+                if (!ConstraintDefinitions.empty()) {
+                    return Reply(std::move(ConstraintDefinitions));
+                }
                 std::vector<LocatedSymbol> Symbols =
                     locateSymbolAt(In->AST, Params.position, index());
                 std::vector<Location> Definitions;
@@ -207,6 +531,11 @@ private:
                                 Symbol, Definition,
                                 Params.textDocument.uri.file())) {
                         Definition = std::move(*Template);
+                    } else if (std::optional<Location> Type =
+                                   fallbackTemplateTypeLocation(
+                                       Symbol, Definition,
+                                       Params.textDocument.uri.file())) {
+                        Definition = std::move(*Type);
                     }
                     Definitions.push_back(std::move(Definition));
                 }

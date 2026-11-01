@@ -38,6 +38,7 @@ static inline void push_int(Vec_int * v, int x) {
   v->data[v->len++] = x;
 }
 #ifndef TMPLGEN_AGGREGATING
+#line 13 "test/tmpl/vec.tmpl.h"
 #undef Vec
 #define Vec(type0) Vec_##type0
 

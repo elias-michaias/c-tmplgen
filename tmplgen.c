@@ -5937,6 +5937,24 @@ static char *generated_module_guard(const char *stem)
     return guard.p;
 }
 
+static unsigned template_type_name_line(const TemplateInfo *ti,
+                                        const TemplateType *constructor)
+{
+    char *fragment;
+    size_t relative_line;
+    unsigned name_line;
+    if (ti->body.p == NULL || constructor->end_offset <= constructor->start_offset) {
+        return constructor->start_line;
+    }
+    fragment = copy_range(ti->body.p + constructor->start_offset,
+                          (size_t)(constructor->end_offset - constructor->start_offset));
+    relative_line = identifier_line_in_code(fragment, constructor->name);
+    free(fragment);
+    if (relative_line == 0U) return constructor->start_line;
+    name_line = constructor->start_line + (unsigned)relative_line - 1U;
+    return name_line;
+}
+
 static void emit_type_functors(Buf *out, const TemplateInfo *ti)
 {
     StringSet emitted;
@@ -5949,6 +5967,8 @@ static void emit_type_functors(Buf *out, const TemplateInfo *ti)
         if (constructor->parameter_count == 0U) continue;
         if (!string_set_has(&emitted, name)) {
             string_set_add(&emitted, name);
+            emit_line_directive(out, (unsigned long)template_type_name_line(
+                                          ti, constructor), ti->path);
             buf_puts(out, "#undef ");
             buf_puts(out, name);
             buf_putc(out, '\n');

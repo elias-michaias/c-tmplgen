@@ -59,6 +59,7 @@ static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCod
 /* ---- triple: triple_first_Tag_InferredError_InferredLong ---- */
 static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong *value) { return value->first; }
 #ifndef TMPLGEN_AGGREGATING
+#line 13 "test/tmpl/triple.tmpl.h"
 #undef Triple
 #define Triple(type0, type1, type2) Triple_##type0##_##type1##_##type2
 

@@ -459247,20 +459247,28 @@ static inline Result_Dog_int result_make_Dog_int(ResultTag tag, Dog value, int e
     return result;
 }
 #ifndef TMPLGEN_AGGREGATING
+#line 37 "test/tmpl/result.tmpl.h"
 #undef ResultPayload
 #define ResultPayload(type0, type1) ResultPayload_##type0##_##type1
+#line 43 "test/tmpl/result.tmpl.h"
 #undef Result
 #define Result(type0, type1) Result_##type0##_##type1
+#line 53 "test/tmpl/result.tmpl.h"
 #undef OptionPayload
 #define OptionPayload(type0) OptionPayload_##type0
+#line 59 "test/tmpl/result.tmpl.h"
 #undef Option
 #define Option(type0) Option_##type0
+#line 62 "test/tmpl/result.tmpl.h"
 #undef TaggedBox
 #define TaggedBox(type0) struct TaggedBox_##type0
+#line 67 "test/tmpl/result.tmpl.h"
 #undef TaggedChoice
 #define TaggedChoice(type0) union TaggedChoice_##type0
+#line 74 "test/tmpl/result.tmpl.h"
 #undef Box
 #define Box(type0) Box_##type0
+#line 80 "test/tmpl/result.tmpl.h"
 #undef Pair
 #define Pair(type0, type1) Pair_##type0##_##type1
 
