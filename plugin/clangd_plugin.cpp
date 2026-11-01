@@ -2,6 +2,7 @@
 
 #include "FeatureModule.h"
 #include "LSPBinder.h"
+#include "SemanticHighlighting.h"
 #include "SourceCode.h"
 #include "XRefs.h"
 #include "clang/AST/ASTContext.h"
@@ -15,13 +16,18 @@
 #include "Diagnostics.h"
 #include "TUScheduler.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/MemoryBuffer.h"
 
+#include <algorithm>
 #include <cctype>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <tuple>
+#include <unordered_map>
 #include <vector>
 
 namespace clang::clangd {
@@ -446,6 +452,368 @@ bool isToggleTarget(const TextDocumentPositionParams &Params,
     return false;
 }
 
+struct SemanticHighlight {
+    Range R;
+    unsigned TokenType;
+    uint32_t Modifiers = 0;
+
+    bool operator<(const SemanticHighlight &Other) const
+    {
+        return std::make_tuple(R.start.line, R.start.character, R.end.line,
+                               R.end.character, TokenType, Modifiers) <
+               std::make_tuple(Other.R.start.line, Other.R.start.character,
+                               Other.R.end.line, Other.R.end.character,
+                               Other.TokenType, Other.Modifiers);
+    }
+};
+
+unsigned ensureKeywordTokenType(llvm::json::Object &ServerCaps)
+{
+    unsigned Fallback =
+        static_cast<unsigned>(HighlightingKind::LastKind) + 1U;
+    llvm::json::Object *Provider =
+        ServerCaps.getObject("semanticTokensProvider");
+    if (Provider == nullptr) return Fallback;
+    llvm::json::Object *Legend = Provider->getObject("legend");
+    if (Legend == nullptr) return Fallback;
+    llvm::json::Array *Types = Legend->getArray("tokenTypes");
+    if (Types == nullptr) return Fallback;
+    for (size_t I = 0U; I < Types->size(); ++I) {
+        std::optional<llvm::StringRef> Name = (*Types)[I].getAsString();
+        if (Name && *Name == "keyword") return static_cast<unsigned>(I);
+    }
+    Types->push_back("keyword");
+    return static_cast<unsigned>(Types->size() - 1U);
+}
+
+void addAnnotationToken(std::vector<SemanticHighlight> &Tokens,
+                        size_t LineNumber, llvm::StringRef Line,
+                        size_t Start, size_t End, unsigned TokenType)
+{
+    if (Start >= Line.size() || End <= Start) return;
+    End = std::min(End, Line.size());
+    unsigned StartColumn = lspLength(Line.take_front(Start));
+    unsigned EndColumn = StartColumn + lspLength(Line.slice(Start, End));
+    Tokens.push_back(SemanticHighlight{
+        Range{{static_cast<int>(LineNumber), static_cast<int>(StartColumn)},
+              {static_cast<int>(LineNumber), static_cast<int>(EndColumn)}},
+        TokenType, 0U});
+}
+
+bool isBuiltinTypeName(llvm::StringRef Name)
+{
+    for (llvm::StringRef Builtin : {
+             "void", "_Bool", "bool", "char", "signed", "unsigned", "short",
+             "int", "long", "float", "double", "_Complex", "_Imaginary",
+             "__int128", "size_t", "ptrdiff_t", "nullptr_t"}) {
+        if (Name == Builtin) return true;
+    }
+    return false;
+}
+
+bool isConstraintKeyword(llvm::StringRef Name)
+{
+    for (llvm::StringRef Keyword : {
+             "sizeof", "_Alignof", "alignof", "typeof", "__typeof",
+             "__typeof__", "const", "volatile", "restrict", "_Generic"}) {
+        if (Name == Keyword) return true;
+    }
+    return false;
+}
+
+bool looksLikeMacroName(llvm::StringRef Name)
+{
+    if (Name.size() < 2U) return false;
+    bool HasLetter = false;
+    for (char Character : Name) {
+        if (std::isalpha(static_cast<unsigned char>(Character))) {
+            if (std::islower(static_cast<unsigned char>(Character))) return false;
+            HasLetter = true;
+        } else if (Character != '_' &&
+                   !std::isdigit(static_cast<unsigned char>(Character))) {
+            return false;
+        }
+    }
+    return HasLetter;
+}
+
+unsigned classifyAnnotationIdentifier(ParsedAST &AST, llvm::StringRef Name,
+                                      unsigned KeywordTokenType)
+{
+    unsigned TypeToken = static_cast<unsigned>(HighlightingKind::Type);
+    unsigned MacroToken = static_cast<unsigned>(HighlightingKind::Macro);
+    unsigned ParameterToken =
+        static_cast<unsigned>(HighlightingKind::TemplateParameter);
+    if (isBuiltinTypeName(Name)) return TypeToken;
+    if (isConstraintKeyword(Name)) return KeywordTokenType;
+    Preprocessor &PP = AST.getPreprocessor();
+    IdentifierInfo *Identifier = PP.getIdentifierInfo(Name);
+    if (Identifier != nullptr && Identifier->hadMacroDefinition()) {
+        return MacroToken;
+    }
+    if (Name.size() == 1U &&
+        std::isupper(static_cast<unsigned char>(Name[0]))) {
+        return ParameterToken;
+    }
+    if (findTypeDeclaration(*AST.getASTContext().getTranslationUnitDecl(),
+                            Name) != nullptr) {
+        return TypeToken;
+    }
+    if (looksLikeMacroName(Name)) return MacroToken;
+    return TypeToken;
+}
+
+void addParameterTokens(std::vector<SemanticHighlight> &Tokens,
+                        size_t LineNumber, llvm::StringRef Line,
+                        size_t Begin, size_t End)
+{
+    unsigned ParameterToken =
+        static_cast<unsigned>(HighlightingKind::TemplateParameter);
+    End = std::min(End, Line.size());
+    for (size_t I = Begin; I < End;) {
+        if (!isIdentifierChar(Line[I])) {
+            ++I;
+            continue;
+        }
+        size_t Start = I++;
+        while (I < End && isIdentifierChar(Line[I])) ++I;
+        addAnnotationToken(Tokens, LineNumber, Line, Start, I,
+                           ParameterToken);
+    }
+}
+
+void addExpressionTokens(std::vector<SemanticHighlight> &Tokens,
+                         ParsedAST &AST, size_t LineNumber,
+                         llvm::StringRef Line, size_t Begin, size_t End,
+                         unsigned KeywordTokenType)
+{
+    static const llvm::StringRef Operators[] = {
+        "->", "++", "--", "<<", ">>", "<=", ">=", "==", "!=", "&&",
+        "||", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "+",
+        "-",  "*",  "/",  "%",  "<",  ">",  "=",  "!",  "&",  "|",
+        "^",  "~",  "?"};
+    unsigned OperatorToken =
+        static_cast<unsigned>(HighlightingKind::Operator);
+    End = std::min(End, Line.size());
+    for (size_t I = Begin; I < End;) {
+        if (isIdentifierChar(Line[I])) {
+            size_t Start = I++;
+            while (I < End && isIdentifierChar(Line[I])) ++I;
+            addAnnotationToken(
+                Tokens, LineNumber, Line, Start, I,
+                classifyAnnotationIdentifier(
+                    AST, Line.slice(Start, I), KeywordTokenType));
+            continue;
+        }
+        bool MatchedOperator = false;
+        for (llvm::StringRef Operator : Operators) {
+            if (I + Operator.size() > End) continue;
+            if (Line.substr(I, Operator.size()) != Operator) continue;
+            addAnnotationToken(Tokens, LineNumber, Line, I,
+                               I + Operator.size(), OperatorToken);
+            I += Operator.size();
+            MatchedOperator = true;
+            break;
+        }
+        if (!MatchedOperator) ++I;
+    }
+}
+
+struct ConstraintOperator {
+    size_t Start;
+    size_t End;
+};
+
+std::optional<ConstraintOperator> findConstraintOperator(
+    llvm::StringRef Line, size_t Begin)
+{
+    for (size_t I = Begin; I + 1U < Line.size(); ++I) {
+        llvm::StringRef Candidate = Line.substr(I, 2U);
+        if (Candidate == "<:" || Candidate == "|=") {
+            return ConstraintOperator{I, I + 2U};
+        }
+    }
+    return std::nullopt;
+}
+
+size_t expressionEnd(llvm::StringRef Line, size_t Begin)
+{
+    int Depth = 0;
+    for (size_t I = Begin; I < Line.size(); ++I) {
+        char Character = Line[I];
+        if (Character == '(' || Character == '[' || Character == '{') {
+            ++Depth;
+        } else if (Character == ')' || Character == ']' || Character == '}') {
+            if (Depth > 0) --Depth;
+        } else if (Character == ',' && Depth == 0) {
+            return I;
+        }
+    }
+    return Line.size();
+}
+
+void highlightAnnotationLine(std::vector<SemanticHighlight> &Tokens,
+                             ParsedAST &AST, size_t LineNumber,
+                             llvm::StringRef Line,
+                             unsigned KeywordTokenType)
+{
+    size_t Comment = Line.find("//");
+    if (Comment == llvm::StringRef::npos) return;
+    llvm::StringRef CommentText = Line.drop_front(Comment + 2U);
+    size_t At = CommentText.find('@');
+    if (At == llvm::StringRef::npos) return;
+    llvm::StringRef Directive = CommentText.drop_front(At);
+    size_t DirectiveStart = Comment + 2U + At;
+
+    llvm::StringRef Template = "@template";
+    if (Directive.starts_with(Template) &&
+        (Directive.size() == Template.size() ||
+         !isIdentifierChar(Directive[Template.size()]))) {
+        addAnnotationToken(Tokens, LineNumber, Line, DirectiveStart,
+                           DirectiveStart + Template.size(),
+                           KeywordTokenType);
+        size_t Position = DirectiveStart + Template.size();
+        while (Position < Line.size()) {
+            std::optional<ConstraintOperator> Operator =
+                findConstraintOperator(Line, Position);
+            if (!Operator) {
+                addParameterTokens(Tokens, LineNumber, Line, Position,
+                                   Line.size());
+                break;
+            }
+            addParameterTokens(Tokens, LineNumber, Line, Position,
+                               Operator->Start);
+            addAnnotationToken(
+                Tokens, LineNumber, Line, Operator->Start, Operator->End,
+                static_cast<unsigned>(HighlightingKind::Operator));
+            size_t End = expressionEnd(Line, Operator->End);
+            addExpressionTokens(Tokens, AST, LineNumber, Line,
+                                Operator->End, End, KeywordTokenType);
+            Position = End;
+            if (Position < Line.size() && Line[Position] == ',') {
+                ++Position;
+            } else {
+                break;
+            }
+        }
+        return;
+    }
+
+    llvm::StringRef Where = "@where";
+    if (Directive.starts_with(Where) &&
+        (Directive.size() == Where.size() ||
+         !isIdentifierChar(Directive[Where.size()]))) {
+        addAnnotationToken(Tokens, LineNumber, Line, DirectiveStart,
+                           DirectiveStart + Where.size(), KeywordTokenType);
+        addExpressionTokens(Tokens, AST, LineNumber, Line,
+                            DirectiveStart + Where.size(), Line.size(),
+                            KeywordTokenType);
+    }
+}
+
+void collectAnnotationTokens(std::vector<SemanticHighlight> &Tokens,
+                             ParsedAST &AST, llvm::StringRef Path,
+                             llvm::StringRef Code,
+                             unsigned KeywordTokenType)
+{
+    if (!Path.ends_with(".tmpl.h") && !Path.ends_with(".tmpl.c")) return;
+    size_t LineStart = 0U;
+    size_t LineNumber = 0U;
+    while (LineStart < Code.size()) {
+        size_t LineEnd = Code.find('\n', LineStart);
+        if (LineEnd == llvm::StringRef::npos) LineEnd = Code.size();
+        highlightAnnotationLine(Tokens, AST, LineNumber,
+                                Code.slice(LineStart, LineEnd),
+                                KeywordTokenType);
+        if (LineEnd == Code.size()) break;
+        LineStart = LineEnd + 1U;
+        ++LineNumber;
+    }
+}
+
+std::vector<SemanticToken> encodeSemanticHighlights(
+    llvm::ArrayRef<SemanticHighlight> Highlights, llvm::StringRef Code)
+{
+    std::vector<SemanticToken> Result;
+    const SemanticHighlight *Last = nullptr;
+    SemanticHighlight Scratch;
+    for (const SemanticHighlight &Token : Highlights) {
+        Result.emplace_back();
+        SemanticToken *Out = &Result.back();
+        if (Last != nullptr) {
+            Out->deltaLine = Token.R.start.line - Last->R.end.line;
+            if (Out->deltaLine == 0U) {
+                Out->deltaStart =
+                    Token.R.start.character - Last->R.start.character;
+            } else {
+                Out->deltaStart = Token.R.start.character;
+            }
+        } else {
+            Out->deltaLine = Token.R.start.line;
+            Out->deltaStart = Token.R.start.character;
+        }
+        Out->tokenType = Token.TokenType;
+        Out->tokenModifiers = Token.Modifiers;
+        Last = &Token;
+
+        if (Token.R.end.line == Token.R.start.line) {
+            Out->length = Token.R.end.character - Token.R.start.character;
+            continue;
+        }
+
+        auto TokenStart = llvm::cantFail(
+            positionToOffset(Code, Token.R.start));
+        for (int I = Token.R.start.line; I < Token.R.end.line; ++I) {
+            size_t LineEnd = Code.find('\n', TokenStart);
+            if (LineEnd == llvm::StringRef::npos) break;
+            Out->length = static_cast<unsigned>(LineEnd - TokenStart);
+            TokenStart = LineEnd + 1U;
+            Result.emplace_back();
+            Out = &Result.back();
+            *Out = Result[Result.size() - 2U];
+            Out->deltaLine = 1U;
+            Out->deltaStart = 0U;
+        }
+        Out->length = static_cast<unsigned>(Token.R.end.character);
+        Scratch = *Last;
+        Scratch.R.start.line = Token.R.end.line;
+        Scratch.R.start.character = 0;
+        Last = &Scratch;
+    }
+    return Result;
+}
+
+std::vector<SemanticToken> semanticTokensForAST(
+    ParsedAST &AST, llvm::StringRef Path, llvm::StringRef Code,
+    unsigned KeywordTokenType)
+{
+    std::vector<HighlightingToken> Base =
+        getSemanticHighlightings(AST, true);
+    std::vector<SemanticHighlight> Highlights;
+    Highlights.reserve(Base.size() + 16U);
+    for (const HighlightingToken &Token : Base) {
+        Highlights.push_back(
+            SemanticHighlight{Token.R,
+                              static_cast<unsigned>(Token.Kind),
+                              Token.Modifiers});
+    }
+    collectAnnotationTokens(Highlights, AST, Path, Code, KeywordTokenType);
+    llvm::sort(Highlights);
+    return encodeSemanticHighlights(Highlights, Code);
+}
+
+void incrementResultId(std::string &ResultId)
+{
+    for (char &Character : llvm::reverse(ResultId)) {
+        if (Character != '9') {
+            ++Character;
+            return;
+        }
+        Character = '0';
+    }
+    ResultId.insert(ResultId.begin(), '1');
+}
+
 class TmplgenASTListener final : public FeatureModule::ASTListener {
 public:
     void beforeExecute(clang::CompilerInstance &compiler) override
@@ -490,10 +858,15 @@ public:
 class TmplgenFeatureModule final : public FeatureModule {
 public:
     void initializeLSP(LSPBinder &Bind, const llvm::json::Object &,
-                       llvm::json::Object &) override
+                       llvm::json::Object &ServerCaps) override
     {
+        KeywordTokenType = ensureKeywordTokenType(ServerCaps);
         Bind.method("textDocument/definition", this,
                     &TmplgenFeatureModule::onDefinition);
+        Bind.method("textDocument/semanticTokens/full", this,
+                    &TmplgenFeatureModule::onSemanticTokens);
+        Bind.method("textDocument/semanticTokens/full/delta", this,
+                    &TmplgenFeatureModule::onSemanticTokensDelta);
     }
 
     std::unique_ptr<ASTListener> astListeners() override
@@ -502,6 +875,61 @@ public:
     }
 
 private:
+    void onSemanticTokens(const SemanticTokensParams &Params,
+                          Callback<SemanticTokens> Reply)
+    {
+        scheduler().runWithAST(
+            "tmplgen semantic tokens", Params.textDocument.uri.file(),
+            [this, Params, Reply = std::move(Reply)](
+                llvm::Expected<InputsAndAST> In) mutable {
+                if (!In) return Reply(In.takeError());
+                std::vector<SemanticToken> Tokens = semanticTokensForAST(
+                    In->AST, Params.textDocument.uri.file(),
+                    In->Inputs.Contents, KeywordTokenType);
+                SemanticTokens Result;
+                Result.tokens = std::move(Tokens);
+                {
+                    std::lock_guard<std::mutex> Lock(SemanticMutex);
+                    SemanticTokens &Last = LastSemanticTokens[
+                        Params.textDocument.uri.file().str()];
+                    Last.tokens = Result.tokens;
+                    incrementResultId(Last.resultId);
+                    Result.resultId = Last.resultId;
+                }
+                Reply(std::move(Result));
+            });
+    }
+
+    void onSemanticTokensDelta(const SemanticTokensDeltaParams &Params,
+                               Callback<SemanticTokensOrDelta> Reply)
+    {
+        scheduler().runWithAST(
+            "tmplgen semantic tokens delta",
+            Params.textDocument.uri.file(),
+            [this, Params, Reply = std::move(Reply)](
+                llvm::Expected<InputsAndAST> In) mutable {
+                if (!In) return Reply(In.takeError());
+                std::vector<SemanticToken> Tokens = semanticTokensForAST(
+                    In->AST, Params.textDocument.uri.file(),
+                    In->Inputs.Contents, KeywordTokenType);
+                SemanticTokensOrDelta Result;
+                {
+                    std::lock_guard<std::mutex> Lock(SemanticMutex);
+                    SemanticTokens &Last = LastSemanticTokens[
+                        Params.textDocument.uri.file().str()];
+                    if (Params.previousResultId == Last.resultId) {
+                        Result.edits = diffTokens(Last.tokens, Tokens);
+                    } else {
+                        Result.tokens = Tokens;
+                    }
+                    Last.tokens = std::move(Tokens);
+                    incrementResultId(Last.resultId);
+                    Result.resultId = Last.resultId;
+                }
+                Reply(std::move(Result));
+            });
+    }
+
     void onDefinition(const TextDocumentPositionParams &Params,
                       Callback<std::vector<Location>> Reply)
     {
@@ -542,6 +970,11 @@ private:
                 Reply(std::move(Definitions));
             });
     }
+
+    unsigned KeywordTokenType =
+        static_cast<unsigned>(HighlightingKind::LastKind) + 1U;
+    std::mutex SemanticMutex;
+    std::unordered_map<std::string, SemanticTokens> LastSemanticTokens;
 };
 
 FeatureModuleRegistry::Add<TmplgenFeatureModule> Registration(
