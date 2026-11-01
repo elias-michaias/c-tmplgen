@@ -130,3 +130,53 @@ cc -std=c11 -I. app.c gen/*.gen.c -o app
 
 Compile each generated implementation file once and link it with the consuming
 program. Do not include `.gen.c` files in application source files.
+
+## Include generated headers after your types
+
+The generated headers hold the specializations requested by the whole project,
+but a translation unit only has to declare the types it uses itself. Everything
+that names a project type, such as `Vec_Point`, `push_Point`, and the dispatch
+entries for them, is emitted in a section guarded by the **include guard of the
+header that declares that type**:
+
+```c
+/* gen/vec.gen.h (sketch) */
+#if defined(POINT_H) && !defined(TMPLGEN_HAVE_..._POINT_H)
+typedef struct { Point *data; size_t length; } Vec_Point;
+static inline void push_Point(Vec_Point *items, Point value) { ... }
+/* ...adds `Vec_Point *: push_Point` to push()... */
+#endif
+```
+
+Builtin types and types that the template itself includes are always
+available. This gives three rules:
+
+1. **Headers that declare template argument types need an include guard**
+   written as `#ifndef NAME` / `#define NAME` (or `#if !defined(NAME)`) at the
+   top. `#pragma once` alone is not enough, because the generated code tests
+   the macro. tmplgen reports a missing guard when it generates.
+2. **Include the generated header after the headers declaring the types you
+   use.** A section is compiled when both are present; the generated headers
+   have no include guard around their sections, so including them again later
+   is fine and activates the sections that became available. A file that never
+   does this gets an error naming the missing specialization (`unknown type name
+   'Vec_Point'`). Files that do not use `Point` are unaffected.
+3. **A header that declares types and also includes the generated header must
+   declare its types first:**
+
+   ```c
+   #ifndef INVENTORY_H
+   #define INVENTORY_H
+   typedef struct { double weight; } Item;
+   #include "gen/all.gen.h"              /* after Item */
+   struct Inventory { Vec(Item) items; };
+   #endif
+   ```
+
+   tmplgen reports a header that includes a generated header before declaring
+   a type used as a template argument.
+
+Types declared in a `.c` file cannot be template arguments, since no other
+file could compile their specializations; tmplgen reports them as errors.
+Specializations whose arguments come from several headers, such as
+`Pair(Point, Item)`, need all of them.

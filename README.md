@@ -81,7 +81,10 @@ int main(void)
 ```
 
 For a walkthrough of your own templates and build integration, start with
-[Usage](doc/usage.md).
+[Usage](doc/usage.md). Headers that declare types used as template arguments
+need an `#ifndef`/`#define` include guard, and the generated header goes after
+them; see [Include generated headers after your
+types](doc/usage.md#include-generated-headers-after-your-types).
 
 ## Highlights
 

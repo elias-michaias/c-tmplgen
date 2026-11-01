@@ -128,6 +128,10 @@ typedef struct {
     char *second_type;
 } TypeVariableMismatch;
 typedef struct { char *name; char *canonical; } TypeAlias;
+/* Where a project type name is declared: `name` is a typedef name or a tag
+ * spelled with its keyword ("struct Foo"), `path` the absolute declaring file
+ * and `offset` the declaration's byte offset in it. */
+typedef struct { char *name; char *path; unsigned offset; } TypeOrigin;
 typedef struct {
     char *name;
     int is_union;
@@ -169,6 +173,8 @@ typedef struct {
     size_t constructor_count, constructor_cap;
     StructuralSchema *schemas;
     size_t schema_count, schema_cap;
+    TypeOrigin *origins;
+    size_t origin_count, origin_cap;
     StringSet dependencies;
     unsigned long long pass1_key, pass2_key;
     int loaded, pass1_valid, pass2_valid;
@@ -186,6 +192,13 @@ static TypeAlias *g_aliases;
 static size_t g_alias_count, g_alias_cap;
 static StructuralSchema *g_structural_schemas;
 static size_t g_structural_schema_count, g_structural_schema_cap;
+static TypeOrigin *g_type_origins;
+static size_t g_type_origin_count, g_type_origin_cap;
+/* Per instance (parallel to g_instances): the sorted include-guard macros of
+ * the headers declaring its argument types, joined by ','; "" when the
+ * instance only needs builtin or template-provided types. */
+static char **g_instance_requirements;
+static size_t g_instance_requirement_count;
 static char *g_source_root;
 static char *g_template_dir;
 static char *g_absolute_template_dir;
@@ -220,6 +233,9 @@ static int is_ident_char(char c);
 static int valid_identifier(const char *s);
 static char *copy_string(const char *s);
 static char *generated_module_source_path(const char *stem);
+static char *template_include_target(const char *header, const char *current_stem);
+static char *relative_module_include(const char *current_stem,
+                                     const char *target_stem);
 static char *normalize_spaces(const char *s);
 static size_t identifier_line_in_code(const char *src, const char *name);
 static char *join_suffix(const char *base, const char *suffix);
@@ -247,7 +263,53 @@ static void source_facts_add_constructor(SourceFacts *facts,
                                         size_t argument_count);
 static void source_facts_add_schema(SourceFacts *facts,
                                     const StructuralSchema *schema);
+static void source_facts_add_origin(SourceFacts *facts, const char *name,
+                                    const char *path, unsigned offset);
 static void source_facts_apply(SourceFacts *facts);
+
+static void type_origin_list_add(TypeOrigin **items, size_t *count, size_t *cap,
+                                 const char *name, const char *path,
+                                 unsigned offset)
+{
+    size_t i;
+    TypeOrigin *next;
+    for (i = 0U; i < *count; ++i) {
+        if (str_eq((*items)[i].name, name)) return;
+    }
+    if (*count == *cap) {
+        size_t new_cap = *cap == 0U ? 16U : *cap * 2U;
+        if (new_cap < *cap || new_cap > (size_t)-1 / sizeof(**items)) {
+            die("too many type declarations");
+        }
+        next = (TypeOrigin *)realloc(*items, new_cap * sizeof(**items));
+        if (next == NULL) die("out of memory");
+        *items = next;
+        *cap = new_cap;
+    }
+    (*items)[*count].name = copy_string(name);
+    (*items)[*count].path = copy_string(path);
+    (*items)[*count].offset = offset;
+    ++*count;
+}
+
+static void type_origin_list_free(TypeOrigin *items, size_t count)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) {
+        free(items[i].name);
+        free(items[i].path);
+    }
+    free(items);
+}
+
+static const TypeOrigin *find_type_origin(const char *name)
+{
+    size_t i;
+    for (i = 0U; i < g_type_origin_count; ++i) {
+        if (str_eq(g_type_origins[i].name, name)) return &g_type_origins[i];
+    }
+    return NULL;
+}
 
 static const char *find_alias_canonical(const char *name)
 {
@@ -5220,6 +5282,523 @@ static int instance_matches_parameters(const TemplateInfo *ti,
     return 1;
 }
 
+/* ===================== ARGUMENT-TYPE REQUIREMENTS ===================
+
+   A specialization such as Vec_Foo can only be compiled where Foo is
+   declared. Generated headers therefore never name a project type in
+   unconditional code: everything that mentions it is emitted in a section
+   guarded by the include guard of the header that declares it,
+
+       #if defined(FOO_H) && !defined(TMPLGEN_HAVE_..._FOO_H)
+
+   and the generated headers have no include guard around those sections, so
+   including them again after the type's header activates them. An instance's
+   "requirement" is the sorted set of such guard macros, joined by ','. */
+
+typedef struct {
+    char *path;
+    char *guard;       /* NULL when the header has no include-guard macro */
+} HeaderGuard;
+
+static HeaderGuard *g_header_guards;
+static size_t g_header_guard_count, g_header_guard_cap;
+static StringSet g_reported_requirement_errors;
+
+static const char *skip_c_trivia_text(const char *p)
+{
+    for (;;) {
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' ||
+               *p == '\f' || *p == '\v') ++p;
+        if (p[0] == '/' && p[1] == '/') {
+            while (*p != '\0' && *p != '\n') ++p;
+        } else if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p != '\0' && !(p[0] == '*' && p[1] == '/')) ++p;
+            if (*p != '\0') p += 2;
+        } else {
+            return p;
+        }
+    }
+}
+
+static const char *skip_horizontal_space(const char *p)
+{
+    while (*p == ' ' || *p == '\t') ++p;
+    return p;
+}
+
+static char *read_directive_identifier(const char **p)
+{
+    const char *start;
+    *p = skip_horizontal_space(*p);
+    if (!is_ident_start(**p)) return NULL;
+    start = *p;
+    while (is_ident_char(**p)) ++*p;
+    return copy_range(start, (size_t)(*p - start));
+}
+
+static int directive_keyword(const char **p, const char *keyword)
+{
+    size_t length = strlen(keyword);
+    if (strncmp(*p, keyword, length) != 0 || is_ident_char((*p)[length])) return 0;
+    *p += length;
+    return 1;
+}
+
+/* Returns the include-guard macro of a header written as
+ *     #ifndef X / #if !defined(X)    followed by    #define X
+ * before any other code, or NULL. */
+static char *parse_include_guard(const char *text)
+{
+    const char *p = skip_c_trivia_text(text);
+    char *guard = NULL;
+    char *defined = NULL;
+    if (*p != '#') return NULL;
+    p = skip_horizontal_space(p + 1);
+    if (directive_keyword(&p, "ifndef")) {
+        guard = read_directive_identifier(&p);
+    } else if (directive_keyword(&p, "if")) {
+        int parenthesized;
+        p = skip_horizontal_space(p);
+        if (*p != '!') return NULL;
+        p = skip_horizontal_space(p + 1);
+        if (!directive_keyword(&p, "defined")) return NULL;
+        p = skip_horizontal_space(p);
+        parenthesized = *p == '(';
+        if (parenthesized) ++p;
+        guard = read_directive_identifier(&p);
+        if (guard == NULL) return NULL;
+        p = skip_horizontal_space(p);
+        if (parenthesized) {
+            if (*p != ')') {
+                free(guard);
+                return NULL;
+            }
+            ++p;
+        }
+    }
+    if (guard == NULL) return NULL;
+    p = skip_c_trivia_text(p);
+    if (*p != '#') {
+        free(guard);
+        return NULL;
+    }
+    p = skip_horizontal_space(p + 1);
+    if (directive_keyword(&p, "define")) defined = read_directive_identifier(&p);
+    if (defined == NULL || !str_eq(defined, guard)) {
+        free(defined);
+        free(guard);
+        return NULL;
+    }
+    free(defined);
+    return guard;
+}
+
+static const HeaderGuard *header_guard_for(const char *path)
+{
+    size_t i;
+    Buf text;
+    HeaderGuard *entry;
+    for (i = 0U; i < g_header_guard_count; ++i) {
+        if (str_eq(g_header_guards[i].path, path)) return &g_header_guards[i];
+    }
+    if (g_header_guard_count == g_header_guard_cap) {
+        size_t new_cap = g_header_guard_cap == 0U ? 8U : g_header_guard_cap * 2U;
+        HeaderGuard *next;
+        if (new_cap < g_header_guard_cap ||
+            new_cap > (size_t)-1 / sizeof(*g_header_guards)) die("too many headers");
+        next = (HeaderGuard *)realloc(g_header_guards,
+                                      new_cap * sizeof(*g_header_guards));
+        if (next == NULL) die("out of memory");
+        g_header_guards = next;
+        g_header_guard_cap = new_cap;
+    }
+    entry = &g_header_guards[g_header_guard_count++];
+    entry->path = copy_string(path);
+    entry->guard = NULL;
+    buf_init(&text);
+    if (read_file(path, &text)) {
+        entry->guard = parse_include_guard(text.p != NULL ? text.p : "");
+    }
+    buf_free(&text);
+    return entry;
+}
+
+static const char *header_path_for_guard(const char *guard)
+{
+    size_t i;
+    for (i = 0U; i < g_header_guard_count; ++i) {
+        if (g_header_guards[i].guard != NULL &&
+            str_eq(g_header_guards[i].guard, guard)) return g_header_guards[i].path;
+    }
+    return NULL;
+}
+
+static void clear_requirement_state(void)
+{
+    size_t i;
+    for (i = 0U; i < g_header_guard_count; ++i) {
+        free(g_header_guards[i].path);
+        free(g_header_guards[i].guard);
+    }
+    free(g_header_guards);
+    g_header_guards = NULL;
+    g_header_guard_count = 0U;
+    g_header_guard_cap = 0U;
+    string_set_free(&g_reported_requirement_errors);
+}
+
+/* Line of the first `#include "..."` of a generated header in `path` that
+ * appears before byte `offset`, or 0. */
+static size_t generated_include_before(const char *path, unsigned offset)
+{
+    Buf text;
+    char *directory;
+    const char *p;
+    size_t line = 1U;
+    size_t found = 0U;
+    buf_init(&text);
+    if (!read_file(path, &text) || text.p == NULL) {
+        buf_free(&text);
+        return 0U;
+    }
+    directory = path_parent(path);
+    p = text.p;
+    while (*p != '\0' && (size_t)(p - text.p) < (size_t)offset && found == 0U) {
+        const char *q = skip_horizontal_space(p);
+        if (*q == '#') {
+            q = skip_horizontal_space(q + 1);
+            if (directive_keyword(&q, "include")) {
+                q = skip_horizontal_space(q);
+                if (*q == '"') {
+                    const char *end = strchr(q + 1, '"');
+                    const char *newline = strchr(q + 1, '\n');
+                    if (end != NULL && (newline == NULL || end < newline)) {
+                        char *target = copy_range(q + 1, (size_t)(end - q - 1));
+                        char *candidate = join_path(directory, target);
+                        if (is_generated_output_file(candidate)) found = line;
+                        free(candidate);
+                        free(target);
+                    }
+                }
+            }
+        }
+        while (*p != '\0' && *p != '\n') ++p;
+        if (*p == '\n') {
+            ++p;
+            ++line;
+        }
+    }
+    free(directory);
+    buf_free(&text);
+    return found;
+}
+
+static int path_has_suffix(const char *path, const char *suffix)
+{
+    size_t length = strlen(path);
+    size_t suffix_length = strlen(suffix);
+    return length >= suffix_length &&
+           strcmp(path + length - suffix_length, suffix) == 0;
+}
+
+static void report_requirement_error(const GenInstance *instance,
+                                     const char *type_name, const char *fmt,
+                                     const char *a, const char *b)
+{
+    if (string_set_has(&g_reported_requirement_errors, type_name)) return;
+    string_set_add(&g_reported_requirement_errors, type_name);
+    report_error(instance->origin_path, instance->origin_line, fmt, a, b);
+}
+
+/* Adds the guard of the header that declares `origin` to `guards`. */
+static int add_origin_requirement(const TypeOrigin *origin, const char *type_name,
+                                  const GenInstance *instance, StringSet *guards)
+{
+    const HeaderGuard *header;
+    size_t include_line;
+    if (path_has_suffix(origin->path, ".c")) {
+        report_requirement_error(instance, type_name,
+            "template argument type '%s' is declared in %s, a .c file; "
+            "declare it in a header with an include guard", type_name,
+            origin->path);
+        return 0;
+    }
+    header = header_guard_for(origin->path);
+    if (header->guard == NULL) {
+        report_requirement_error(instance, type_name,
+            "template argument type '%s' is declared in %s, which has no "
+            "#ifndef/#define include guard (generated code tests that macro; "
+            "#pragma once alone is not enough)", type_name, origin->path);
+        return 0;
+    }
+    include_line = generated_include_before(origin->path, origin->offset);
+    if (include_line != 0U) {
+        report_requirement_error(instance, type_name,
+            "%s includes a generated header before declaring template "
+            "argument type '%s'; declare the type before that #include",
+            origin->path, type_name);
+        return 0;
+    }
+    string_set_add(guards, header->guard);
+    return 1;
+}
+
+static int is_builtin_type_word(const char *word)
+{
+    static const char *const words[] = {
+        "void", "char", "short", "int", "long", "float", "double", "signed",
+        "unsigned", "_Bool", "bool", "_Complex", "_Imaginary", "__int128",
+        "const", "volatile", "restrict", "__restrict", "_Atomic", "static",
+        "inline", "register", "extern"
+    };
+    size_t i;
+    for (i = 0U; i < sizeof(words) / sizeof(words[0]); ++i) {
+        if (str_eq(word, words[i])) return 1;
+    }
+    return 0;
+}
+
+static int compute_instance_requirement(size_t instance_index, unsigned depth);
+
+/* Index of the instance whose generated type is named `name` (for example
+ * Vec_int, or the tag of a tagged constructor), or (size_t)-1. */
+static size_t instance_for_generated_type(const char *name)
+{
+    size_t i;
+    for (i = 0U; i < g_instance_count; ++i) {
+        const GenInstance *instance = &g_instances[i];
+        const TemplateInfo *ti;
+        size_t j;
+        if (instance->template_index >= g_all_template_info_count) continue;
+        ti = &g_all_template_infos[instance->template_index];
+        for (j = 0U; j < ti->constructor_count; ++j) {
+            const TemplateType *constructor = &ti->constructors[j];
+            char *generated;
+            int match;
+            if (constructor->parameter_count == 0U ||
+                !instance_matches_parameters(ti, instance,
+                    constructor->parameter_names, constructor->parameter_count) ||
+                !type_use_matches(constructor->name, instance->name)) continue;
+            generated = join_suffix(constructor->name, instance->name);
+            match = str_eq(generated, name);
+            free(generated);
+            if (match) return i;
+        }
+    }
+    return (size_t)-1;
+}
+
+static int add_spelling_requirements(const char *spelling,
+                                     const GenInstance *instance,
+                                     StringSet *guards, unsigned depth)
+{
+    const char *p = spelling;
+    const char *tag = NULL;
+    int okay = 1;
+    while (*p != '\0') {
+        const char *start;
+        char *word;
+        if (!is_ident_start(*p)) {
+            ++p;
+            continue;
+        }
+        start = p;
+        while (is_ident_char(*p)) ++p;
+        word = copy_range(start, (size_t)(p - start));
+        if (str_eq(word, "struct") || str_eq(word, "union") || str_eq(word, "enum")) {
+            tag = str_eq(word, "struct") ? "struct " :
+                  str_eq(word, "union") ? "union " : "enum ";
+        } else if (!is_builtin_type_word(word)) {
+            Buf name;
+            const TypeOrigin *origin;
+            buf_init(&name);
+            if (tag != NULL) buf_puts(&name, tag);
+            buf_puts(&name, word);
+            origin = find_type_origin(name.p);
+            if (origin != NULL) {
+                if (!add_origin_requirement(origin, name.p, instance, guards)) okay = 0;
+            } else {
+                size_t generated = instance_for_generated_type(word);
+                if (generated != (size_t)-1 &&
+                    &g_instances[generated] != instance &&
+                    compute_instance_requirement(generated, depth + 1U)) {
+                    const char *requirement = g_instance_requirements[generated];
+                    while (*requirement != '\0') {
+                        const char *comma = strchr(requirement, ',');
+                        size_t length = comma != NULL ? (size_t)(comma - requirement) :
+                                                        strlen(requirement);
+                        char *guard = copy_range(requirement, length);
+                        string_set_add(guards, guard);
+                        free(guard);
+                        requirement += length;
+                        if (*requirement == ',') ++requirement;
+                    }
+                }
+            }
+            buf_free(&name);
+            tag = NULL;
+        }
+        free(word);
+    }
+    return okay;
+}
+
+static int compare_strings(const void *left, const void *right)
+{
+    return strcmp(*(const char *const *)left, *(const char *const *)right);
+}
+
+static char *join_requirement(StringSet *guards)
+{
+    Buf key;
+    size_t i;
+    if (guards->count > 1U) {
+        qsort(guards->items, guards->count, sizeof(*guards->items), compare_strings);
+    }
+    buf_init(&key);
+    for (i = 0U; i < guards->count; ++i) {
+        if (i != 0U) buf_putc(&key, ',');
+        buf_puts(&key, guards->items[i]);
+    }
+    return key.p != NULL ? key.p : copy_string("");
+}
+
+static int compute_instance_requirement(size_t instance_index, unsigned depth)
+{
+    const GenInstance *instance = &g_instances[instance_index];
+    StringSet guards;
+    size_t i;
+    int okay = 1;
+    if (g_instance_requirements[instance_index] != NULL) return 1;
+    if (depth > 64U) return 0;
+    memset(&guards, 0, sizeof(guards));
+    for (i = 0U; i < instance->argument_count; ++i) {
+        if (!add_spelling_requirements(instance->arguments[i].c_type, instance,
+                                       &guards, depth)) okay = 0;
+    }
+    g_instance_requirements[instance_index] = join_requirement(&guards);
+    string_set_free(&guards);
+    return okay;
+}
+
+static int compute_instance_requirements(void)
+{
+    size_t i;
+    int okay = 1;
+    list_free(g_instance_requirements, g_instance_requirement_count);
+    g_instance_requirements = NULL;
+    g_instance_requirement_count = g_instance_count;
+    if (g_instance_count != 0U) {
+        g_instance_requirements = (char **)calloc(g_instance_count,
+                                                  sizeof(*g_instance_requirements));
+        if (g_instance_requirements == NULL) die("out of memory");
+    }
+    for (i = 0U; i < g_instance_count; ++i) {
+        if (!compute_instance_requirement(i, 0U)) okay = 0;
+    }
+    return okay;
+}
+
+static const char *instance_requirement(const GenInstance *instance)
+{
+    size_t index;
+    if (instance == NULL || g_instance_requirements == NULL ||
+        instance < g_instances || instance >= g_instances + g_instance_count) {
+        return "";
+    }
+    index = (size_t)(instance - g_instances);
+    return g_instance_requirements[index] != NULL ?
+        g_instance_requirements[index] : "";
+}
+
+/* "A,B" -> "A_AND_B", for building macro names. */
+static void buf_put_requirement_id(Buf *out, const char *requirement)
+{
+    for (; *requirement != '\0'; ++requirement) {
+        if (*requirement == ',') buf_puts(out, "_AND_");
+        else buf_putc(out, *requirement);
+    }
+}
+
+/* "A,B" -> "defined(A) && defined(B)" */
+static void buf_put_requirement_condition(Buf *out, const char *requirement)
+{
+    int first = 1;
+    while (*requirement != '\0') {
+        const char *comma = strchr(requirement, ',');
+        size_t length = comma != NULL ? (size_t)(comma - requirement) :
+                                        strlen(requirement);
+        if (!first) buf_puts(out, " && ");
+        buf_puts(out, "defined(");
+        buf_putn(out, requirement, length);
+        buf_putc(out, ')');
+        first = 0;
+        requirement += length;
+        if (*requirement == ',') ++requirement;
+    }
+}
+
+static size_t requirement_guard_count(const char *requirement)
+{
+    size_t count = 0U;
+    if (*requirement == '\0') return 0U;
+    for (count = 1U; *requirement != '\0'; ++requirement) {
+        if (*requirement == ',') ++count;
+    }
+    return count;
+}
+
+static int compare_requirements(const void *left, const void *right)
+{
+    const char *a = *(const char *const *)left;
+    const char *b = *(const char *const *)right;
+    size_t count_a = requirement_guard_count(a);
+    size_t count_b = requirement_guard_count(b);
+    if (count_a != count_b) return count_a < count_b ? -1 : 1;
+    return strcmp(a, b);
+}
+
+/* Sorts requirement keys so that a key comes after all of its subsets. */
+static void sort_requirements(StringSet *requirements)
+{
+    if (requirements->count > 1U) {
+        qsort(requirements->items, requirements->count,
+              sizeof(*requirements->items), compare_requirements);
+    }
+}
+
+/* Intersection of two requirement keys. */
+static char *requirement_intersection(const char *a, const char *b)
+{
+    StringSet guards;
+    char *result;
+    memset(&guards, 0, sizeof(guards));
+    while (*a != '\0') {
+        const char *comma = strchr(a, ',');
+        size_t length = comma != NULL ? (size_t)(comma - a) : strlen(a);
+        char *guard = copy_range(a, length);
+        const char *p = b;
+        while (*p != '\0') {
+            const char *other_comma = strchr(p, ',');
+            size_t other_length = other_comma != NULL ? (size_t)(other_comma - p) :
+                                                        strlen(p);
+            if (other_length == length && strncmp(p, guard, length) == 0) {
+                string_set_add(&guards, guard);
+                break;
+            }
+            p += other_length;
+            if (*p == ',') ++p;
+        }
+        free(guard);
+        a += length;
+        if (*a == ',') ++a;
+    }
+    result = join_requirement(&guards);
+    string_set_free(&guards);
+    return result;
+}
+
 static void emit_no_match_declaration(Buf *out, const char *name)
 {
     buf_puts(out, "/* No dispatch association yet: either the argument type is wrong,\n"
@@ -5234,132 +5813,311 @@ static void emit_no_match_declaration(Buf *out, const char *name)
     buf_puts(out, "_argument, ...);\n");
 }
 
-static void emit_generic_tree(Buf *out, const char *name,
-                              const AssocList *assocs,
-                              const size_t *candidates, size_t candidate_count,
-                              size_t depth, unsigned indent,
-                              const char *default_expression)
-{
-    const DispatchAssoc *first = &assocs->items[candidates[0]];
-    size_t i;
-    emit_spaces(out, indent);
-    buf_puts(out, "_Generic((GEN_ARG");
-    buf_put_uint(out, (unsigned long)first->indices[depth]);
-    buf_puts(out, "(__VA_ARGS__)), \\\n");
-    for (i = 0U; i < candidate_count; ++i) {
-        size_t assoc_index = candidates[i];
-        const DispatchAssoc *association = &assocs->items[assoc_index];
-        size_t previous;
-        int seen = 0;
-        size_t subset_count = 0U;
-        size_t *subset;
-        size_t j;
-        for (previous = 0U; previous < i; ++previous) {
-            const DispatchAssoc *prior = &assocs->items[candidates[previous]];
-            if (str_eq(prior->keys[depth], association->keys[depth])) {
-                seen = 1;
-                break;
-            }
-        }
-        if (seen) continue;
-        for (j = i; j < candidate_count; ++j) {
-            const DispatchAssoc *other = &assocs->items[candidates[j]];
-            if (str_eq(other->keys[depth], association->keys[depth])) ++subset_count;
-        }
-        subset = (size_t *)malloc(subset_count * sizeof(*subset));
-        if (subset == NULL) die("out of memory");
-        subset_count = 0U;
-        for (j = i; j < candidate_count; ++j) {
-            const DispatchAssoc *other = &assocs->items[candidates[j]];
-            if (str_eq(other->keys[depth], association->keys[depth])) {
-                subset[subset_count++] = candidates[j];
-            }
-        }
-        emit_spaces(out, indent + 4U);
-        buf_puts(out, association->types[depth]);
-        buf_puts(out, ": ");
-        if (depth + 1U == association->count) {
-            buf_puts(out, association->function_name);
-        } else {
-            emit_generic_tree(out, name, assocs, subset, subset_count,
-                              depth + 1U, indent + 4U, default_expression);
-        }
-        buf_puts(out, ", \\\n");
-        free(subset);
-    }
-    emit_spaces(out, indent + 4U);
-    buf_puts(out, "default: ");
-    if (default_expression != NULL) {
-        buf_puts(out, default_expression);
-    } else {
-        buf_puts(out, name);
-        buf_puts(out, "__no_match_for_argument_type");
-    }
-    buf_putc(out, ')');
-}
-
-static void emit_generic_macro(Buf *out, const char *name,
-                               const AssocList *assocs)
-{
-    size_t *candidates;
-    size_t i;
-    candidates = (size_t *)malloc(assocs->count * sizeof(*candidates));
-    if (candidates == NULL) die("out of memory");
-    for (i = 0U; i < assocs->count; ++i) candidates[i] = i;
-    buf_puts(out, "#define ");
-    buf_puts(out, name);
-    buf_puts(out, "(...) ");
-    emit_generic_tree(out, name, assocs, candidates, assocs->count, 0U, 0U, NULL);
-    buf_puts(out, "(__VA_ARGS__)\n\n");
-    free(candidates);
-}
-
 static void emit_spaces(Buf *out, unsigned count)
 {
     unsigned i;
     for (i = 0U; i < count; ++i) buf_putc(out, ' ');
 }
 
-static void emit_gnu_expression(Buf *out, const AssocList *assocs,
-                               const char *default_expression)
+/* ---- dispatch with per-requirement hooks ----------------------------------
+ * A dispatch macro may only name types that exist where it expands. The
+ * associations that need a project type are therefore moved into hook macros
+ * that start out empty (or pass-through for the GNU chain) and are redefined
+ * inside the requirement's guarded section. Macros expand at the call, so a
+ * hook redefined after the dispatch macro is still picked up. */
+
+typedef struct {
+    char *name;
+    char *requirement;
+    int gnu;               /* GNU hooks take (next, ...), _Generic hooks (...) */
+    Buf body;
+} DispatchHook;
+
+typedef struct {
+    const char *name;
+    const AssocList *assocs;
+    char **requirements;   /* per association */
+    DispatchHook **hooks;
+    size_t hook_count, hook_cap;
+    unsigned next_node;
+} DispatchPlan;
+
+static DispatchHook *dispatch_plan_hook(DispatchPlan *plan, const char *name,
+                                        const char *requirement, int gnu)
 {
     size_t i;
-    size_t depth;
-    for (i = 0U; i < assocs->count; ++i) {
+    DispatchHook *hook;
+    for (i = 0U; i < plan->hook_count; ++i) {
+        if (str_eq(plan->hooks[i]->name, name)) return plan->hooks[i];
+    }
+    if (plan->hook_count == plan->hook_cap) {
+        size_t new_cap = plan->hook_cap == 0U ? 4U : plan->hook_cap * 2U;
+        DispatchHook **next;
+        if (new_cap < plan->hook_cap ||
+            new_cap > (size_t)-1 / sizeof(*plan->hooks)) die("too many dispatch hooks");
+        next = (DispatchHook **)realloc(plan->hooks, new_cap * sizeof(*plan->hooks));
+        if (next == NULL) die("out of memory");
+        plan->hooks = next;
+        plan->hook_cap = new_cap;
+    }
+    hook = (DispatchHook *)calloc(1U, sizeof(*hook));
+    if (hook == NULL) die("out of memory");
+    hook->name = copy_string(name);
+    hook->requirement = copy_string(requirement);
+    hook->gnu = gnu;
+    buf_init(&hook->body);
+    plan->hooks[plan->hook_count++] = hook;
+    return hook;
+}
+
+static void dispatch_plan_free(DispatchPlan *plan)
+{
+    size_t i;
+    for (i = 0U; i < plan->hook_count; ++i) {
+        free(plan->hooks[i]->name);
+        free(plan->hooks[i]->requirement);
+        buf_free(&plan->hooks[i]->body);
+        free(plan->hooks[i]);
+    }
+    free(plan->hooks);
+    if (plan->requirements != NULL) {
+        list_free(plan->requirements, plan->assocs->count);
+    }
+    memset(plan, 0, sizeof(*plan));
+}
+
+static void emit_planned_generic_node(DispatchPlan *plan, Buf *out,
+                                      const size_t *candidates,
+                                      size_t candidate_count, size_t depth,
+                                      unsigned indent, const char *context)
+{
+    const AssocList *assocs = plan->assocs;
+    const DispatchAssoc *first = &assocs->items[candidates[0]];
+    unsigned node = plan->next_node++;
+    StringSet node_hooks;
+    size_t i;
+    memset(&node_hooks, 0, sizeof(node_hooks));
+    emit_spaces(out, indent);
+    buf_puts(out, "_Generic((GEN_ARG");
+    buf_put_uint(out, (unsigned long)first->indices[depth]);
+    buf_puts(out, "(__VA_ARGS__)), \\\n");
+    for (i = 0U; i < candidate_count; ++i) {
+        const DispatchAssoc *association = &assocs->items[candidates[i]];
+        size_t previous, j;
+        int seen = 0;
+        size_t subset_count = 0U;
+        size_t *subset;
+        char *label_requirement;
+        Buf *target = out;
+        for (previous = 0U; previous < i; ++previous) {
+            if (str_eq(assocs->items[candidates[previous]].keys[depth],
+                       association->keys[depth])) {
+                seen = 1;
+                break;
+            }
+        }
+        if (seen) continue;
+        subset = (size_t *)malloc(candidate_count * sizeof(*subset));
+        if (subset == NULL) die("out of memory");
+        label_requirement = copy_string(plan->requirements[candidates[i]]);
+        for (j = i; j < candidate_count; ++j) {
+            if (str_eq(assocs->items[candidates[j]].keys[depth],
+                       association->keys[depth])) {
+                char *common = requirement_intersection(
+                    label_requirement, plan->requirements[candidates[j]]);
+                free(label_requirement);
+                label_requirement = common;
+                subset[subset_count++] = candidates[j];
+            }
+        }
+        if (!str_eq(label_requirement, context)) {
+            Buf hook_name;
+            DispatchHook *hook;
+            buf_init(&hook_name);
+            buf_puts(&hook_name, "TMPLGEN_GENERIC_");
+            buf_puts(&hook_name, plan->name);
+            buf_puts(&hook_name, "_N");
+            buf_put_uint(&hook_name, (unsigned long)node);
+            buf_putc(&hook_name, '_');
+            buf_put_requirement_id(&hook_name, label_requirement);
+            hook = dispatch_plan_hook(plan, hook_name.p, label_requirement, 0);
+            string_set_add(&node_hooks, hook_name.p);
+            target = &hook->body;
+            buf_free(&hook_name);
+        }
+        emit_spaces(target, indent + 4U);
+        buf_puts(target, association->types[depth]);
+        buf_puts(target, ": ");
+        if (depth + 1U == association->count) {
+            buf_puts(target, association->function_name);
+        } else {
+            /* Hooks are heap-allocated, so `target` stays valid while the
+             * subtree creates further hooks. */
+            Buf subtree;
+            buf_init(&subtree);
+            emit_planned_generic_node(plan, &subtree, subset, subset_count,
+                                      depth + 1U, indent + 4U, label_requirement);
+            buf_puts(target, subtree.p != NULL ? subtree.p : "");
+            buf_free(&subtree);
+        }
+        buf_puts(target, ", \\\n");
+        free(label_requirement);
+        free(subset);
+    }
+    for (i = 0U; i < node_hooks.count; ++i) {
+        emit_spaces(out, indent + 4U);
+        buf_puts(out, node_hooks.items[i]);
+        buf_puts(out, "(__VA_ARGS__) \\\n");
+    }
+    emit_spaces(out, indent + 4U);
+    buf_puts(out, "default: ");
+    buf_puts(out, plan->name);
+    buf_puts(out, "__no_match_for_argument_type)");
+    string_set_free(&node_hooks);
+}
+
+static void emit_planned_gnu_chain(Buf *out, const AssocList *assocs,
+                                   const size_t *indices, size_t count,
+                                   const char *tail)
+{
+    size_t i, depth;
+    for (i = 0U; i < count; ++i) {
+        const DispatchAssoc *association = &assocs->items[indices[i]];
         emit_spaces(out, (unsigned)(4U + i * 4U));
         buf_puts(out, "__builtin_choose_expr( \\\n");
         emit_spaces(out, (unsigned)(8U + i * 4U));
         buf_putc(out, '(');
-        for (depth = 0U; depth < assocs->items[i].count; ++depth) {
+        for (depth = 0U; depth < association->count; ++depth) {
             if (depth != 0U) buf_puts(out, " && ");
             buf_puts(out, "__builtin_types_compatible_p(__typeof__(GEN_ARG");
-            buf_put_uint(out, (unsigned long)assocs->items[i].indices[depth]);
+            buf_put_uint(out, (unsigned long)association->indices[depth]);
             buf_puts(out, "(__VA_ARGS__)), ");
-            buf_puts(out, assocs->items[i].types[depth]);
+            buf_puts(out, association->types[depth]);
             buf_putc(out, ')');
         }
         buf_puts(out, "), \\\n");
         emit_spaces(out, (unsigned)(8U + i * 4U));
-        buf_puts(out, assocs->items[i].function_name);
+        buf_puts(out, association->function_name);
         buf_puts(out, ", \\\n");
     }
-    emit_spaces(out, (unsigned)(4U + assocs->count * 4U));
-    buf_puts(out, default_expression);
-    for (i = 0U; i < assocs->count; ++i) buf_putc(out, ')');
+    emit_spaces(out, (unsigned)(4U + count * 4U));
+    buf_puts(out, tail);
+    for (i = 0U; i < count; ++i) buf_putc(out, ')');
 }
 
-static void emit_gnu_macro(Buf *out, const char *name, const AssocList *assocs)
+/* Builds the core dispatch expression for both backends (to be followed by
+ * the call's argument list) and every hook body. */
+static void build_dispatch_plan(DispatchPlan *plan, const TemplateInfo *ti,
+                                const TemplateFunction *function,
+                                const AssocList *assocs, Buf *generic_macro,
+                                Buf *gnu_macro)
 {
-    Buf fallback;
-    buf_init(&fallback);
-    buf_puts(&fallback, name);
-    buf_puts(&fallback, "__no_match_for_argument_type");
+    size_t i;
+    StringSet requirements;
+    size_t *indices;
+    size_t count;
+    Buf tail;
+    memset(plan, 0, sizeof(*plan));
+    plan->name = function->name;
+    plan->assocs = assocs;
+    plan->requirements = (char **)calloc(assocs->count + 1U,
+                                         sizeof(*plan->requirements));
+    if (plan->requirements == NULL) die("out of memory");
+    memset(&requirements, 0, sizeof(requirements));
+    for (i = 0U; i < assocs->count; ++i) {
+        const GenInstance *instance = find_function_instance_for_symbol(
+            ti, function, assocs->items[i].function_name);
+        plan->requirements[i] = copy_string(instance_requirement(instance));
+        if (plan->requirements[i][0] != '\0') {
+            string_set_add(&requirements, plan->requirements[i]);
+        }
+    }
+    sort_requirements(&requirements);
+
+    /* _Generic tree */
+    if (g_dispatch_backend == GEN_DISPATCH_GENERIC ||
+        g_dispatch_backend == GEN_DISPATCH_AUTO) {
+        indices = (size_t *)malloc((assocs->count + 1U) * sizeof(*indices));
+        if (indices == NULL) die("out of memory");
+        for (i = 0U; i < assocs->count; ++i) indices[i] = i;
+        emit_planned_generic_node(plan, generic_macro, indices, assocs->count,
+                                  0U, 0U, "");
+        free(indices);
+    }
+
+    /* GNU chain: unconditional associations first, then one pass-through
+     * hook per requirement, nested so each may append its own tests. */
+    if (g_dispatch_backend == GEN_DISPATCH_GNU ||
+        g_dispatch_backend == GEN_DISPATCH_AUTO) {
+        size_t r;
+        indices = (size_t *)malloc((assocs->count + 1U) * sizeof(*indices));
+        if (indices == NULL) die("out of memory");
+        buf_init(&tail);
+        for (r = 0U; r < requirements.count; ++r) {
+            Buf hook_name;
+            DispatchHook *hook;
+            size_t hook_count = 0U;
+            buf_init(&hook_name);
+            buf_puts(&hook_name, "TMPLGEN_GNU_");
+            buf_puts(&hook_name, function->name);
+            buf_putc(&hook_name, '_');
+            buf_put_requirement_id(&hook_name, requirements.items[r]);
+            hook = dispatch_plan_hook(plan, hook_name.p, requirements.items[r], 1);
+            for (i = 0U; i < assocs->count; ++i) {
+                if (str_eq(plan->requirements[i], requirements.items[r])) {
+                    indices[hook_count++] = i;
+                }
+            }
+            emit_planned_gnu_chain(&hook->body, assocs, indices, hook_count, "next");
+            buf_puts(&hook->body, " \\\n");
+            buf_puts(&tail, hook_name.p);
+            buf_putc(&tail, '(');
+            buf_free(&hook_name);
+        }
+        buf_puts(&tail, function->name);
+        buf_puts(&tail, "__no_match_for_argument_type");
+        for (r = 0U; r < requirements.count; ++r) buf_puts(&tail, ", __VA_ARGS__)");
+        count = 0U;
+        for (i = 0U; i < assocs->count; ++i) {
+            if (plan->requirements[i][0] == '\0') indices[count++] = i;
+        }
+        emit_planned_gnu_chain(gnu_macro, assocs, indices, count,
+                               tail.p != NULL ? tail.p : "0");
+        buf_free(&tail);
+        free(indices);
+    }
+    string_set_free(&requirements);
+}
+
+static void emit_hook_default(Buf *out, const DispatchHook *hook)
+{
+    buf_puts(out, "#ifndef ");
+    buf_puts(out, hook->name);
+    buf_puts(out, "\n#define ");
+    buf_puts(out, hook->name);
+    buf_puts(out, hook->gnu ? "(next, ...) next\n" : "(...)\n");
+    buf_puts(out, "#endif\n");
+}
+
+static void emit_hook_definition(Buf *out, const DispatchHook *hook)
+{
+    buf_puts(out, "#undef ");
+    buf_puts(out, hook->name);
+    buf_puts(out, "\n#define ");
+    buf_puts(out, hook->name);
+    buf_puts(out, hook->gnu ? "(next, ...) \\\n" : "(...) \\\n");
+    buf_puts(out, hook->body.p != NULL ? hook->body.p : "");
+    buf_puts(out, "\n");
+}
+
+static void emit_dispatch_define(Buf *out, const char *name,
+                                 const Buf *expression, int gnu)
+{
     buf_puts(out, "#define ");
     buf_puts(out, name);
-    buf_puts(out, "(...) \\\n");
-    emit_gnu_expression(out, assocs, fallback.p != NULL ? fallback.p : "0");
+    buf_puts(out, gnu ? "(...) \\\n" : "(...) ");
+    buf_puts(out, expression->p != NULL ? expression->p : "");
     buf_puts(out, "(__VA_ARGS__)\n\n");
-    buf_free(&fallback);
 }
 
 static void emit_dispatch_macro(Buf *out, const char *name,
@@ -5367,7 +6125,14 @@ static void emit_dispatch_macro(Buf *out, const char *name,
                                 const TemplateFunction *function,
                                 const AssocList *assocs)
 {
+    DispatchPlan plan;
+    Buf generic_macro, gnu_macro;
+    size_t i;
+    buf_init(&generic_macro);
+    buf_init(&gnu_macro);
+    build_dispatch_plan(&plan, ti, function, assocs, &generic_macro, &gnu_macro);
     emit_no_match_declaration(out, name);
+    for (i = 0U; i < plan.hook_count; ++i) emit_hook_default(out, plan.hooks[i]);
     buf_puts(out, "#undef ");
     buf_puts(out, name);
     buf_putc(out, '\n');
@@ -5375,23 +6140,22 @@ static void emit_dispatch_macro(Buf *out, const char *name,
         buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
         emit_function_signature(out, ti, function, NULL, name, 1);
         emit_line_directive(out, (unsigned long)function->start_line, ti->path);
-        emit_generic_macro(out, name, assocs);
+        emit_dispatch_define(out, name, &generic_macro, 0);
         buf_puts(out, "#elif defined(__GNUC__) || defined(__clang__)\n");
         emit_function_signature(out, ti, function, NULL, name, 1);
         emit_line_directive(out, (unsigned long)function->start_line, ti->path);
-        emit_gnu_macro(out, name, assocs);
+        emit_dispatch_define(out, name, &gnu_macro, 1);
         buf_puts(out, "#else\n#error \"GEN_DISPATCH_AUTO requires C11 or GNU-compatible C\"\n#endif\n\n");
-    } else {
-        if (g_dispatch_backend == GEN_DISPATCH_GENERIC) {
-            emit_function_signature(out, ti, function, NULL, name, 1);
-            emit_line_directive(out, (unsigned long)function->start_line, ti->path);
-            emit_generic_macro(out, name, assocs);
-        } else if (g_dispatch_backend == GEN_DISPATCH_GNU) {
-            emit_function_signature(out, ti, function, NULL, name, 1);
-            emit_line_directive(out, (unsigned long)function->start_line, ti->path);
-            emit_gnu_macro(out, name, assocs);
-        }
+    } else if (g_dispatch_backend == GEN_DISPATCH_GENERIC ||
+               g_dispatch_backend == GEN_DISPATCH_GNU) {
+        int gnu = g_dispatch_backend == GEN_DISPATCH_GNU;
+        emit_function_signature(out, ti, function, NULL, name, 1);
+        emit_line_directive(out, (unsigned long)function->start_line, ti->path);
+        emit_dispatch_define(out, name, gnu ? &gnu_macro : &generic_macro, gnu);
     }
+    buf_free(&generic_macro);
+    buf_free(&gnu_macro);
+    dispatch_plan_free(&plan);
 }
 
 static int function_has_type_variable_mismatch(const char *function_name)
@@ -5432,7 +6196,9 @@ static void emit_dispatch(Buf *out, const TemplateInfo *ti)
             for (j = 0U; j < assocs.count; ++j) {
                 GenInstance *instance = find_function_instance_for_symbol(
                     ti, &ti->functions[i], assocs.items[j].function_name);
-                if (instance != NULL) {
+                /* Specializations that need project types are declared in
+                 * their requirement's section (emit_dispatch_section). */
+                if (instance != NULL && instance_requirement(instance)[0] == '\0') {
                     emit_function_signature(out, ti, &ti->functions[i], instance,
                                             assocs.items[j].function_name, 1);
                     emit_function_signature(out, ti, &ti->functions[i], instance,
@@ -5446,6 +6212,59 @@ static void emit_dispatch(Buf *out, const TemplateInfo *ti)
             emit_line_directive(out,
                 (unsigned long)ti->functions[i].start_line, ti->path);
             emit_mismatch_only_macro(out, &ti->functions[i]);
+        }
+        assoc_list_free(&assocs);
+    }
+}
+
+/* The parts of a template's dispatch that need `requirement`: navigation
+ * prototypes of its specializations and, when `hooks` is set, the hook
+ * definitions that add them to the dispatch macros. */
+static void emit_dispatch_section(Buf *out, const TemplateInfo *ti,
+                                  const char *requirement, int hooks,
+                                  const char *output_path)
+{
+    size_t i;
+    if (g_dispatch_backend == GEN_DISPATCH_NONE) return;
+    for (i = 0U; i < ti->function_count; ++i) {
+        AssocList assocs;
+        size_t j;
+        int emitted_line = 0;
+        memset(&assocs, 0, sizeof(assocs));
+        build_associations(ti->functions[i].name, &assocs);
+        for (j = 0U; j < assocs.count; ++j) {
+            GenInstance *instance = find_function_instance_for_symbol(
+                ti, &ti->functions[i], assocs.items[j].function_name);
+            if (instance == NULL ||
+                !str_eq(instance_requirement(instance), requirement)) continue;
+            if (!emitted_line) {
+                emit_line_directive(out,
+                    (unsigned long)ti->functions[i].start_line, ti->path);
+                emitted_line = 1;
+            }
+            emit_function_signature(out, ti, &ti->functions[i], instance,
+                                    assocs.items[j].function_name, 1);
+            emit_function_signature(out, ti, &ti->functions[i], instance,
+                                    assocs.items[j].function_name, 0);
+        }
+        if (emitted_line) {
+            emit_line_directive(out, (unsigned long)out->newlines + 2UL, output_path);
+        }
+        if (hooks && assocs.count != 0U) {
+            DispatchPlan plan;
+            Buf generic_macro, gnu_macro;
+            buf_init(&generic_macro);
+            buf_init(&gnu_macro);
+            build_dispatch_plan(&plan, ti, &ti->functions[i], &assocs,
+                                &generic_macro, &gnu_macro);
+            for (j = 0U; j < plan.hook_count; ++j) {
+                if (str_eq(plan.hooks[j]->requirement, requirement)) {
+                    emit_hook_definition(out, plan.hooks[j]);
+                }
+            }
+            buf_free(&generic_macro);
+            buf_free(&gnu_macro);
+            dispatch_plan_free(&plan);
         }
         assoc_list_free(&assocs);
     }
@@ -5507,13 +6326,16 @@ static size_t template_dispatch_count(const TemplateInfo *ti)
 }
 
 static void emit_function_forward_declarations(Buf *out, size_t template_index,
-                                              const TemplateInfo *ti)
+                                              const TemplateInfo *ti,
+                                              const char *requirement)
 {
     size_t i;
     for (i = 0U; i < ti->function_count; ++i) {
         const TemplateFunction *function = &ti->functions[i];
         if (function->type_parameter_count == 0U) {
-            emit_function_signature(out, ti, function, NULL, function->name, 0);
+            if (requirement[0] == '\0') {
+                emit_function_signature(out, ti, function, NULL, function->name, 0);
+            }
         } else {
             size_t j;
             for (j = 0U; j < g_instance_count; ++j) {
@@ -5523,7 +6345,8 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
                     !instance_matches_parameters(ti, instance,
                         function->type_parameters,
                         function->type_parameter_count) ||
-                    !generic_use_matches(function->name, instance->name, 0)) continue;
+                    !generic_use_matches(function->name, instance->name, 0) ||
+                    !str_eq(instance_requirement(instance), requirement)) continue;
                 symbol = join_suffix(function->name, instance->name);
                 emit_function_signature(out, ti, function, instance, symbol, 0);
                 free(symbol);
@@ -5545,7 +6368,7 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
         callee_ti = &g_all_template_infos[dependency->callee_template_index];
         callee = find_template_function(callee_ti, dependency->callee_function);
         if (callee == NULL) continue;
-        indices = (size_t *)malloc(callee->type_parameter_count * sizeof(*indices));
+        indices = (size_t *)malloc((callee->type_parameter_count + 1U) * sizeof(*indices));
         if (indices == NULL) die("out of memory");
         for (j = 0U; j < callee->type_parameter_count; ++j) {
             int parameter = template_parameter_index(callee_ti,
@@ -5556,7 +6379,8 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
         instance = find_instance(dependency->callee_template_index,
             dependency->callee_instance, indices, callee->type_parameter_count);
         free(indices);
-        if (instance == NULL) continue;
+        if (instance == NULL ||
+            !str_eq(instance_requirement(instance), requirement)) continue;
         symbol = join_suffix(callee->name, instance->name);
         emit_function_signature(out, callee_ti, callee, instance, symbol, 0);
         free(symbol);
@@ -5564,36 +6388,56 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
     buf_putc(out, '\n');
 }
 
-static void emit_template_module(Buf *out, size_t template_index,
-                                 const TemplateInfo *ti, const char *stem,
-                                 const char *output_path,
-                                 const char *guard, Buf *implementation)
+/* Requirements of everything a template module emits, sorted so that every
+ * requirement follows its subsets. */
+static void collect_module_requirements(size_t template_index, StringSet *out)
 {
-    StringSet includes;
+    size_t i;
+    for (i = 0U; i < g_instance_count; ++i) {
+        const char *requirement = instance_requirement(&g_instances[i]);
+        if (g_instances[i].template_index == template_index && requirement[0] != '\0') {
+            string_set_add(out, requirement);
+        }
+    }
+    for (i = 0U; i < g_function_call_dependency_count; ++i) {
+        const FunctionCallDependency *dependency = &g_function_call_dependencies[i];
+        size_t j;
+        if (dependency->caller_template_index != template_index ||
+            dependency->callee_template_index == template_index) continue;
+        for (j = 0U; j < g_instance_count; ++j) {
+            const char *requirement = instance_requirement(&g_instances[j]);
+            if (g_instances[j].template_index == dependency->callee_template_index &&
+                str_eq(g_instances[j].name, dependency->callee_instance) &&
+                requirement[0] != '\0') {
+                string_set_add(out, requirement);
+            }
+        }
+    }
+    sort_requirements(out);
+}
+
+/* Specializations (types, prototypes and bodies) of one template that need
+ * exactly `requirement` ("" for those that need no project type). */
+static void emit_module_part(Buf *out, size_t template_index,
+                             const TemplateInfo *ti, const char *stem,
+                             const char *output_path, Buf *implementation,
+                             const char *requirement)
+{
     GenInstance empty_instance;
     size_t i;
-    memset(&includes, 0, sizeof(includes));
+    int core = requirement[0] == '\0';
     memset(&empty_instance, 0, sizeof(empty_instance));
     empty_instance.name = "";
     empty_instance.template_index = template_index;
-    if (implementation != NULL) {
-        Buf header_name;
-        buf_init(&header_name);
-        buf_puts(&header_name, stem);
-        buf_puts(&header_name, ".gen.h");
-        buf_puts(implementation, "#define TMPLGEN_AGGREGATING\n");
-        emit_include(implementation, header_name.p);
-        buf_puts(implementation, "#undef TMPLGEN_AGGREGATING\n\n");
-        buf_free(&header_name);
-    }
-    emit_preamble(out, guard, ti, 1U, stem, &includes);
     for (i = 0U; i < ti->constructor_count; ++i) {
         const TemplateType *constructor = &ti->constructors[i];
         size_t j;
         if (constructor->parameter_count == 0U) {
-            emit_instance(out, ti, &empty_instance, output_path, stem, constructor->name,
-                          constructor->start_offset, constructor->end_offset,
-                          constructor->start_line, 0);
+            if (core) {
+                emit_instance(out, ti, &empty_instance, output_path, stem,
+                              constructor->name, constructor->start_offset,
+                              constructor->end_offset, constructor->start_line, 0);
+            }
             continue;
         }
         for (j = 0U; j < g_instance_count; ++j) {
@@ -5601,20 +6445,23 @@ static void emit_template_module(Buf *out, size_t template_index,
             if (instance->template_index != template_index ||
                 !instance_matches_parameters(ti, instance,
                     constructor->parameter_names, constructor->parameter_count) ||
-                !type_use_matches(constructor->name, instance->name)) continue;
+                !type_use_matches(constructor->name, instance->name) ||
+                !str_eq(instance_requirement(instance), requirement)) continue;
             emit_instance(out, ti, instance, output_path, stem, constructor->name,
                           constructor->start_offset, constructor->end_offset,
                           constructor->start_line, 0);
         }
     }
-    emit_function_forward_declarations(out, template_index, ti);
+    emit_function_forward_declarations(out, template_index, ti, requirement);
     for (i = 0U; i < ti->function_count; ++i) {
         const TemplateFunction *function = &ti->functions[i];
         size_t j;
         if (function->type_parameter_count == 0U) {
-            emit_instance(out, ti, &empty_instance, output_path, stem, function->name,
-                          function->start_offset, function->end_offset,
-                          function->start_line, 0);
+            if (core) {
+                emit_instance(out, ti, &empty_instance, output_path, stem,
+                              function->name, function->start_offset,
+                              function->end_offset, function->start_line, 0);
+            }
             continue;
         }
         for (j = 0U; j < g_instance_count; ++j) {
@@ -5622,7 +6469,8 @@ static void emit_template_module(Buf *out, size_t template_index,
             if (instance->template_index != template_index ||
                 !instance_matches_parameters(ti, instance,
                     function->type_parameters, function->type_parameter_count) ||
-                !generic_use_matches(function->name, instance->name, 0)) continue;
+                !generic_use_matches(function->name, instance->name, 0) ||
+                !str_eq(instance_requirement(instance), requirement)) continue;
             if (implementation != NULL) {
                 char *implementation_path = generated_module_source_path(stem);
                 emit_instance(implementation, ti, instance, implementation_path,
@@ -5636,6 +6484,110 @@ static void emit_template_module(Buf *out, size_t template_index,
             }
         }
     }
+}
+
+static void buf_put_section_open(Buf *out, const char *have_prefix,
+                                 const char *requirement)
+{
+    buf_puts(out, "#if ");
+    buf_put_requirement_condition(out, requirement);
+    buf_puts(out, " && !defined(");
+    buf_puts(out, have_prefix);
+    buf_put_requirement_id(out, requirement);
+    buf_puts(out, ")\n#define ");
+    buf_puts(out, have_prefix);
+    buf_put_requirement_id(out, requirement);
+    buf_putc(out, '\n');
+}
+
+/* Relative path from directory `from` to file `to` (both absolute). */
+static char *relative_path_between(const char *from, const char *to)
+{
+    size_t common = 0U;
+    size_t i;
+    Buf path;
+    while (from[common] != '\0' && from[common] == to[common]) ++common;
+    if (!((from[common] == '\0' && (to[common] == '/' || to[common] == '\\')) ||
+          (common != 0U && (from[common - 1U] == '/' || from[common - 1U] == '\\')))) {
+        while (common != 0U && from[common - 1U] != '/' && from[common - 1U] != '\\') {
+            --common;
+        }
+    }
+    buf_init(&path);
+    for (i = common; from[i] != '\0'; ++i) {
+        if ((i == common && from[i] != '/' && from[i] != '\\') ||
+            ((from[i] == '/' || from[i] == '\\') && from[i + 1U] != '\0')) {
+            buf_puts(&path, "../");
+        }
+    }
+    while (to[common] == '/' || to[common] == '\\') ++common;
+    buf_puts(&path, to + common);
+    return path.p != NULL ? path.p : copy_string(to);
+}
+
+static void emit_module_dependency_includes(Buf *out, const TemplateInfo *ti,
+                                            const char *stem)
+{
+    size_t i;
+    for (i = 0U; i < ti->include_count; ++i) {
+        char *target_stem = template_include_target(ti->includes[i], stem);
+        if (target_stem != NULL) {
+            char *include_path = relative_module_include(stem, target_stem);
+            emit_include(out, include_path);
+            free(include_path);
+            free(target_stem);
+        }
+    }
+}
+
+static void emit_template_module(Buf *out, size_t template_index,
+                                 const TemplateInfo *ti, const char *stem,
+                                 const char *output_path,
+                                 const char *guard, Buf *implementation)
+{
+    StringSet includes;
+    StringSet requirements;
+    Buf have_prefix;
+    size_t i;
+    memset(&includes, 0, sizeof(includes));
+    memset(&requirements, 0, sizeof(requirements));
+    collect_module_requirements(template_index, &requirements);
+    if (implementation != NULL) {
+        Buf header_name;
+        StringSet headers;
+        memset(&headers, 0, sizeof(headers));
+        /* The implementation file is one translation unit, so it can include
+         * the declaring header of every argument type up front. */
+        for (i = 0U; i < requirements.count; ++i) {
+            const char *requirement = requirements.items[i];
+            while (*requirement != '\0') {
+                const char *comma = strchr(requirement, ',');
+                size_t length = comma != NULL ? (size_t)(comma - requirement) :
+                                                strlen(requirement);
+                char *guard_name = copy_range(requirement, length);
+                const char *header = header_path_for_guard(guard_name);
+                if (header != NULL && !string_set_has(&headers, header)) {
+                    char *relative = relative_path_between(g_generated_dir, header);
+                    string_set_add(&headers, header);
+                    emit_include(implementation, relative);
+                    free(relative);
+                }
+                free(guard_name);
+                requirement += length;
+                if (*requirement == ',') ++requirement;
+            }
+        }
+        string_set_free(&headers);
+        buf_init(&header_name);
+        buf_puts(&header_name, stem);
+        buf_puts(&header_name, ".gen.h");
+        buf_puts(implementation, "#define TMPLGEN_AGGREGATING\n");
+        emit_include(implementation, header_name.p);
+        buf_puts(implementation, "#undef TMPLGEN_AGGREGATING\n\n");
+        buf_free(&header_name);
+    }
+    emit_preamble(out, guard, ti, 1U, stem, &includes);
+    emit_module_part(out, template_index, ti, stem, output_path, implementation, "");
     buf_puts(out, "#ifndef TMPLGEN_AGGREGATING\n");
     emit_type_functors(out, ti);
     if (template_dispatch_count(ti) != 0U &&
@@ -5647,6 +6599,27 @@ static void emit_template_module(Buf *out, size_t template_index,
     buf_puts(out, "#endif /* ");
     buf_puts(out, guard);
     buf_puts(out, " */\n");
+    if (requirements.count != 0U) {
+        buf_puts(out,
+            "\n/* Specializations that name project types. Each section is\n"
+            "   compiled once the header declaring those types (identified by its\n"
+            "   include guard) has been included; include this header after them,\n"
+            "   or again. */\n");
+        emit_module_dependency_includes(out, ti, stem);
+        buf_init(&have_prefix);
+        buf_puts(&have_prefix, "TMPLGEN_HAVE_");
+        buf_puts(&have_prefix, guard);
+        buf_putc(&have_prefix, '_');
+        for (i = 0U; i < requirements.count; ++i) {
+            buf_put_section_open(out, have_prefix.p, requirements.items[i]);
+            emit_module_part(out, template_index, ti, stem, output_path,
+                             implementation, requirements.items[i]);
+            emit_dispatch_section(out, ti, requirements.items[i], 1, output_path);
+            buf_puts(out, "#endif\n");
+        }
+        buf_free(&have_prefix);
+    }
+    string_set_free(&requirements);
     string_set_free(&includes);
 }
 
@@ -5655,8 +6628,10 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
 {
     size_t i;
     size_t dispatch_count = 0U;
-    buf_puts(out, "#ifndef " GEN_GUARD "\n#define " GEN_GUARD "\n");
-    buf_puts(out, "/* AUTO-GENERATED aggregate. DO NOT EDIT. */\n");
+    StringSet requirements;
+    buf_puts(out, "/* AUTO-GENERATED aggregate. DO NOT EDIT.\n"
+                  "   Include it after the headers that declare the types you use\n"
+                  "   as template arguments; including it again later is fine. */\n");
     buf_puts(out, "#ifndef TMPLGEN_AGGREGATING\n#define TMPLGEN_AGGREGATING\n");
     buf_puts(out, "#define TMPLGEN_AGGREGATING_LOCAL\n#endif\n");
     for (i = 0U; i < template_count; ++i) {
@@ -5669,6 +6644,7 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
     }
     buf_puts(out, "#ifdef TMPLGEN_AGGREGATING_LOCAL\n#undef TMPLGEN_AGGREGATING_LOCAL\n");
     buf_puts(out, "#undef TMPLGEN_AGGREGATING\n#endif\n\n");
+    buf_puts(out, "#ifndef " GEN_GUARD "\n#define " GEN_GUARD "\n");
     for (i = 0U; i < template_count; ++i) {
         emit_type_functors(out, &infos[i]);
     }
@@ -5687,6 +6663,28 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
     }
     emit_type_variable_mismatch_assertions(out);
     buf_puts(out, "\n#endif /* " GEN_GUARD " */\n");
+    memset(&requirements, 0, sizeof(requirements));
+    if (g_dispatch_backend != GEN_DISPATCH_NONE && dispatch_count != 0U) {
+        /* Absolute like the module paths, so the text does not depend on
+         * how --output was spelled (standalone vs. plugins). */
+        char *aggregate_path = absolute_path(g_output_path);
+        for (i = 0U; i < template_count; ++i) {
+            collect_module_requirements(i, &requirements);
+        }
+        sort_requirements(&requirements);
+        for (i = 0U; i < requirements.count; ++i) {
+            size_t t;
+            buf_put_section_open(out, "TMPLGEN_HAVE_" GEN_GUARD "_",
+                                 requirements.items[i]);
+            for (t = 0U; t < template_count; ++t) {
+                emit_dispatch_section(out, &infos[t], requirements.items[i], 0,
+                                      aggregate_path);
+            }
+            buf_puts(out, "#endif\n");
+        }
+        free(aggregate_path);
+    }
+    string_set_free(&requirements);
 }
 
 /* ========================== GENERATION ===================== */
@@ -6599,6 +7597,7 @@ static void source_facts_free(SourceFacts *facts)
         list_free(facts->schemas[i].fields, facts->schemas[i].field_count);
     }
     free(facts->schemas);
+    type_origin_list_free(facts->origins, facts->origin_count);
     string_set_free(&facts->dependencies);
     memset(facts, 0, sizeof(*facts));
 }
@@ -6639,6 +7638,14 @@ static void source_facts_add_alias(SourceFacts *facts, const char *name,
     facts->aliases[facts->alias_count].name = copy_string(name);
     facts->aliases[facts->alias_count].canonical = copy_string(canonical);
     ++facts->alias_count;
+}
+
+static void source_facts_add_origin(SourceFacts *facts, const char *name,
+                                    const char *path, unsigned offset)
+{
+    if (facts == NULL) return;
+    type_origin_list_add(&facts->origins, &facts->origin_count,
+                         &facts->origin_cap, name, path, offset);
 }
 
 static void source_facts_add_constructor(SourceFacts *facts,
@@ -6746,6 +7753,11 @@ static void source_facts_apply(SourceFacts *facts)
     size_t i;
     for (i = 0U; i < facts->alias_count; ++i) {
         add_alias(facts->aliases[i].name, facts->aliases[i].canonical);
+    }
+    for (i = 0U; i < facts->origin_count; ++i) {
+        type_origin_list_add(&g_type_origins, &g_type_origin_count,
+                             &g_type_origin_cap, facts->origins[i].name,
+                             facts->origins[i].path, facts->origins[i].offset);
     }
     for (i = 0U; i < facts->constructor_count; ++i) {
         SourceConstructorFact *fact = &facts->constructors[i];
@@ -6970,6 +7982,27 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
         }
     }
     if (!scanned) return CXChildVisit_Recurse;
+    if (context->pass == 1 &&
+        (kind == CXCursor_TypedefDecl ||
+         ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl ||
+           kind == CXCursor_EnumDecl) && clang_isCursorDefinition(cursor) != 0U))) {
+        /* Remember where project types are declared, so generated code that
+         * names them can be guarded by the declaring header's include guard. */
+        char *spelling = copy_cx_string(clang_getCursorSpelling(cursor));
+        if (valid_identifier(spelling)) {
+            Buf origin_name;
+            buf_init(&origin_name);
+            if (kind == CXCursor_StructDecl) buf_puts(&origin_name, "struct ");
+            else if (kind == CXCursor_UnionDecl) buf_puts(&origin_name, "union ");
+            else if (kind == CXCursor_EnumDecl) buf_puts(&origin_name, "enum ");
+            buf_puts(&origin_name, spelling);
+            source_facts_add_origin(context->facts, origin_name.p,
+                                    context->files->items[source_file_index].path,
+                                    offset);
+            buf_free(&origin_name);
+        }
+        free(spelling);
+    }
     if (kind != CXCursor_VarDecl && kind != CXCursor_TypedefDecl &&
         kind != CXCursor_MacroExpansion) return CXChildVisit_Recurse;
     path = kind == CXCursor_MacroExpansion ?
@@ -7431,7 +8464,8 @@ static void build_bootstrap_associations(size_t template_index,
 
 static void emit_bootstrap_function_prototypes(Buf *out,
                                                const TemplateInfo *infos,
-                                               size_t template_count)
+                                               size_t template_count,
+                                               const char *requirement)
 {
     size_t i;
     for (i = 0U; i < template_count; ++i) {
@@ -7448,7 +8482,8 @@ static void emit_bootstrap_function_prototypes(Buf *out,
                 size_t p;
                 if (instance->template_index != i ||
                     !instance_matches_parameters(&infos[i], instance,
-                        function->type_parameters, function->type_parameter_count)) continue;
+                        function->type_parameters, function->type_parameter_count) ||
+                    !str_eq(instance_requirement(instance), requirement)) continue;
                 buf_init(&return_type);
                 if (function->return_application.constructor != NULL) {
                     rewrite_c_type(function->return_type, &infos[i], instance,
@@ -7490,11 +8525,9 @@ static void emit_bootstrap_function_prototypes(Buf *out,
 
 static void emit_bootstrap_function_macro(Buf *out, const char *name,
                                           const TemplateFunction *function,
-                                          const AssocList *assocs,
-                                          int gnu_backend)
+                                          const Buf *expression)
 {
     size_t i;
-    size_t *candidates;
     buf_puts(out, "#undef ");
     buf_puts(out, name);
     buf_puts(out, "\n#define ");
@@ -7506,26 +8539,19 @@ static void emit_bootstrap_function_macro(Buf *out, const char *name,
         buf_put_uint(out, (unsigned long)i);
         buf_puts(out, "(__VA_ARGS__)");
     }
-    buf_puts(out, ", \\\n    ");
-    if (gnu_backend) {
-        Buf fallback;
-        buf_init(&fallback);
-        buf_puts(&fallback, name);
-        buf_puts(&fallback, "__no_match_for_argument_type");
-        emit_gnu_expression(out, assocs, fallback.p != NULL ? fallback.p : "0");
-        buf_free(&fallback);
-    } else {
-        candidates = (size_t *)malloc(assocs->count * sizeof(*candidates));
-        if (candidates == NULL) die("out of memory");
-        for (i = 0U; i < assocs->count; ++i) candidates[i] = i;
-        emit_generic_tree(out, name, assocs, candidates, assocs->count, 0U, 0U, NULL);
-        free(candidates);
-    }
+    buf_puts(out, ", \\\n");
+    buf_puts(out, expression->p != NULL ? expression->p : "0");
     buf_puts(out, "(__VA_ARGS__))\n");
 }
 
+/* Bootstrap dispatch mirrors the generated one: associations that name
+ * project types are added by hooks defined in requirement sections, so a
+ * translation unit that lacks those types still parses cleanly.
+ * With `requirement` == NULL this emits the core macros, otherwise only the
+ * hooks for that requirement. */
 static void emit_bootstrap_function_macros(Buf *out, const TemplateInfo *infos,
-                                           size_t template_count)
+                                           size_t template_count,
+                                           const char *requirement)
 {
     size_t i;
     for (i = 0U; i < template_count; ++i) {
@@ -7538,15 +8564,40 @@ static void emit_bootstrap_function_macros(Buf *out, const TemplateInfo *infos,
             memset(&assocs, 0, sizeof(assocs));
             build_bootstrap_associations(i, &infos[i], function, &assocs);
             if (assocs.count != 0U) {
-                emit_no_match_declaration(out, function->name);
-                buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
-                emit_bootstrap_function_macro(out, function->name, function,
-                                              &assocs, 0);
-                buf_puts(out, "#elif defined(__GNUC__) || defined(__clang__)\n");
-                emit_bootstrap_function_macro(out, function->name, function,
-                                              &assocs, 1);
-                buf_puts(out, "#else\n#error \"tmplgen bootstrap dispatch requires C11 or GNU C\"\n#endif\n\n");
-            } else if (function_has_type_variable_mismatch(function->name)) {
+                DispatchPlan plan;
+                Buf generic_expression, gnu_expression;
+                int saved_backend = g_dispatch_backend;
+                size_t h;
+                buf_init(&generic_expression);
+                buf_init(&gnu_expression);
+                g_dispatch_backend = GEN_DISPATCH_AUTO;
+                build_dispatch_plan(&plan, &infos[i], function, &assocs,
+                                    &generic_expression, &gnu_expression);
+                g_dispatch_backend = saved_backend;
+                if (requirement == NULL) {
+                    emit_no_match_declaration(out, function->name);
+                    for (h = 0U; h < plan.hook_count; ++h) {
+                        emit_hook_default(out, plan.hooks[h]);
+                    }
+                    buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
+                    emit_bootstrap_function_macro(out, function->name, function,
+                                                  &generic_expression);
+                    buf_puts(out, "#elif defined(__GNUC__) || defined(__clang__)\n");
+                    emit_bootstrap_function_macro(out, function->name, function,
+                                                  &gnu_expression);
+                    buf_puts(out, "#else\n#error \"tmplgen bootstrap dispatch requires C11 or GNU C\"\n#endif\n\n");
+                } else {
+                    for (h = 0U; h < plan.hook_count; ++h) {
+                        if (str_eq(plan.hooks[h]->requirement, requirement)) {
+                            emit_hook_definition(out, plan.hooks[h]);
+                        }
+                    }
+                }
+                buf_free(&generic_expression);
+                buf_free(&gnu_expression);
+                dispatch_plan_free(&plan);
+            } else if (requirement == NULL &&
+                       function_has_type_variable_mismatch(function->name)) {
                 emit_mismatch_only_macro(out, function);
             }
             assoc_list_free(&assocs);
@@ -7649,8 +8700,8 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
         }
     }
     if (second_pass) {
-        emit_bootstrap_function_prototypes(out, infos, template_count);
-        emit_bootstrap_function_macros(out, infos, template_count);
+        emit_bootstrap_function_prototypes(out, infos, template_count, "");
+        emit_bootstrap_function_macros(out, infos, template_count, NULL);
     } else {
         for (i = 0U; i < template_count; ++i) {
             size_t j;
@@ -7676,7 +8727,33 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
             }
         }
     }
+    if (second_pass) buf_puts(out, "#define TMPLGEN_BOOTSTRAP_READY\n");
     buf_puts(out, "\n#endif /* " GEN_GUARD " */\n");
+    if (second_pass) {
+        StringSet requirements;
+        memset(&requirements, 0, sizeof(requirements));
+        for (i = 0U; i < template_count; ++i) {
+            collect_module_requirements(i, &requirements);
+        }
+        sort_requirements(&requirements);
+        /* Every generated path maps to this same text, so nested includes
+         * from the core (template includes of other modules) reach here
+         * before the core's stubs exist; wait until it is complete. */
+        if (requirements.count != 0U) {
+            buf_puts(out, "#ifdef TMPLGEN_BOOTSTRAP_READY\n");
+        }
+        for (i = 0U; i < requirements.count; ++i) {
+            buf_put_section_open(out, "TMPLGEN_HAVE_BOOTSTRAP_",
+                                 requirements.items[i]);
+            emit_bootstrap_function_prototypes(out, infos, template_count,
+                                               requirements.items[i]);
+            emit_bootstrap_function_macros(out, infos, template_count,
+                                           requirements.items[i]);
+            buf_puts(out, "#endif\n");
+        }
+        if (requirements.count != 0U) buf_puts(out, "#endif\n");
+        string_set_free(&requirements);
+    }
     string_set_free(&includes);
     string_set_free(&type_stubs);
 }
@@ -8116,6 +9193,7 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                 size_t use_index;
                 const TemplateType *constructor = &ti->constructors[k];
                 size_t *constructor_indices;
+                int exact_application;
                 if (identifier_line_in_code(parameter->type, constructor->name) == 0U) continue;
                 constructor_indices = (size_t *)malloc(
                     constructor->parameter_count * sizeof(*constructor_indices));
@@ -8125,6 +9203,30 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                         constructor->parameter_names[p]);
                     if (mapped < 0) die("invalid type constructor parameter map");
                     constructor_indices[p] = (size_t)mapped;
+                }
+                /* The loose element-type match (2) exists for the first pass,
+                 * where Vec(T) is spelled T. Once some candidate matches the
+                 * spelled type exactly, a loose match is a different
+                 * instance (Vec(Vec_Foo) for an argument of type Vec_Foo *)
+                 * and must not override it. */
+                exact_application = 0;
+                if (parameter->application.constructor != NULL &&
+                    str_eq(parameter->application.constructor, constructor->name)) {
+                    for (use_index = 0U; use_index < g_type_use_count; ++use_index) {
+                        GenInstance *candidate;
+                        if (!str_eq(g_type_uses[use_index].functor, constructor->name)) continue;
+                        candidate = find_instance(template_index,
+                            g_type_uses[use_index].type_name, constructor_indices,
+                            constructor->parameter_count);
+                        if (candidate != NULL &&
+                            application_candidate_matches(ti, parameter, candidate,
+                                use->type_spelling,
+                                use->canonical_spelling != NULL ?
+                                use->canonical_spelling : use->type_spelling) == 1) {
+                            exact_application = 1;
+                            break;
+                        }
+                    }
                 }
                 for (use_index = 0U; use_index < g_type_use_count; ++use_index) {
                     GenInstance *candidate;
@@ -8146,7 +9248,8 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                                 use->type_spelling,
                                 use->canonical_spelling != NULL ?
                                 use->canonical_spelling : use->type_spelling);
-                        if (application_match == 0) continue;
+                        if (application_match == 0 ||
+                            (application_match == 2 && exact_application)) continue;
                         assign_application_parameters(ti, function,
                             &parameter->application, candidate, spellings,
                             canonicals, assigned, application_match == 1,
@@ -9077,6 +10180,8 @@ static int discover_source_usages(const TemplateInfo *infos, size_t template_cou
             collect_suffix_api_uses(&files->items[i], infos, template_count);
         }
         expand_dependencies_to_fixpoint(infos, template_count, 0);
+        /* Errors are reported again (once) after the second pass. */
+        (void)compute_instance_requirements();
         emit_bootstrap_header(&bootstrap, infos, template_count, 1);
         for (i = 0U; i < files->count; ++i) {
             SourceFile *source = &files->items[i];
@@ -9177,6 +10282,13 @@ static void clear_discovery_state(void)
     g_aliases = NULL;
     g_alias_count = 0U;
     g_alias_cap = 0U;
+    type_origin_list_free(g_type_origins, g_type_origin_count);
+    g_type_origins = NULL;
+    g_type_origin_count = 0U;
+    g_type_origin_cap = 0U;
+    list_free(g_instance_requirements, g_instance_requirement_count);
+    g_instance_requirements = NULL;
+    g_instance_requirement_count = 0U;
     for (i = 0U; i < g_function_call_dependency_count; ++i) {
         free(g_function_call_dependencies[i].caller_function);
         free(g_function_call_dependencies[i].caller_instance);
@@ -9207,6 +10319,7 @@ static int generate(GeneratedFileList *out)
     memset(&source_files, 0, sizeof(source_files));
     memset(out, 0, sizeof(*out));
     clear_discovery_state();
+    clear_requirement_state();
     string_set_free(&g_clang_dependencies);
     g_error_count = 0U;
     if (!discover_template_files()) return 0;
@@ -9265,6 +10378,7 @@ static int generate(GeneratedFileList *out)
     if (!discover_source_usages(infos, gen_template_count(), &source_files)) goto failed;
     if (!validate_structural_constraints(infos, gen_template_count())) goto failed;
     if (g_error_count != 0U) goto failed;
+    if (!compute_instance_requirements() || g_error_count != 0U) goto failed;
     for (i = 0U; i < gen_template_count(); ++i) {
         Buf module;
         Buf implementation;
@@ -9300,6 +10414,7 @@ static int generate(GeneratedFileList *out)
     g_all_template_infos = NULL;
     g_all_template_info_count = 0U;
     clear_discovery_state();
+    clear_requirement_state();
     return 1;
 
 failed:
@@ -9310,6 +10425,7 @@ failed:
     g_all_template_infos = NULL;
     g_all_template_info_count = 0U;
     clear_discovery_state();
+    clear_requirement_state();
     return 0;
 }
 
@@ -9872,7 +10988,7 @@ static int source_facts_load(SourceFile *source, const SourceList *files)
         return 0;
     }
     if (fgets(header, sizeof(header), file) == NULL ||
-        !str_eq(header, "TMPLGEN-FACTS-1\n") ||
+        !str_eq(header, "TMPLGEN-FACTS-2\n") ||
         fscanf(file, "%16llx %16llx\n", &source->facts.pass1_key,
                &source->facts.pass2_key) != 2 ||
         fscanf(file, "%lu\n", &count) != 1 || count > 1000000UL) goto done;
@@ -9978,6 +11094,20 @@ static int source_facts_load(SourceFile *source, const SourceList *files)
         free(schema.name);
         list_free(schema.fields, schema.field_count);
     }
+    if (fscanf(file, "%lu\n", &count) != 1 || count > 1000000UL) goto done;
+    for (i = 0UL; i < count; ++i) {
+        unsigned long origin_offset;
+        char *name = NULL, *origin_path = NULL;
+        if (fscanf(file, "%lu\n", &origin_offset) != 1 || origin_offset > UINT_MAX ||
+            !source_facts_read_string(file, &name) ||
+            !source_facts_read_string(file, &origin_path)) {
+            free(name); free(origin_path);
+            goto done;
+        }
+        source_facts_add_origin(&source->facts, name, origin_path,
+                                (unsigned)origin_offset);
+        free(name); free(origin_path);
+    }
     if (!source_facts_read_uses(file, &source->facts.pass1_uses, files) ||
         !source_facts_read_uses(file, &source->facts.pass2_uses, files)) goto done;
     if (fgetc(file) == EOF && !ferror(file)) okay = 1;
@@ -10026,7 +11156,7 @@ static int source_facts_save(const SourceFile *source,
     if (!ensure_parent_directories(path)) goto done;
     file = fopen(temporary, "wb");
     if (file == NULL) goto done;
-    if (fprintf(file, "TMPLGEN-FACTS-1\n%016llx %016llx\n%lu\n",
+    if (fprintf(file, "TMPLGEN-FACTS-2\n%016llx %016llx\n%lu\n",
                 source->facts.pass1_key, source->facts.pass2_key,
                 (unsigned long)dependencies.count) < 0) goto close_file;
     for (i = 0U; i < dependencies.count; ++i) {
@@ -10074,6 +11204,15 @@ static int source_facts_save(const SourceFile *source,
                 goto close_file;
             }
         }
+    }
+    if (fprintf(file, "%lu\n", (unsigned long)source->facts.origin_count) < 0) {
+        goto close_file;
+    }
+    for (i = 0U; i < source->facts.origin_count; ++i) {
+        const TypeOrigin *origin = &source->facts.origins[i];
+        if (fprintf(file, "%u\n", origin->offset) < 0 ||
+            !source_facts_write_string(file, origin->name) ||
+            !source_facts_write_string(file, origin->path)) goto close_file;
     }
     if (!source_facts_write_uses(file, &source->facts.pass1_uses, files) ||
         !source_facts_write_uses(file, &source->facts.pass2_uses, files)) goto close_file;

@@ -172,7 +172,7 @@ NEWTYPE="$BUILD/newtype"
 mkdir -p "$NEWTYPE/lib"
 cp -R test/gen "$NEWTYPE/gen"
 cp test/lib/physics.h "$NEWTYPE/lib/physics.h"
-printf 'typedef double Fresh;\n' > "$NEWTYPE/fresh.h"
+printf '#ifndef FRESH_H\n#define FRESH_H\ntypedef double Fresh;\n#endif\n' > "$NEWTYPE/fresh.h"
 cat > "$NEWTYPE/main.c" <<'EOF'
 #include "fresh.h"
 #include "gen/vec.gen.h"
@@ -236,6 +236,7 @@ mkdir -p "$SUBTYPE/gen" "$SUBTYPE/test/lib" "$SUBTYPE/lib"
 cp test/lib/physics.h "$SUBTYPE/test/lib/physics.h"
 cp test/lib/physics.h "$SUBTYPE/lib/physics.h"
 cp test/negative/unmatched_structural_rows.c.in "$SUBTYPE/main.c"
+cp test/negative/structural_rows_types.h "$SUBTYPE/structural_rows_types.h"
 "$BUILD/tmplgen" --source-root "$SUBTYPE" --template-dir test/tmpl \
     --output "$SUBTYPE/gen/all.gen.h" \
     --clang-arg=-std=c11
@@ -267,12 +268,12 @@ if ! grep -q 'subtyping/main.c' "$BUILD/subtyping.log"; then
     printf '%s\n' 'structural constraint diagnostics were not mapped to a source callsite' >&2
     exit 1
 fi
-if ! grep -q 'subtyping/main.c:23:' "$BUILD/subtyping.log" ||
-   ! grep -q 'subtyping/main.c:24:' "$BUILD/subtyping.log"; then
+if ! grep -q 'subtyping/main.c:13:' "$BUILD/subtyping.log" ||
+   ! grep -q 'subtyping/main.c:14:' "$BUILD/subtyping.log"; then
     printf '%s\n' 'structural constraint diagnostics did not point at the failing calls' >&2
     exit 1
 fi
-if ! grep -q 'subtyping/main.c:24:' "$BUILD/subtyping.log"; then
+if ! grep -q 'subtyping/main.c:14:' "$BUILD/subtyping.log"; then
     printf '%s\n' 'expression constraint diagnostics did not point at the failing call' >&2
     exit 1
 fi
@@ -319,5 +320,7 @@ fi
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     "$COMPILED/main.c" "$COMPILED"/gen/*.gen.c -o "$COMPILED/main"
 "$COMPILED/main"
+
+"$ROOT/test/headers.sh" "$BUILD/tmplgen" "$CC"
 
 printf '%s\n' 'all tmplgen tests passed'

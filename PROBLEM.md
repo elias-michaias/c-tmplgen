@@ -1,8 +1,24 @@
 # Problem: generated headers need every template argument type declared beforehand
 
-> Status: **open, reproduced, not fixed.** Found 2026-11-01 while planning
+> Status: **fixed** (header-guarded sections). Found 2026-11-01 while planning
 > reflection (`REFLECTION.md`). Reproduced with the standalone `tmplgen` built
 > from this repo against LLVM main's libclang, compiling with GCC 13.
+>
+> **Resolution.** Everything a specialization emits that names a project type
+> (struct, prototypes, bodies, dispatch entries) now lives in a section guarded
+> by the include guard of the header declaring that type, e.g.
+> `#if defined(FOO_H) && !defined(TMPLGEN_HAVE_..._FOO_H)`. The generated
+> headers have no include guard around those sections, and dispatch macros pick
+> up the sections' associations through hook macros that are redefined inside
+> them (macros expand at the call). Cases 1 and 2 compile; case 3 (a type
+> declared in a `.c` file), a declaring header without an `#ifndef`/`#define`
+> guard, and a header that includes the generated header before declaring its
+> type are reported by tmplgen as errors. The rules are documented in
+> `doc/usage.md` ("Include generated headers after your types");
+> `test/headers.sh` covers the scenarios below with every dispatch backend and
+> `--compiled`. The generator's own parsing stand-in header follows the same
+> layout, which also fixed spurious "cannot infer" warnings in projects whose
+> files don't all see the same types.
 
 ## Summary
 
