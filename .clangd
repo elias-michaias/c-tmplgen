@@ -40,3 +40,15 @@ If:
 CompileFlags:
   Remove: [-std=*]
   Add: [-std=gnu99]
+---
+If:
+  PathMatch: test/cases/reflect_[a-z]+[.]c
+CompileFlags:
+  Remove: [-std=*]
+  Add: [-std=c11]
+---
+If:
+  PathMatch: (test/(cases|lib|negative)/.*|test/gen/reflection)[.]h
+CompileFlags:
+  Remove: [-std=*]
+  Add: [-x, c, -std=c11]

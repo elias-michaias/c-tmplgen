@@ -225,7 +225,11 @@ extern void cross_root__no_match_for_argument_type(struct tmplgen_no_association
    compiled once the header declaring those types (identified by its
    include guard) has been included; include this header after them,
    or again. */
+#ifndef TMPLGEN_INCLUDING_TMPL_H_MATH_GEN_H
+#define TMPLGEN_INCLUDING_TMPL_H_MATH_GEN_H
 #include "result.gen.h"
+#undef TMPLGEN_INCLUDING_TMPL_H_MATH_GEN_H
+#endif
 #if defined(TEST_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_MATH_GEN_H_TEST_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_MATH_GEN_H_TEST_TYPES_H
 static inline TestInt max_TestInt(TestInt a, TestInt b);
@@ -295,7 +299,7 @@ static inline TestInt cross_root_TestInt(TestInt value)
 #line 12 "test/tmpl/math.tmpl.h"
 /// static inline TestInt max_TestInt(TestInt a, TestInt b)
 static inline TestInt max_TestInt(TestInt a, TestInt b);
-#line 299 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
+#line 303 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
 #undef TMPLGEN_GENERIC_max_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_max_N0_TEST_TYPES_H(...) \
     TestInt: max_TestInt, \
@@ -310,7 +314,7 @@ static inline TestInt max_TestInt(TestInt a, TestInt b);
 #line 27 "test/tmpl/math.tmpl.h"
 /// static inline TestInt chain_root_TestInt(TestInt value)
 static inline TestInt chain_root_TestInt(TestInt value);
-#line 314 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
+#line 318 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
 #undef TMPLGEN_GENERIC_chain_root_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_chain_root_N0_TEST_TYPES_H(...) \
     TestInt: chain_root_TestInt, \
@@ -325,7 +329,7 @@ static inline TestInt chain_root_TestInt(TestInt value);
 #line 29 "test/tmpl/math.tmpl.h"
 /// static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count)
 static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count);
-#line 329 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
+#line 333 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
 #undef TMPLGEN_GENERIC_recursive_value_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_recursive_value_N0_TEST_TYPES_H(...) \
     TestInt: recursive_value_TestInt, \
@@ -340,7 +344,7 @@ static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count)
 #line 37 "test/tmpl/math.tmpl.h"
 /// static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count)
 static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count);
-#line 344 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
+#line 348 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
 #undef TMPLGEN_GENERIC_mutual_first_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_mutual_first_N0_TEST_TYPES_H(...) \
     TestInt: mutual_first_TestInt, \
@@ -355,7 +359,7 @@ static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count);
 #line 55 "test/tmpl/math.tmpl.h"
 /// static inline void reorder_call_TestInt_double(TestInt first, double second)
 static inline void reorder_call_TestInt_double(TestInt first, double second);
-#line 359 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
+#line 363 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
 #undef TMPLGEN_GENERIC_reorder_call_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_reorder_call_N0_TEST_TYPES_H(...) \
     TestInt:     _Generic((GEN_ARG1(__VA_ARGS__)), \
@@ -372,7 +376,7 @@ static inline void reorder_call_TestInt_double(TestInt first, double second);
 #line 60 "test/tmpl/math.tmpl.h"
 /// static inline TestInt cross_root_TestInt(TestInt value)
 static inline TestInt cross_root_TestInt(TestInt value);
-#line 376 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
+#line 380 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
 #undef TMPLGEN_GENERIC_cross_root_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_cross_root_N0_TEST_TYPES_H(...) \
     TestInt: cross_root_TestInt, \

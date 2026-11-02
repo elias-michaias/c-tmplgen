@@ -37,7 +37,15 @@ Use the same language standard, include directories, feature defines, and target
 options as the real build. This matters for conditional declarations, compiler
 extensions, and inferred expression types. For example, C23 `auto` inference
 requires a C23 mode for libclang; GNU `__auto_type` requires a GNU-compatible
-mode.
+mode. With `--reflect=project` it also decides the reflected layout numbers;
+target options such as `--target=…`, `-m32` or `-fshort-enums` must match, or
+the generated layout checks fail the build.
+
+Some libclang installs cannot locate their own builtin headers (`stddef.h`,
+`stdarg.h`). Unless `--clang-arg=-resource-dir=…` is given, tmplgen looks for
+the headers of its libclang version in the usual install locations
+(`/usr/lib/clang/<major>`, `/usr/lib/llvm-<major>/lib/clang/<major>`, …) and
+passes that directory to libclang.
 
 The generator recursively scans `.c` and `.h` files under `--source-root`.
 Generated module outputs and the selected template directory are skipped, as

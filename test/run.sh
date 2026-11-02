@@ -11,16 +11,17 @@ cd "$ROOT"
 
 "$CC" -std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     tmplgen.c -lclang -o "$BUILD/tmplgen"
+# The test project also writes gen/reflection.h (test/cases/reflect_*.c).
 "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
-    --clang-arg=-std=c23
+    --reflect=project --clang-arg=-std=c23
 "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
-    --check --clang-arg=-std=c23
+    --reflect=project --check --clang-arg=-std=c23
 "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
-    --check --no-cache --clang-arg=-std=c23
+    --reflect=project --check --no-cache --clang-arg=-std=c23
 # An absolute template directory (as the clang/clangd plugins pass it) must
 # produce the same root-relative #line paths when given --line-path-base.
 "$BUILD/tmplgen" --template-dir "$ROOT/test/tmpl" --line-path-base "$ROOT" \
-    --output test/gen/all.gen.h --check --clang-arg=-std=c23
+    --output test/gen/all.gen.h --reflect=project --check --clang-arg=-std=c23
 if grep -R -q 'typedef int int' test/gen; then
     printf '%s\n' 'template LSP fallback leaked into generated output' >&2
     exit 1
@@ -146,6 +147,31 @@ fi
     test/cases/gnu_dispatch.c -o "$BUILD/gnu-dispatch"
 "$BUILD/gnu-dispatch"
 
+# Reflection (gen/reflection.h, --reflect=project): layout tables, enumerators,
+# specializations, Any/typetag_of with both dispatch backends, the printer and
+# parser from examples/reflect_demo.c, and a template that uses reflection
+# (test/tmpl/inspect.tmpl.h). The symbol prefix is covered by test/reflect.sh.
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/reflect_fields.c -o "$BUILD/reflect-fields"
+"$BUILD/reflect-fields"
+"$CC" -std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/reflect_fields.c -o "$BUILD/reflect-fields-c99"
+"$BUILD/reflect-fields-c99" >/dev/null
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/reflect_any.c -o "$BUILD/reflect-any"
+"$BUILD/reflect-any"
+"$CC" -std=gnu99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/reflect_any.c -o "$BUILD/reflect-any-gnu"
+"$BUILD/reflect-any-gnu" >/dev/null
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow -Itest \
+    test/cases/reflect_roundtrip.c examples/reflect_demo.c -o "$BUILD/reflect-roundtrip"
+"$BUILD/reflect-roundtrip"
+for std in c11 gnu99 c99; do
+    "$CC" -std=$std -Wall -Wextra -pedantic -Wconversion -Wshadow \
+        test/cases/reflect_template.c -o "$BUILD/reflect-template-$std"
+    "$BUILD/reflect-template-$std" >/dev/null
+done
+
 # A first run without any generated headers must produce the complete output
 # (sources include headers that do not exist yet), and must not cache anything
 # less: compare it with an uncached run once the headers exist. (The copy of
@@ -156,12 +182,12 @@ cp -R test/tmpl test/cases test/lib "$FRESH/test/"
 (
     cd "$FRESH"
     "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
-        --clang-arg=-std=c23 >/dev/null
+        --reflect=project --clang-arg=-std=c23 >/dev/null
     cp -R test/gen "$BUILD/fresh-first-run"
     "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
-        --clang-arg=-std=c23 --no-cache >/dev/null
+        --reflect=project --clang-arg=-std=c23 --no-cache >/dev/null
 )
-for generated in "$FRESH"/test/gen/*.gen.h; do
+for generated in "$FRESH"/test/gen/*.gen.h "$FRESH"/test/gen/reflection.h; do
     if ! cmp -s "$generated" "$BUILD/fresh-first-run/${generated##*/}"; then
         printf '%s\n' "first run without generated headers differs: ${generated##*/}" >&2
         exit 1
@@ -322,5 +348,6 @@ fi
 "$COMPILED/main"
 
 "$ROOT/test/headers.sh" "$BUILD/tmplgen" "$CC"
+"$ROOT/test/reflect.sh" "$BUILD/tmplgen" "$CC"
 
 printf '%s\n' 'all tmplgen tests passed'

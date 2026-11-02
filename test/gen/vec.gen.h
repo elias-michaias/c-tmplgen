@@ -45,6 +45,12 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 #ifndef TMPLGEN_GENERIC_push_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_push_N0_TEST_TYPES_H(...)
 #endif
+#ifndef TMPLGEN_GENERIC_push_N0_REFLECT_TYPES_H
+#define TMPLGEN_GENERIC_push_N0_REFLECT_TYPES_H(...)
+#endif
+#ifndef TMPLGEN_GNU_push_REFLECT_TYPES_H
+#define TMPLGEN_GNU_push_REFLECT_TYPES_H(next, ...) next
+#endif
 #ifndef TMPLGEN_GNU_push_TEST_TYPES_H
 #define TMPLGEN_GNU_push_TEST_TYPES_H(next, ...) next
 #endif
@@ -55,6 +61,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 #define push(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Vec_int *: push_int, \
     TMPLGEN_GENERIC_push_N0_TEST_TYPES_H(__VA_ARGS__) \
+    TMPLGEN_GENERIC_push_N0_REFLECT_TYPES_H(__VA_ARGS__) \
     default: push__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
@@ -64,7 +71,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_int *)), \
         push_int, \
-        TMPLGEN_GNU_push_TEST_TYPES_H(push__no_match_for_argument_type, __VA_ARGS__))(__VA_ARGS__)
+        TMPLGEN_GNU_push_REFLECT_TYPES_H(TMPLGEN_GNU_push_TEST_TYPES_H(push__no_match_for_argument_type, __VA_ARGS__), __VA_ARGS__))(__VA_ARGS__)
 
 #else
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
@@ -77,6 +84,41 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
    compiled once the header declaring those types (identified by its
    include guard) has been included; include this header after them,
    or again. */
+#if defined(REFLECT_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H)
+#define TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H
+
+/* ---- vec: Vec_Item ---- */
+typedef struct {
+  Item *data;
+  size_t len, cap;
+} Vec_Item;
+static inline void push_Item(Vec_Item * v, Item x);
+
+
+/* ---- vec: push_Item ---- */
+static inline void push_Item(Vec_Item * v, Item x) {
+  if (v->len == v->cap) {
+    v->cap = v->cap ? v->cap * 2 : 8;
+    v->data = (Item *)realloc(v->data, v->cap * sizeof(Item));
+  }
+  v->data[v->len++] = x;
+}
+#line 16 "test/tmpl/vec.tmpl.h"
+/// static inline void push_Item(Vec_Item * v, Item x)
+static inline void push_Item(Vec_Item * v, Item x);
+#line 110 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"
+#undef TMPLGEN_GENERIC_push_N0_REFLECT_TYPES_H
+#define TMPLGEN_GENERIC_push_N0_REFLECT_TYPES_H(...) \
+    Vec_Item *: push_Item, \
+
+#undef TMPLGEN_GNU_push_REFLECT_TYPES_H
+#define TMPLGEN_GNU_push_REFLECT_TYPES_H(next, ...) \
+    __builtin_choose_expr( \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_Item *)), \
+        push_Item, \
+        next) \
+
+#endif
 #if defined(TEST_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H
 
@@ -99,7 +141,7 @@ static inline void push_TestInt(Vec_TestInt * v, TestInt x) {
 #line 16 "test/tmpl/vec.tmpl.h"
 /// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
 static inline void push_TestInt(Vec_TestInt * v, TestInt x);
-#line 103 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"
+#line 145 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"
 #undef TMPLGEN_GENERIC_push_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_push_N0_TEST_TYPES_H(...) \
     Vec_TestInt *: push_TestInt, \

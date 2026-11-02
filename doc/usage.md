@@ -176,7 +176,144 @@ available. This gives three rules:
    tmplgen reports a header that includes a generated header before declaring
    a type used as a template argument.
 
+A specialization whose argument is another template's type, such as
+`inspect(Vec(Item))`, also waits for the section that declares `Vec_Item`; the
+generated headers include each other as needed, so their order does not
+matter.
+
 Types declared in a `.c` file cannot be template arguments, since no other
 file could compile their specializations; tmplgen reports them as errors.
 Specializations whose arguments come from several headers, such as
 `Pair(Point, Item)`, need all of them.
+
+## Reflection
+
+`--reflect=project` also writes `gen/reflection.h`: a type id for every struct,
+union, and enum declared in the project's headers (plus template
+specializations, builtins, and the pointer and array types they use), and
+tables describing them.
+
+```c
+#include "player.h"
+#include "gen/all.gen.h"        /* if you use templates */
+#include "gen/reflection.h"     /* last */
+
+Player player = { ... };
+const TypeInfo *info = typeinfo(typetag_of(player));   /* or typetag(Player) */
+const TypeInfo *kind = typeinfo(typetag(Kind));         /* enums too */
+const TypeField *fields = RuntimeTypeFieldTable + info->first;
+for (uint32_t i = 0; i < info->count; i++)
+    printf("%s @%u\n", reflect_str(fields[i].name), fields[i].offset);
+
+Any value = any_of(player);                     /* { &player, TYPETAG_Player } */
+switch (value.type) {
+case typetag(Player): /* ... */ break;
+default: printf("<%s>\n", typestr(value.type)); break;
+}
+```
+
+The whole API:
+
+| | |
+| --- | --- |
+| `typetag(T)` | Id of a type *name* (`Point`, `Kind`, `struct_Node`, `Vec_int`, `const_char_ptr`, `Point_ptr`); needs no declaration. A macro. |
+| `typetag_of(x)` | Id of an expression's type, picked with C11 `_Generic` or GNU builtins. Gives an enum value its integer type's id. A macro. |
+| `enumtag_of(x)` | Id of an enum-typed expression's type. A macro. |
+| `any_of(x)` | `Any` (`{ void *data; TypeTag type; }`) pointing at the lvalue `x`. A macro. |
+| `typeinfo(id)` | `const TypeInfo *`: size, alignment, kind, flags, and where its fields or enumerators are. |
+| `typestr(id)` | Display name, e.g. `"Vec(Item)"`. |
+| `reflect_str(offset)` | A name from the string table (`TypeField.name`, `TypeEnumerator.name`). |
+| `any_field(value, field)` | `Any` for one field of a value. |
+| `RuntimeTypeInfoTable`, `RuntimeTypeFieldTable`, `RuntimeTypeEnumTable`, `RuntimeTypeStrings` | The tables. A record's fields are `RuntimeTypeFieldTable[first .. first+count)`, an enum's enumerators `RuntimeTypeEnumTable[first .. first+count)`. |
+
+- **The tables are plain numbers.** tmplgen asks libclang for sizes,
+  alignments, offsets, and enumerator values, so the tables name no project
+  type and are complete in every translation unit. Code that only reads
+  values, such as a printer taking an `Any`, needs no project headers;
+  `examples/reflect_demo.c` is a complete pretty printer and parser written
+  that way.
+- **The compiler checks the numbers.** For each header that declares
+  reflected types, `reflection.h` has a section guarded by that header's
+  include guard, with a `_Static_assert` comparing `sizeof`, `_Alignof`,
+  `offsetof` and enumerator values against the table. If libclang saw a
+  different target or different macros than your compiler (pass the same
+  `--clang-arg` flags), the build fails with "reflected layout of T differs
+  from this compiler or target".
+- **`typetag(T)` pastes a name**: it is the enumerator `TYPETAG_<name>`, so it
+  costs nothing to compile and works without the type's declaration. Names are
+  spelled as identifiers: `struct_Node`, `Vec_int`, `const_char_ptr`,
+  `Point_ptr`.
+- **`typetag_of(x)`, `enumtag_of(x)` and `any_of(x)`** select by the static
+  type, like the template dispatch, and follow the same include rule: include
+  `reflection.h` after the headers of the types you name, and after the
+  generated headers for specializations such as `Vec(Item)` (or include it
+  again). Each use
+  expands the whole list of types, so prefer `typetag(T)` where the type is
+  known. An enum type is compatible with its integer type, so `typetag_of`
+  gives an enum value the id of that integer type; `enumtag_of` selects among
+  the enums only. Two enum types are never compatible with each other, so it
+  selects exactly; an argument that is not of enum type fails to compile,
+  except a plain integer whose type matches the underlying type of exactly one
+  enum in scope, which selects that enum. `any_of(x)` uses `typetag_of`; for an
+  enum write `(Any){ &x, enumtag_of(x) }`.
+- **Rules.** Headers declaring reflected types need an `#ifndef`/`#define`
+  include guard (`#pragma once` alone is an error), must declare their types
+  before any `#include "gen/reflection.h"`, and must compile when included
+  together, because tmplgen parses them in one translation unit to read the
+  layout. Types declared in `.c` files are not reflected.
+- **Prefix.** Every identifier (`TypeTag`, `TYPETAG_Point`, `Any`,
+  `typeinfo`, the tables) is spelled through a macro, so defining
+  `TMPLGEN_SYMBOL_PREFIX tmplgen_` (project-wide, e.g. with `-D`) renames them
+  to `tmplgen_TypeTag` and so on. The macros are then only available as
+  `TMPLGEN_TYPETAG(T)`, `TMPLGEN_TYPETAG_OF(x)`, `TMPLGEN_ENUMTAG_OF(x)` and
+  `TMPLGEN_ANY_OF(x)`.
+- **`--compiled`** moves the tables into `gen/reflection.gen.c`, which
+  includes every declaring header and runs every layout check once; the header
+  then only changes when the set of types changes.
+
+### Reflection in templates
+
+A template can use the reflection API in its bodies, so one generic function
+works on any reflected type:
+
+```c
+/* tmpl/inspect.tmpl.h */
+#include <stdio.h>
+#include "../gen/reflection.h"
+
+// @template T
+static inline uint32_t inspect(T *value, FILE *out)
+{
+    const TypeInfo *info = typeinfo(typetag_of(*value));
+    /* ... walk RuntimeTypeFieldTable + info->first ... */
+}
+```
+
+The body needs `reflection.h`'s declarations and its `typetag_of` entry for
+`T`, so a specialization such as `inspect_Hero` is compiled only once
+`reflection.h` has seen `Hero`'s header: its section additionally requires
+`TMPLGEN_REFLECT_HAVE_<guard>` (or `TMPLGEN_REFLECTION_H` for builtins). The
+generated header does not include `reflection.h` back; instead `reflection.h`
+includes the headers of such templates at its end, so the usual order works:
+
+```c
+#include "hero.h"
+#include "gen/all.gen.h"        /* inspect() dispatch */
+#include "gen/reflection.h"     /* compiles inspect_Hero */
+
+inspect(&hero, stdout);
+```
+
+A project that specializes such a template needs `--reflect=project`; one that
+only has it in its template directory does not. Write the template against the
+project's names (with `TMPLGEN_SYMBOL_PREFIX`, the prefixed ones).
+
+Worked examples live in `test/cases/reflect_*.c` (field tables and enumerators,
+`Any` with both dispatch backends, the printer/parser round trip, a template
+using reflection from `test/tmpl/inspect.tmpl.h`), built from
+`test/cases/reflect_types.h` by `test/run.sh`; `test/reflect.sh` covers the
+prefix and `--compiled`.
+
+Never store raw `TypeTag` values: ids are dense and shift when types are added.
+Store names instead, as the demo's text format does. See `REFLECTION.md` for
+the design.

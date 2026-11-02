@@ -1,9 +1,98 @@
 # Reflection for tmplgen — design sketch and implementation plan
 
-> Status: **proposal / not implemented.** This document sketches a runtime
+> Status: **partially implemented** (M0–M2 core and the demo; see "Implementation
+> status" below). This document sketches a runtime
 > reflection layer that `tmplgen` generates as `gen/reflection.h`, integrated
 > into the standalone executable and both plugins (Clang and clangd).
-> Line references (`tmplgen.c:NNNN`) point at the current code the plan builds on.
+> Line references (`tmplgen.c:NNNN`) point at the code as it was when the plan
+> was written; they have drifted since.
+>
+> ### Implementation status
+>
+> Implemented (`--reflect=none|project`, `test/reflect.sh`, `test/cases/reflect_*.c`
+> with the golden `test/gen/reflection.h`, `examples/reflect_demo.c`):
+>
+> - **M0:** plugin cache identity (the plugin library, found with `dladdr`);
+>   one output registry (`output_registry_build`) used by the cache manifest,
+>   bootstrap placeholders, parsing overrides and output recognition; editor
+>   unsaved buffers now also reach template parsing and other files' parses.
+> - **M1:** one declaration parse after generation (§7.3) builds the type graph
+>   with libclang layout; integer tables (`RuntimeTypeInfoTable`,
+>   `RuntimeTypeFieldTable`, `RuntimeTypeEnumTable`, `RuntimeTypeStrings`);
+>   deterministic ids (builtins, nameable project types, then derived types,
+>   with hash suffixes on collisions); layout checks in per-header sections
+>   (core for builtins and types every TU sees); the API `typetag(T)`,
+>   `typetag_of(x)`, `enumtag_of(x)`, `any_of(x)`,
+>   `typeinfo(id)`, `typestr(id)`, `reflect_str(offset)`, `any_field`; the
+>   `TMPLGEN_SYMBOL_PREFIX` mechanism (§5.4, macros then spelled
+>   `TMPLGEN_TYPETAG`, `TMPLGEN_TYPETAG_OF`, `TMPLGEN_ENUMTAG_OF`,
+>   `TMPLGEN_ANY_OF`);
+>   `--compiled` with every check in `reflection.gen.c` (Q6 default); errors for
+>   guardless (`#pragma once`) declaring headers and for headers that include
+>   `reflection.h` before declaring a reflected type; flags `SIGNED`,
+>   `POINTER_FREE`, `NO_PADDING`, `HAS_BITFIELDS`, `FLEXIBLE`, `ANONYMOUS`,
+>   `SPECIALIZED`, `ENUM_DENSE`.
+> - **M2 (partly):** `typetag_of(x)`, `any_of(x)` via `_Generic`
+>   or a GNU `__builtin_choose_expr` chain, with project types added by section
+>   hooks; an unknown type selects a declared object whose name appears in the
+>   error. `T *` gets an id for every nameable record.
+> - **M4:** `examples/reflect_demo.c` (printer and parser) with a print → parse
+>   → `memcmp` round trip in the tests.
+> - Also: when no `-resource-dir` is given, tmplgen locates its libclang's
+>   builtin headers (some installs cannot), which the complete declaration
+>   parse needs.
+>
+> Deviations from the plan below:
+>
+> - Dispatch lists every nameable reflected type, not only observed uses
+>   (§6.4's `--reflect-dispatch=all` behavior is the only mode). Enums are never
+>   in `typetag_of` (§10.1's rule, since builtin integer types are always
+>   listed); they have their own `enumtag_of` list (below).
+> - The API was consolidated and renamed: `TYPEID(T)` became `typetag(T)` and
+>   `typeid_of(x)` became `typetag_of(x)` (`typeid` is a C++ keyword);
+>   `typeinfo(x)`, `typeinfo_of(T)`, `typeinfo_any`, `typeinfo_by_id` became one
+>   function, `typeinfo(id)`; `type_name` became `typestr`; `type_string`
+>   became `reflect_str`; the enum `TypeId` / `TYPEID_*` became `TypeTag` /
+>   `TYPETAG_*`; the field-iteration macro was dropped in favor of plain loops
+>   over `RuntimeTypeFieldTable`. The sketches in the rest of this document
+>   still use the original names.
+> - Enums, which the `typetag_of` list cannot hold (§10.1), got a second
+>   list: `enumtag_of(x)` is a `_Generic` over the project's enum types only.
+>   Two enum types are never compatible, so the list is valid; an integer
+>   argument whose type is the underlying type of exactly one listed enum
+>   selects that enum (more than one is a compile error).
+> - `reflection.h` no longer includes `all.gen.h`. Layout checks and
+>   `typetag_of` entries of specializations are keyed on the marker of the
+>   generated section that declares them (`TMPLGEN_HAVE_<module>_<guards>`, or
+>   the module's include guard), so they activate when that section has run;
+>   include `reflection.h` after the generated headers.
+> - Templates may use reflection (`#include "../gen/reflection.h"` in the
+>   template, e.g. `test/tmpl/inspect.tmpl.h`). The include is not copied into
+>   the generated header; the specializations' sections also require
+>   `TMPLGEN_REFLECT_HAVE_<guard>` per argument guard (`TMPLGEN_REFLECTION_H`
+>   for builtins), and `reflection.h` ends by including those templates'
+>   headers with `TMPLGEN_AGGREGATING` set (sections only, no dispatch macros,
+>   so the template itself still parses in an editor). Specializing such a
+>   template needs `--reflect=project`.
+> - A specialization whose argument is another template's type also requires
+>   that type's section marker, and a generated header re-includes the
+>   headers it depends on before its sections (guarded against recursion), so
+>   the order of the generated headers no longer matters.
+> - `typetag(T)` stays a name paste. Taking a written type
+>   (`typetag_of(*(T *)0)`) was tried: it worked, but expanded the full type
+>   list at every use (0.05s to 0.6-1.35s for 600 uses over 800 types), while
+>   the paste is free.
+> - The GNU backend uses a linear chain, not the balanced tree. A synthetic
+>   project with ~1000 dispatchable types (500 structs, 500 enums, 20 headers)
+>   still compiled with GCC and Clang in GNU C99 (0.1–0.2 s per includer;
+>   generation took 1 s), so the tree is deferred until a real project needs
+>   it.
+>
+> Not implemented yet: `--reflect=used|annotated|all`, `--reflect-external`,
+> annotations (M7), `AnyConst`/`any_val`, observed-use dispatch, the balanced
+> GNU tree, `--reflect-verify=everywhere`, per-file shape hashes and binary
+> facts (M5; every non-cached generation re-parses the declaring headers), the
+> clangd features of §9.3 and the query API (M6), id locks.
 >
 > **Revised after PROBLEM.md was fixed.** Generated headers now follow one
 > convention: code that names a project type sits in a section guarded by the
@@ -96,8 +185,10 @@ int main(void)
     const TypeInfo *ti = typeinfo(p);           /* &RuntimeTypeInfoTable[TYPEID_Point] */
     printf("%s: size=%u align=%u\n", type_name(TYPEID_Point), ti->size, ti->align);
 
-    TYPEINFO_FOR_EACH_FIELD(ti, f)              /* x (float) @0, y (float) @4 */
-        printf("  %s (%s) @%u\n", type_string(f->name), type_name((TypeId)f->type), f->offset);
+    const TypeField *fields = RuntimeTypeFieldTable + ti->first;
+    for (uint32_t i = 0; i < ti->count; i++)    /* x (float) @0, y (float) @4 */
+        printf("  %s (%s) @%u\n", type_string(fields[i].name),
+               type_name((TypeId)fields[i].type), fields[i].offset);
 
     Any items[] = { any_of(p), any_of(c), any_of(s) };
     for (size_t i = 0; i < sizeof items / sizeof items[0]; i++) {
@@ -233,7 +324,8 @@ static void print_value(FILE *out, Any v, int depth)
     case TYPEKIND_STRUCT:
     case TYPEKIND_UNION:
         fputs("{\n", out);
-        TYPEINFO_FOR_EACH_FIELD(ti, f) {
+        for (uint32_t i = 0; i < ti->count; i++) {
+            const TypeField *f = &RuntimeTypeFieldTable[ti->first + i];
             if (f->flags & (TYPEFIELD_BITFIELD | TYPEFIELD_IGNORED)) continue;
             fprintf(out, "%*s.%s = ", (depth + 1) * 2, "", type_string(f->name));
             print_value(out, any_field(v, f), depth + 1);
@@ -335,8 +427,10 @@ static int parse_value(const char **s, Any dst)
             if (!eat(s, '.')) return 0;
             name = *s;
             len = ident(s);
-            TYPEINFO_FOR_EACH_FIELD(ti, f)
+            for (uint32_t i = 0; i < ti->count; i++) {
+                const TypeField *f = &RuntimeTypeFieldTable[ti->first + i];
                 if (name_is(f->name, name, len)) { field = f; break; }
+            }
             if (!field || (field->flags & TYPEFIELD_BITFIELD) || !eat(s, '=')) return 0;
             if (!parse_value(s, any_field(dst, field))) return 0;
             eat(s, ',');
@@ -567,9 +661,8 @@ static inline const char *type_string(uint32_t off) { return RuntimeTypeStrings 
 static inline const char *type_name(TypeId id) { return type_string(RuntimeTypeInfoTable[id].display); }
 static inline Any any_field(Any v, const TypeField *f)
 { Any r = { (char *)v.data + f->offset, (TypeId)f->type }; return r; }
-#define TYPEINFO_FOR_EACH_FIELD(ti, f) \
-    for (const TypeField *f = RuntimeTypeFieldTable + (ti)->first, \
-         *f##_end = f + (ti)->count; f < f##_end; ++f)
+/* A record's fields: RuntimeTypeFieldTable[ti->first .. ti->first + ti->count);
+   iterate them with a plain loop. */
 
 #endif /* TMPLGEN_REFLECTION_H */
 
@@ -808,8 +901,16 @@ controlling expression (lvalue conversion, C17 DR 481). They live in
 - **Collisions** are detected after naming (a sort plus adjacent compare).
   The later key gets a deterministic `_h<8 hex of USR hash>` suffix and a
   verbose note.
-- `--reflect-prefix=FOO_` renames every generated identifier
-  (`FOO_TypeId`, `FOO_TYPEID_int`, …) for libraries that ship reflection.
+- **Prefix.** Every generated *identifier* (`TypeId`, `TYPEID_Point`,
+  `RuntimeTypeInfoTable`, `Any`, helpers) is spelled through a token-pasting
+  macro, so `#define TMPLGEN_SYMBOL_PREFIX tmplgen_` before including
+  `reflection.h` renames them all (`tmplgen_TypeId`, `tmplgen_TYPEID_Point`).
+  The default is no prefix. Macro names cannot be computed by the
+  preprocessor, so the operator macros always exist under fixed `TMPLGEN_` /
+  `tmplgen_` names (`TMPLGEN_TYPEID(T)`, `tmplgen_typeinfo_of(T)`), and the
+  short aliases (`TYPEID`, `typeinfo_of`, …) are defined only when no prefix
+  is set. The prefix must be the same in every TU (and in `reflection.gen.c`),
+  so set it project-wide with `-D`.
 
 ### 5.5 Kinds and their metadata
 
@@ -847,10 +948,11 @@ trap. A per-TU table built from guarded sections would have missing rows
 for types the TU never saw, and an `Any` passed in from another TU would
 then read zeroes.)*
 
-The generator asks libclang for each reflected type's layout during the
-collection it already does (§7.3): `clang_Type_getSizeOf`,
-`clang_Type_getAlignOf`, `clang_Type_getOffsetOf` (bits), plus enumerator
-values. The tables are then **plain integers**:
+The generator asks libclang for each reflected type's layout in the
+declaration parse that runs after the template outputs are generated (§7.3):
+`clang_Type_getSizeOf`, `clang_Type_getAlignOf`,
+`clang_Cursor_getOffsetOfField` (bits), plus enumerator values. The tables
+are then **plain integers**:
 
 - They name no project type, so they are complete in every translation unit.
   The header-only mode is fully usable, and a TU that never includes
@@ -1039,44 +1141,52 @@ The arrays are separate because:
 
 Each pass reads only the arrays it needs, all contiguous.
 
-### 7.3 Collection (R1): free-riding on the existing parse
+### 7.3 Collection (R1): one declaration parse after generation
 
-In `collect_clang_source_cursor` (6939), pass 1:
+*(Revised. The first plan collected types in pass 1 of the existing source
+parse. Layout cannot come from there: during that parse the generated headers
+are stand-ins. In pass 1 `Vec(Item)` is spelled `Item`, and in pass 2
+`Vec_Item` is a one-byte placeholder. So every project struct that embeds a
+specialization, such as `struct Inventory { Vec(Item) items; }`, would get
+wrong numbers.)*
 
-- **Ownership rule.** Collect a declaration only when its location is in the
-  **TU's main file**.
-  - Headers are already parsed as their own source units, so every project
-    declaration is collected **exactly once** across the project. Cost is
-    O(declarations), not O(TUs × included headers).
-  - Types from outside the source root are not collected eagerly. They become
-    external nodes when a field references them (§5.1).
-- Use `clang_Type_visitFields` for fields. It visits only fields and is cheaper
-  than `clang_visitChildren`.
-- Per record: `clang_Type_getSizeOf` / `clang_Type_getAlignOf` (§6.1); the
-  declaring file and its requirement key come from the existing
-  `TypeOrigin` facts.
-- Per field:
-  - `clang_getCursorType`
-  - `clang_Cursor_getOffsetOfField` (bits), `clang_Cursor_isBitField` /
-    `clang_getFieldDeclBitWidth`
-  - `clang_Cursor_isAnonymousRecordDecl`, then recurse with a path prefix
+After the template outputs are generated (in memory), the generator parses one
+synthetic translation unit:
+
+```c
+#include "<every scanned header that declares a reflected type>"   /* sorted */
+#include "gen/all.gen.h"                                     /* new contents */
+```
+
+- The new generated headers are passed as unsaved files, and `reflection.h`
+  as a parsing stand-in, so project headers that include them parse cleanly.
+  Every template section is active, so every specialization has its real
+  definition.
+- `CXTranslationUnit_SkipFunctionBodies`; parse errors are reported with the
+  header that caused them. Headers that cannot be included together (platform
+  alternatives, conflicting macros) are a generation error for now.
+- **Collection rule:** a declaration is collected from this parse, where every
+  type is complete. A header that only compiles after other includes is fine
+  here, because all headers are included together.
+- Collected per record: name/USR, declaring file (must be a header with an
+  `#ifndef`/`#define` guard; types declared in `.c` files are never seen), size
+  and alignment, and per field the name, type node, bit offset and bitfield
+  width. Anonymous members are flattened with their path offsets.
 - Type → node is iterative over the type structure:
   - `clang_getCanonicalType`, `clang_getPointeeType`,
-    `clang_getArrayElementType`/`clang_getArraySize`,
-    `clang_getResultType`/`clang_getArgType`
+    `clang_getArrayElementType`/`clang_getArraySize`
   - `clang_getTypeDeclaration`, then `clang_getCursorUSR`, for records and
     enums
-  - `clang_Type_getNamedType` to strip elaborated types
   - The `clang_is*QualifiedType` family for qualifiers
-  - Each step is a hash-cons lookup; spellings are not built.
 - Enums: `clang_getEnumDeclIntegerType` and
   `clang_getEnumConstantDeclValue`/`UnsignedValue`.
-- Annotations: `clang_Cursor_getRawCommentText` on the declaration or field,
-  parsed with the existing `// @` directive tokenizer (`parse_directive` 3282)
-  extended with `reflect*` directives.
-- **Shape hash per file:** a 64-bit hash over the collected declarations
-  (names, field names, field node keys, annotations), *not* over the file
-  text. See §7.6.
+- Annotations (M7): `clang_Cursor_getRawCommentText` on the declaration or
+  field, parsed with the existing `// @` directive tokenizer (`parse_directive`
+  3344) extended with `reflect*` directives.
+- Cost: one extra parse of the project's headers per generation that is not
+  an unchanged-input cache hit. M5 moves the type *graph* back into the main
+  parse with per-file shape hashes (§7.6), so the declaration parse can be
+  skipped when no shape changed.
 
 ### 7.4 Template specializations (R0)
 
@@ -1190,7 +1300,6 @@ recorded results for every milestone.
 | `--reflect-external=opaque\|full` | `TMPLGEN_REFLECT_EXTERNAL` | depth for types outside the root |
 | `--reflect-dispatch=used\|all` | `TMPLGEN_REFLECT_DISPATCH` | association set (§6.4) |
 | `--reflect-unknown=error\|invalid` | `TMPLGEN_REFLECT_UNKNOWN` | default association |
-| `--reflect-prefix=PFX` | `TMPLGEN_REFLECT_PREFIX` | identifier prefix |
 | `--reflect-line` | — | `#line` per enumerator for editor navigation |
 | `--reflect-verify=sections\|everywhere` | `TMPLGEN_REFLECT_VERIFY` | where layout checks go in `--compiled` mode (§6.6) |
 
@@ -1307,13 +1416,17 @@ needed. Optionally, it could verify the libclang bitfield layout against
     cross-compiling users must pass the matching `--clang-arg=--target=…`
     (and flags such as `-m32` or `-fshort-enums`). A mismatch is not silent:
     the section checks fail in every TU that sees an affected type.
-11. **Header inclusion conflicts:** gone. `reflection.h` includes no project
-    header; it only includes the generated `all.gen.h` (§3).
-12. **Include order:** the rules from `doc/usage.md` apply unchanged. A TU
+11. **Header inclusion conflicts:** gone for users. `reflection.h` includes no
+    project header; it only includes the generated `all.gen.h` (§3). The
+    generator's own declaration parse (§7.3) includes every header together.
+12. **Headers without an include-guard macro** (only `#pragma once`) that
+    declare a reflected type are a generation error, as for templates: the
+    sections need a macro to test.
+13. **Include order:** the rules from `doc/usage.md` apply unchanged. A TU
     must include `reflection.h` after the headers whose types it names in
     `typeid_of`/`any_of` (or include it again). A TU that only *reads*
     `Any` values and tables needs no project headers at all.
-13. **Per-TU layout differences:** a struct whose layout depends on a macro
+14. **Per-TU layout differences:** a struct whose layout depends on a macro
     that differs between TUs (`#ifdef DEBUG` fields) breaks the "one table"
     assumption, exactly as it breaks C's own one-definition expectations.
     In header-only mode every TU that sees the type checks it, so such a
