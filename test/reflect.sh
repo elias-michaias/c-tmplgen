@@ -440,6 +440,28 @@ EOF
 expect_error "late declaration" "includes gen/reflection.h before declaring reflected type 'Late'"
 rm -f "$P/late.h"
 
+# enumtag_of on a plain integer: Kind's underlying type is unsigned int, so the
+# compiler alone would quietly select Kind. tmplgen rejects it by type, also
+# inside larger expressions and switch labels that name project ids.
+cat > "$P/plainint.c" <<'EOF'
+#include "player.h"
+#include "gen/reflection.h"
+int plainint(Player *p)
+{
+    unsigned u = 1U;
+    int ok = 0;
+    switch (enumtag_of(p->kind)) { case typetag(Kind): ok = 1; break; default: break; }
+    return ok + (enumtag_of(u) == typetag(Kind));
+}
+EOF
+expect_error "enumtag_of on an integer" \
+    "plainint.c:8: error: enumtag_of() argument has type 'unsigned int', which is not an enum type"
+if grep -q 'plainint.c:7' "$WORK/error.log"; then
+    cat "$WORK/error.log" >&2
+    fail "enumtag_of on an enum-typed member was rejected"
+fi
+rm -f "$P/plainint.c"
+
 # A template that uses reflection needs reflection.h to exist.
 rm -rf "$P/gen"
 if (cd "$P" && "$TMPLGEN" --clang-arg=-std=c11 >"$WORK/error.log" 2>&1); then

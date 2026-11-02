@@ -92,7 +92,8 @@ int a_check(void)
     }
 }
 EOF
-# b.c: never sees Foo or Item; must not need them (PROBLEM.md case 1).
+# b.c: never sees Foo or Item; must not need them (another file's template
+# argument types must not leak into it).
 cat > "$P/b.c" <<'EOF'
 #include "gen/all.gen.h"
 int a_check(void);
@@ -110,9 +111,12 @@ int main(void)
     return ok ? 0 : 1;
 }
 EOF
-# c.c: first include of the generated header happens inside item.h, before
-# foo.h (PROBLEM.md case 2); a two-header specialization; a nested one.
-cat > "$P/c.c" <<'EOF'
+# 0c.c: first include of the generated header happens inside item.h, before
+# foo.h (a header that itself uses a specialization); a two-header
+# specialization; a nested one. The name sorts before the files defining Foo
+# and Item, so the nested specialization Vec(Vec_Foo) is discovered before
+# Vec_Foo and must still be emitted after it.
+cat > "$P/0c.c" <<'EOF'
 #include "item.h"
 #include "foo.h"
 #include "gen/all.gen.h"
@@ -158,7 +162,7 @@ EOF
 compile_project() {
     label=$1
     shift
-    for source in a b c d; do
+    for source in 0c a b d; do
         if ! "$CC" "$@" -Wall -Wextra -Wconversion -Wshadow -Werror \
                 -c "$P/$source.c" -o "$WORK/$source.o"; then
             fail "$label: $source.c did not compile"
@@ -171,7 +175,7 @@ compile_project() {
         extra="$WORK/box.gen.o"
     fi
     # shellcheck disable=SC2086
-    "$CC" "$WORK/a.o" "$WORK/b.o" "$WORK/c.o" "$WORK/d.o" $extra \
+    "$CC" "$WORK/a.o" "$WORK/b.o" "$WORK/0c.o" "$WORK/d.o" $extra \
         -o "$WORK/program" || fail "$label: link failed"
     "$WORK/program" || fail "$label: program returned failure"
 }
@@ -228,7 +232,7 @@ expect_error() {
     }
 }
 
-# A template argument type declared in a .c file (PROBLEM.md case 3).
+# A template argument type declared in a .c file.
 cat > "$P/e.c" <<'EOF'
 #include "gen/all.gen.h"
 typedef struct Local { int x; } Local;

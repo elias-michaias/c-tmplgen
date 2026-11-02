@@ -821,18 +821,6 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #if defined(TEST_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H
 
-/* ---- result: ResultPayload_TestInt_ErrorCode ---- */
-typedef union {
-    TestInt ok;
-    ErrorCode error;
-} ResultPayload_TestInt_ErrorCode;
-
-/* ---- result: ResultPayload_Tag_InferredError ---- */
-typedef union {
-    Tag ok;
-    InferredError error;
-} ResultPayload_Tag_InferredError;
-
 /* ---- result: ResultPayload_InferredLong_InferredError ---- */
 typedef union {
     InferredLong ok;
@@ -857,17 +845,17 @@ typedef union {
     int error;
 } ResultPayload_Dog_int;
 
-/* ---- result: Result_TestInt_ErrorCode ---- */
-typedef struct {
-    ResultTag tag;
-    ResultPayload_TestInt_ErrorCode payload;
-} Result_TestInt_ErrorCode;
+/* ---- result: ResultPayload_Tag_InferredError ---- */
+typedef union {
+    Tag ok;
+    InferredError error;
+} ResultPayload_Tag_InferredError;
 
-/* ---- result: Result_Tag_InferredError ---- */
-typedef struct {
-    ResultTag tag;
-    ResultPayload_Tag_InferredError payload;
-} Result_Tag_InferredError;
+/* ---- result: ResultPayload_TestInt_ErrorCode ---- */
+typedef union {
+    TestInt ok;
+    ErrorCode error;
+} ResultPayload_TestInt_ErrorCode;
 
 /* ---- result: Result_InferredLong_InferredError ---- */
 typedef struct {
@@ -893,6 +881,18 @@ typedef struct {
     ResultPayload_Dog_int payload;
 } Result_Dog_int;
 
+/* ---- result: Result_Tag_InferredError ---- */
+typedef struct {
+    ResultTag tag;
+    ResultPayload_Tag_InferredError payload;
+} Result_Tag_InferredError;
+
+/* ---- result: Result_TestInt_ErrorCode ---- */
+typedef struct {
+    ResultTag tag;
+    ResultPayload_TestInt_ErrorCode payload;
+} Result_TestInt_ErrorCode;
+
 /* ---- result: OptionPayload_TestInt ---- */
 typedef union {
     TestInt some;
@@ -914,15 +914,15 @@ union TaggedChoice_TestInt {
     TestInt value;
 };
 
-/* ---- result: Box_TestInt ---- */
-typedef struct {
-    TestInt value;
-} Box_TestInt;
-
 /* ---- result: Box_Tag ---- */
 typedef struct {
     Tag value;
 } Box_Tag;
+
+/* ---- result: Box_TestInt ---- */
+typedef struct {
+    TestInt value;
+} Box_TestInt;
 
 /* ---- result: Pair_Tag_double ---- */
 typedef struct {
@@ -937,11 +937,11 @@ typedef struct {
 } Pair_double_Tag;
 static inline int result_is_ok_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 static inline int result_is_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
-static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
-static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result);
 static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError * result);
-static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
+static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result);
+static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode * result);
+static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 static inline TestInt result_identity_TestInt(TestInt value);
 static inline int same_size_TestInt_TestInt(TestInt left, TestInt right);
 static inline TestInt cross_helper_TestInt(TestInt value);
@@ -958,12 +958,12 @@ static inline Box_Tag box_make_Tag(Tag value);
 static inline Tag box_get_Tag(Box_Tag * box);
 static inline Pair_Tag_double pair_make_Tag_double(Tag first, double second);
 static inline Pair_double_Tag pair_flip_Tag_double(Pair_Tag_double pair);
-static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);
-static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error);
 static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(ResultTag tag, InferredLong value, InferredError error);
 static inline Result_InferredDouble_ErrorCode result_make_InferredDouble_ErrorCode(ResultTag tag, InferredDouble value, ErrorCode error);
 static inline Result_Dog_ErrorCode result_make_Dog_ErrorCode(ResultTag tag, Dog value, ErrorCode error);
 static inline Result_Dog_int result_make_Dog_int(ResultTag tag, Dog value, int error);
+static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error);
+static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);
 
 
 /* ---- result: result_is_ok_TestInt_ErrorCode ---- */
@@ -978,8 +978,8 @@ static inline int result_is_error_TestInt_ErrorCode(Result_TestInt_ErrorCode *re
     return result->tag == RESULT_ERROR;
 }
 
-/* ---- result: result_value_TestInt_ErrorCode ---- */
-static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode *result)
+/* ---- result: result_value_InferredLong_InferredError ---- */
+static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError *result)
 {
     assert(result->tag == RESULT_OK);
     return result->payload.ok;
@@ -992,22 +992,22 @@ static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError *resul
     return result->payload.ok;
 }
 
-/* ---- result: result_value_InferredLong_InferredError ---- */
-static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError *result)
+/* ---- result: result_value_TestInt_ErrorCode ---- */
+static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode *result)
 {
     assert(result->tag == RESULT_OK);
     return result->payload.ok;
 }
 
-/* ---- result: result_error_TestInt_ErrorCode ---- */
-static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode *result)
+/* ---- result: result_error_InferredDouble_ErrorCode ---- */
+static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode *result)
 {
     assert(result->tag == RESULT_ERROR);
     return result->payload.error;
 }
 
-/* ---- result: result_error_InferredDouble_ErrorCode ---- */
-static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode *result)
+/* ---- result: result_error_TestInt_ErrorCode ---- */
+static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode *result)
 {
     assert(result->tag == RESULT_ERROR);
     return result->payload.error;
@@ -1117,28 +1117,6 @@ static inline Pair_double_Tag pair_flip_Tag_double(Pair_Tag_double pair)
     return flipped;
 }
 
-/* ---- result: result_make_TestInt_ErrorCode ---- */
-static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error)
-{
-    Result_TestInt_ErrorCode result = {0};
-    assert(tag == RESULT_OK || tag == RESULT_ERROR);
-    result.tag = tag;
-    if (tag == RESULT_OK) result.payload.ok = value;
-    else result.payload.error = error;
-    return result;
-}
-
-/* ---- result: result_make_Tag_InferredError ---- */
-static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error)
-{
-    Result_Tag_InferredError result = {0};
-    assert(tag == RESULT_OK || tag == RESULT_ERROR);
-    result.tag = tag;
-    if (tag == RESULT_OK) result.payload.ok = value;
-    else result.payload.error = error;
-    return result;
-}
-
 /* ---- result: result_make_InferredLong_InferredError ---- */
 static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(ResultTag tag, InferredLong value, InferredError error)
 {
@@ -1182,6 +1160,28 @@ static inline Result_Dog_int result_make_Dog_int(ResultTag tag, Dog value, int e
     else result.payload.error = error;
     return result;
 }
+
+/* ---- result: result_make_Tag_InferredError ---- */
+static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error)
+{
+    Result_Tag_InferredError result = {0};
+    assert(tag == RESULT_OK || tag == RESULT_ERROR);
+    result.tag = tag;
+    if (tag == RESULT_OK) result.payload.ok = value;
+    else result.payload.error = error;
+    return result;
+}
+
+/* ---- result: result_make_TestInt_ErrorCode ---- */
+static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error)
+{
+    Result_TestInt_ErrorCode result = {0};
+    assert(tag == RESULT_OK || tag == RESULT_ERROR);
+    result.tag = tag;
+    if (tag == RESULT_OK) result.payload.ok = value;
+    else result.payload.error = error;
+    return result;
+}
 #line 83 "test/tmpl/result.tmpl.h"
 /// static inline int result_is_ok_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline int result_is_ok_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
@@ -1213,51 +1213,51 @@ static inline int result_is_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * r
         next) \
 
 #line 93 "test/tmpl/result.tmpl.h"
-/// static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
-static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
-/// static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result)
-static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result);
 /// static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError * result)
 static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError * result);
+/// static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result)
+static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result);
+/// static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
+static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 #line 1223 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
 #undef TMPLGEN_GENERIC_result_value_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_result_value_N0_TEST_TYPES_H(...) \
-    Result_TestInt_ErrorCode *: result_value_TestInt_ErrorCode, \
-    Result_Tag_InferredError *: result_value_Tag_InferredError, \
     Result_InferredLong_InferredError *: result_value_InferredLong_InferredError, \
+    Result_Tag_InferredError *: result_value_Tag_InferredError, \
+    Result_TestInt_ErrorCode *: result_value_TestInt_ErrorCode, \
 
 #undef TMPLGEN_GNU_result_value_TEST_TYPES_H
 #define TMPLGEN_GNU_result_value_TEST_TYPES_H(next, ...) \
     __builtin_choose_expr( \
-        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_TestInt_ErrorCode *)), \
-        result_value_TestInt_ErrorCode, \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_InferredLong_InferredError *)), \
+        result_value_InferredLong_InferredError, \
         __builtin_choose_expr( \
             (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_Tag_InferredError *)), \
             result_value_Tag_InferredError, \
             __builtin_choose_expr( \
-                (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_InferredLong_InferredError *)), \
-                result_value_InferredLong_InferredError, \
+                (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_TestInt_ErrorCode *)), \
+                result_value_TestInt_ErrorCode, \
                 next))) \
 
 #line 99 "test/tmpl/result.tmpl.h"
-/// static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
-static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 /// static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode * result)
 static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode * result);
+/// static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
+static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 #line 1248 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
 #undef TMPLGEN_GENERIC_result_error_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_result_error_N0_TEST_TYPES_H(...) \
-    Result_TestInt_ErrorCode *: result_error_TestInt_ErrorCode, \
     Result_InferredDouble_ErrorCode *: result_error_InferredDouble_ErrorCode, \
+    Result_TestInt_ErrorCode *: result_error_TestInt_ErrorCode, \
 
 #undef TMPLGEN_GNU_result_error_TEST_TYPES_H
 #define TMPLGEN_GNU_result_error_TEST_TYPES_H(next, ...) \
     __builtin_choose_expr( \
-        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_TestInt_ErrorCode *)), \
-        result_error_TestInt_ErrorCode, \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_InferredDouble_ErrorCode *)), \
+        result_error_InferredDouble_ErrorCode, \
         __builtin_choose_expr( \
-            (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_InferredDouble_ErrorCode *)), \
-            result_error_InferredDouble_ErrorCode, \
+            (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Result_TestInt_ErrorCode *)), \
+            result_error_TestInt_ErrorCode, \
             next)) \
 
 #line 105 "test/tmpl/result.tmpl.h"
@@ -1492,10 +1492,6 @@ static inline Pair_double_Tag pair_flip_Tag_double(Pair_Tag_double pair);
         next) \
 
 #line 205 "test/tmpl/result.tmpl.h"
-/// static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error)
-static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);
-/// static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error)
-static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error);
 /// static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(ResultTag tag, InferredLong value, InferredError error)
 static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(ResultTag tag, InferredLong value, InferredError error);
 /// static inline Result_InferredDouble_ErrorCode result_make_InferredDouble_ErrorCode(ResultTag tag, InferredDouble value, ErrorCode error)
@@ -1504,15 +1500,13 @@ static inline Result_InferredDouble_ErrorCode result_make_InferredDouble_ErrorCo
 static inline Result_Dog_ErrorCode result_make_Dog_ErrorCode(ResultTag tag, Dog value, ErrorCode error);
 /// static inline Result_Dog_int result_make_Dog_int(ResultTag tag, Dog value, int error)
 static inline Result_Dog_int result_make_Dog_int(ResultTag tag, Dog value, int error);
+/// static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error)
+static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error);
+/// static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error)
+static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);
 #line 1508 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
 #undef TMPLGEN_GENERIC_result_make_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_result_make_N0_TEST_TYPES_H(...) \
-    TestInt:     _Generic((GEN_ARG2(__VA_ARGS__)), \
-        ErrorCode: result_make_TestInt_ErrorCode, \
-        default: result_make__no_match_for_argument_type), \
-    Tag:     _Generic((GEN_ARG2(__VA_ARGS__)), \
-        InferredError: result_make_Tag_InferredError, \
-        default: result_make__no_match_for_argument_type), \
     InferredLong:     _Generic((GEN_ARG2(__VA_ARGS__)), \
         InferredError: result_make_InferredLong_InferredError, \
         default: result_make__no_match_for_argument_type), \
@@ -1523,27 +1517,33 @@ static inline Result_Dog_int result_make_Dog_int(ResultTag tag, Dog value, int e
         ErrorCode: result_make_Dog_ErrorCode, \
         int: result_make_Dog_int, \
         default: result_make__no_match_for_argument_type), \
+    Tag:     _Generic((GEN_ARG2(__VA_ARGS__)), \
+        InferredError: result_make_Tag_InferredError, \
+        default: result_make__no_match_for_argument_type), \
+    TestInt:     _Generic((GEN_ARG2(__VA_ARGS__)), \
+        ErrorCode: result_make_TestInt_ErrorCode, \
+        default: result_make__no_match_for_argument_type), \
 
 #undef TMPLGEN_GNU_result_make_TEST_TYPES_H
 #define TMPLGEN_GNU_result_make_TEST_TYPES_H(next, ...) \
     __builtin_choose_expr( \
-        (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), ErrorCode)), \
-        result_make_TestInt_ErrorCode, \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), InferredLong) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), InferredError)), \
+        result_make_InferredLong_InferredError, \
         __builtin_choose_expr( \
-            (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), Tag) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), InferredError)), \
-            result_make_Tag_InferredError, \
+            (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), InferredDouble) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), ErrorCode)), \
+            result_make_InferredDouble_ErrorCode, \
             __builtin_choose_expr( \
-                (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), InferredLong) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), InferredError)), \
-                result_make_InferredLong_InferredError, \
+                (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), Dog) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), ErrorCode)), \
+                result_make_Dog_ErrorCode, \
                 __builtin_choose_expr( \
-                    (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), InferredDouble) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), ErrorCode)), \
-                    result_make_InferredDouble_ErrorCode, \
+                    (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), Dog) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), int)), \
+                    result_make_Dog_int, \
                     __builtin_choose_expr( \
-                        (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), Dog) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), ErrorCode)), \
-                        result_make_Dog_ErrorCode, \
+                        (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), Tag) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), InferredError)), \
+                        result_make_Tag_InferredError, \
                         __builtin_choose_expr( \
-                            (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), Dog) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), int)), \
-                            result_make_Dog_int, \
+                            (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), ErrorCode)), \
+                            result_make_TestInt_ErrorCode, \
                             next)))))) \
 
 #endif

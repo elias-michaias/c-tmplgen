@@ -6633,6 +6633,160 @@ static void collect_module_requirements(size_t template_index, StringSet *out)
     sort_requirements(out);
 }
 
+typedef struct {
+    size_t instance;
+    size_t constructor;
+} TypeInstanceRef;
+
+/* Whether `spelling` names the whole identifier `name`. */
+static int spelling_names_type(const char *spelling, const char *name)
+{
+    size_t length = strlen(name);
+    const char *p = spelling;
+    while (*p != '\0') {
+        if (is_ident_start(*p)) {
+            const char *start = p;
+            while (is_ident_char(*p)) ++p;
+            if ((size_t)(p - start) == length && strncmp(start, name, length) == 0) {
+                return 1;
+            }
+        } else {
+            ++p;
+        }
+    }
+    return 0;
+}
+
+static void emit_type_instance_ref(Buf *out, const TemplateInfo *ti,
+                                   const TypeInstanceRef *ref, const char *stem,
+                                   const char *output_path)
+{
+    const TemplateType *constructor = &ti->constructors[ref->constructor];
+    emit_instance(out, ti, &g_instances[ref->instance], output_path, stem,
+                  constructor->name, constructor->start_offset,
+                  constructor->end_offset, constructor->start_line, 0);
+}
+
+/* Emit the parameterized specializations of the type constructors in this
+ * requirement section, dependencies first. A specialization such as
+ * Vec(Vec_Foo) names Vec_Foo in one of its arguments, so its definition must
+ * follow the definition of Vec_Foo regardless of the order the source files
+ * using them were scanned in. */
+static void emit_type_instances(Buf *out, size_t template_index,
+                                const TemplateInfo *ti, const char *stem,
+                                const char *output_path, const char *requirement)
+{
+    TypeInstanceRef *refs = NULL;
+    char **generated = NULL;
+    size_t count = 0U, cap = 0U;
+    size_t constructor_index, i;
+    for (constructor_index = 0U; constructor_index < ti->constructor_count;
+         ++constructor_index) {
+        const TemplateType *constructor = &ti->constructors[constructor_index];
+        size_t instance_index;
+        if (constructor->parameter_count == 0U) continue;
+        for (instance_index = 0U; instance_index < g_instance_count; ++instance_index) {
+            GenInstance *instance = &g_instances[instance_index];
+            if (instance->template_index != template_index ||
+                !instance_matches_parameters(ti, instance,
+                    constructor->parameter_names, constructor->parameter_count) ||
+                !type_use_matches(constructor->name, instance->name) ||
+                !str_eq(instance_requirement(instance), requirement)) continue;
+            if (count == cap) {
+                size_t new_cap = cap == 0U ? 8U : cap * 2U;
+                TypeInstanceRef *next_refs;
+                char **next_generated;
+                if (new_cap < cap || new_cap > (size_t)-1 / sizeof(*refs)) {
+                    die("too many type specializations");
+                }
+                next_refs = (TypeInstanceRef *)realloc(refs, new_cap * sizeof(*refs));
+                next_generated = (char **)realloc(generated, new_cap * sizeof(*generated));
+                if (next_refs == NULL || next_generated == NULL) die("out of memory");
+                refs = next_refs;
+                generated = next_generated;
+                cap = new_cap;
+            }
+            refs[count].instance = instance_index;
+            refs[count].constructor = constructor_index;
+            generated[count] = join_suffix(constructor->name, instance->name);
+            ++count;
+        }
+    }
+    if (count != 0U) {
+        size_t *remaining = (size_t *)calloc(count, sizeof(*remaining));
+        size_t **dependents = (size_t **)calloc(count, sizeof(*dependents));
+        size_t *dependent_count = (size_t *)calloc(count, sizeof(*dependent_count));
+        size_t *dependent_cap = (size_t *)calloc(count, sizeof(*dependent_cap));
+        size_t *ready = (size_t *)malloc(count * sizeof(*ready));
+        unsigned char *emitted = (unsigned char *)calloc(count, sizeof(*emitted));
+        size_t head = 0U, tail = 0U;
+        size_t candidate;
+        if (remaining == NULL || dependents == NULL || dependent_count == NULL ||
+            dependent_cap == NULL || ready == NULL || emitted == NULL) {
+            die("out of memory");
+        }
+        for (candidate = 0U; candidate < count; ++candidate) {
+            size_t other;
+            for (other = 0U; other < count; ++other) {
+                size_t argument;
+                if (other == candidate) continue;
+                for (argument = 0U;
+                     argument < g_instances[refs[candidate].instance].argument_count;
+                     ++argument) {
+                    const char *spelling =
+                        g_instances[refs[candidate].instance].arguments[argument].c_type;
+                    if (!spelling_names_type(spelling, generated[other])) continue;
+                    if (dependent_count[other] == dependent_cap[other]) {
+                        size_t new_cap = dependent_cap[other] == 0U ? 4U :
+                            dependent_cap[other] * 2U;
+                        size_t *next;
+                        if (new_cap < dependent_cap[other] ||
+                            new_cap > (size_t)-1 / sizeof(*dependents[other])) {
+                            die("too many type dependencies");
+                        }
+                        next = (size_t *)realloc(dependents[other],
+                                                 new_cap * sizeof(*dependents[other]));
+                        if (next == NULL) die("out of memory");
+                        dependents[other] = next;
+                        dependent_cap[other] = new_cap;
+                    }
+                    dependents[other][dependent_count[other]++] = candidate;
+                    ++remaining[candidate];
+                    break;
+                }
+            }
+        }
+        for (candidate = 0U; candidate < count; ++candidate) {
+            if (remaining[candidate] == 0U) ready[tail++] = candidate;
+        }
+        while (head < tail) {
+            size_t pick = ready[head++];
+            size_t dependent;
+            emitted[pick] = 1U;
+            emit_type_instance_ref(out, ti, &refs[pick], stem, output_path);
+            for (dependent = 0U; dependent < dependent_count[pick]; ++dependent) {
+                size_t next = dependents[pick][dependent];
+                if (--remaining[next] == 0U) ready[tail++] = next;
+            }
+        }
+        /* A dependency cycle cannot be ordered; keep the registration order. */
+        for (candidate = 0U; candidate < count; ++candidate) {
+            if (emitted[candidate]) continue;
+            emit_type_instance_ref(out, ti, &refs[candidate], stem, output_path);
+        }
+        for (i = 0U; i < count; ++i) free(dependents[i]);
+        free(dependent_cap);
+        free(dependent_count);
+        free(dependents);
+        free(remaining);
+        free(ready);
+        free(emitted);
+    }
+    for (i = 0U; i < count; ++i) free(generated[i]);
+    free(generated);
+    free(refs);
+}
+
 /* Specializations (types, prototypes and bodies) of one template that need
  * exactly `requirement` ("" for those that need no project type). */
 static void emit_module_part(Buf *out, size_t template_index,
@@ -6648,27 +6802,12 @@ static void emit_module_part(Buf *out, size_t template_index,
     empty_instance.template_index = template_index;
     for (i = 0U; i < ti->constructor_count; ++i) {
         const TemplateType *constructor = &ti->constructors[i];
-        size_t j;
-        if (constructor->parameter_count == 0U) {
-            if (core) {
-                emit_instance(out, ti, &empty_instance, output_path, stem,
-                              constructor->name, constructor->start_offset,
-                              constructor->end_offset, constructor->start_line, 0);
-            }
-            continue;
-        }
-        for (j = 0U; j < g_instance_count; ++j) {
-            GenInstance *instance = &g_instances[j];
-            if (instance->template_index != template_index ||
-                !instance_matches_parameters(ti, instance,
-                    constructor->parameter_names, constructor->parameter_count) ||
-                !type_use_matches(constructor->name, instance->name) ||
-                !str_eq(instance_requirement(instance), requirement)) continue;
-            emit_instance(out, ti, instance, output_path, stem, constructor->name,
-                          constructor->start_offset, constructor->end_offset,
-                          constructor->start_line, 0);
-        }
+        if (constructor->parameter_count != 0U || !core) continue;
+        emit_instance(out, ti, &empty_instance, output_path, stem,
+                      constructor->name, constructor->start_offset,
+                      constructor->end_offset, constructor->start_line, 0);
     }
+    emit_type_instances(out, template_index, ti, stem, output_path, requirement);
     emit_function_forward_declarations(out, template_index, ti, requirement);
     for (i = 0U; i < ti->function_count; ++i) {
         const TemplateFunction *function = &ti->functions[i];
@@ -7385,6 +7524,24 @@ typedef struct {
     size_t count, cap;
 } SourceVariableList;
 
+/* One enumtag_of(x) call: x's source range and what its type turned out to be.
+ * C cannot tell an enum from its underlying integer type, so the generated
+ * macro would quietly give a plain integer an enum's id; tmplgen checks the
+ * argument's type instead (see check_enumtag_arguments). */
+typedef struct {
+    char *path;
+    size_t line;
+    size_t argument_file_index;
+    unsigned argument_start, argument_end;
+    int is_enum;
+    char *other_type;
+} EnumTagCheck;
+
+typedef struct {
+    EnumTagCheck *items;
+    size_t count, cap;
+} EnumTagCheckList;
+
 typedef struct {
     CXTranslationUnit tu;
     const TemplateInfo *infos;
@@ -7395,6 +7552,7 @@ typedef struct {
     CXFile *scanned_files;
     size_t scanned_file_count;
     SourceVariableList variables;
+    EnumTagCheckList enumtag_checks;
     int pass;
     int failed;
 } ClangContext;
@@ -8298,6 +8456,96 @@ static int infer_auto_variable_from_call(const ClangContext *context,
     return (*type_out)[0] != '\0';
 }
 
+static void enumtag_check_add(ClangContext *context, CXCursor cursor,
+                              const char *path, unsigned line)
+{
+    EnumTagCheckList *list = &context->enumtag_checks;
+    char *argument_path = NULL;
+    unsigned start = 0U, end = 0U;
+    size_t file_index, i;
+    if (!macro_argument_source_range(context->tu, cursor, 0U, &argument_path,
+                                     &start, &end)) {
+        free(argument_path);
+        return;
+    }
+    file_index = argument_path != NULL ?
+        source_list_index_for_path(context->files, argument_path) : (size_t)-1;
+    free(argument_path);
+    if (file_index == (size_t)-1) return;
+    /* enumtag_of expands TMPLGEN_ENUMTAG_OF: one check per argument range. */
+    for (i = 0U; i < list->count; ++i) {
+        if (list->items[i].argument_file_index == file_index &&
+            list->items[i].argument_start == start &&
+            list->items[i].argument_end == end) return;
+    }
+    if (list->count == list->cap) {
+        size_t cap = list->cap != 0U ? list->cap * 2U : 8U;
+        EnumTagCheck *items = (EnumTagCheck *)realloc(list->items,
+                                                      cap * sizeof(*items));
+        if (items == NULL) die("out of memory");
+        list->items = items;
+        list->cap = cap;
+    }
+    memset(&list->items[list->count], 0, sizeof(list->items[list->count]));
+    list->items[list->count].path = copy_string(path != NULL ? path : "");
+    list->items[list->count].line = (size_t)line;
+    list->items[list->count].argument_file_index = file_index;
+    list->items[list->count].argument_start = start;
+    list->items[list->count].argument_end = end;
+    ++list->count;
+}
+
+static void enumtag_check_list_free(EnumTagCheckList *list)
+{
+    size_t i;
+    for (i = 0U; i < list->count; ++i) {
+        free(list->items[i].path);
+        free(list->items[i].other_type);
+    }
+    free(list->items);
+    memset(list, 0, sizeof(*list));
+}
+
+/* Records the type of every expression that is exactly an enumtag_of
+ * argument. Several cursors can share that range (an implicit conversion
+ * around the operand); the argument is an enum if any of them is. */
+static enum CXChildVisitResult check_enumtag_arguments(CXCursor cursor,
+                                                       CXCursor parent,
+                                                       CXClientData client_data)
+{
+    ClangContext *context = (ClangContext *)client_data;
+    CXSourceRange extent;
+    CXFile start_file = NULL, end_file = NULL;
+    unsigned start = 0U, end = 0U, start_line = 0U, end_line = 0U;
+    unsigned start_column = 0U, end_column = 0U;
+    size_t file_index, i;
+    (void)parent;
+    if (!clang_isExpression(clang_getCursorKind(cursor))) return CXChildVisit_Recurse;
+    extent = clang_getCursorExtent(cursor);
+    clang_getSpellingLocation(clang_getRangeStart(extent), &start_file,
+                              &start_line, &start_column, &start);
+    clang_getSpellingLocation(clang_getRangeEnd(extent), &end_file,
+                              &end_line, &end_column, &end);
+    if (start_file == NULL || end_file == NULL ||
+        !clang_File_isEqual(start_file, end_file)) return CXChildVisit_Recurse;
+    file_index = clang_file_index(context, start_file);
+    if (file_index == (size_t)-1) return CXChildVisit_Recurse;
+    for (i = 0U; i < context->enumtag_checks.count; ++i) {
+        EnumTagCheck *check = &context->enumtag_checks.items[i];
+        CXType type;
+        if (check->argument_file_index != file_index ||
+            check->argument_start != start || check->argument_end != end) continue;
+        type = clang_getCursorType(cursor);
+        if (type.kind == CXType_Invalid) continue;
+        if (clang_getCanonicalType(type).kind == CXType_Enum) {
+            check->is_enum = 1;
+        } else if (check->other_type == NULL) {
+            check->other_type = copy_cx_string(clang_getTypeSpelling(type));
+        }
+    }
+    return CXChildVisit_Recurse;
+}
+
 static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                                                            CXCursor parent,
                                                            CXClientData client_data)
@@ -8423,7 +8671,10 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
         char *name = copy_cx_string(clang_getCursorSpelling(cursor));
         size_t type_template_index = 0U;
         const TemplateType *constructor = NULL;
-        if (context->pass == 1 &&
+        if (context->pass == 1 && g_reflect_mode != REFLECT_NONE &&
+            (str_eq(name, "enumtag_of") || str_eq(name, "TMPLGEN_ENUMTAG_OF"))) {
+            enumtag_check_add(context, cursor, path, line);
+        } else if (context->pass == 1 &&
             find_type_constructor(context->infos, context->template_count, name,
                                   &type_template_index, &constructor)) {
             char **arguments = NULL;
@@ -8750,8 +9001,27 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
     context.facts = pass == 1 ? facts : NULL;
     context.pass = pass;
     context.failed = 0;
+    memset(&context.enumtag_checks, 0, sizeof(context.enumtag_checks));
     clang_visitChildren(clang_getTranslationUnitCursor(tu),
                         collect_clang_source_cursor, &context);
+    if (context.enumtag_checks.count != 0U) {
+        size_t check_index;
+        clang_visitChildren(clang_getTranslationUnitCursor(tu),
+                            check_enumtag_arguments, &context);
+        for (check_index = 0U; check_index < context.enumtag_checks.count; ++check_index) {
+            const EnumTagCheck *check = &context.enumtag_checks.items[check_index];
+            /* Unresolved arguments are left to the compiler. */
+            if (check->is_enum || check->other_type == NULL) continue;
+            report_error(check->path, check->line,
+                         "enumtag_of() argument has type '%s', which is not an enum "
+                         "type (C cannot tell an enum from its integer type, so the "
+                         "macro alone would not reject it); use typetag_of() for "
+                         "other values, or typetag(T) to name an enum type",
+                         check->other_type);
+            context.failed = 1;
+        }
+    }
+    enumtag_check_list_free(&context.enumtag_checks);
     if (uses != NULL) {
         size_t use_index;
         clang_visitChildren(clang_getTranslationUnitCursor(tu),
@@ -10503,6 +10773,8 @@ static unsigned long long source_facts_pass2_key(const SourceFile *source,
     return hash;
 }
 
+static int source_file_path_compare(const void *left, const void *right);
+
 static int discover_source_usages(const TemplateInfo *infos, size_t template_count,
                                   SourceList *files)
 {
@@ -10511,6 +10783,13 @@ static int discover_source_usages(const TemplateInfo *infos, size_t template_cou
     size_t i;
     int success = 1;
     if (!scan_source_directory(files, g_source_root)) return 0;
+    /* The directory scan follows readdir order, which is filesystem
+     * dependent. Generation must not depend on it, and the input signature
+     * already sorts the same list. */
+    if (files->count > 1U) {
+        qsort(files->items, files->count, sizeof(*files->items),
+              source_file_path_compare);
+    }
     for (i = 0U; i < files->count; ++i) tokenize_source(&files->items[i]);
     index = clang_createIndex(0, 0);
     if (index == NULL) die("libclang could not create an index");
@@ -10685,7 +10964,7 @@ static void clear_discovery_state(void)
    The tables name no project type, so they are complete in every translation
    unit; the consumer's compiler verifies the numbers in sections guarded by
    each declaring header's include guard, the same convention as the template
-   outputs (doc/usage.md). See REFLECTION.md. */
+   outputs (doc/usage.md). See doc/reflection.md. */
 
 enum {
     RK_INVALID, RK_VOID, RK_BOOL, RK_INT, RK_FLOAT, RK_POINTER, RK_ARRAY,
@@ -12200,6 +12479,13 @@ static void emit_reflection_bootstrap(Buf *out)
     buf_puts(out, "\n} TMPLGEN_SYM(TypeTag);\n");
     reflect_emit_table_declarations(out, "extern ", REFLECT_BUILTIN_COUNT + 1U);
     reflect_emit_api(out);
+    /* Project type ids do not exist yet. A distinct constant per use keeps
+     * expressions and case labels that name one (typetag(Kind)) valid, so
+     * libclang still reports the types inside them (enumtag_of checks,
+     * template calls). */
+    buf_puts(out, "#undef TMPLGEN_TYPETAG\n"
+                  "#define TMPLGEN_TYPETAG(T) \\\n"
+                  "    ((TMPLGEN_SYM(TypeTag))(0x40000000 + __COUNTER__))\n");
     buf_puts(out, "#define TMPLGEN_TYPETAG_OF(x) \\\n"
                   "    ((void)(x), TMPLGEN_SYM(TYPETAG_INVALID))\n"
                   "#define TMPLGEN_ENUMTAG_OF(x) \\\n"

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 
 #ifndef TMPLGEN_AGGREGATING
@@ -17,7 +18,7 @@
 #define GEN_ARG1_(arg0, arg1, ...) arg1
 #endif
 
-#line 18 "test/tmpl/inspect.tmpl.h"
+#line 19 "test/tmpl/inspect.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_inspect_argument { int unused; };
@@ -49,7 +50,7 @@ extern void inspect__no_match_for_argument_type(struct tmplgen_no_association_fo
 #undef inspect
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline uint32_t inspect(T * value, FILE * out)
-#line 18 "test/tmpl/inspect.tmpl.h"
+#line 19 "test/tmpl/inspect.tmpl.h"
 #define inspect(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_inspect_N0_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H(__VA_ARGS__) \
     TMPLGEN_GENERIC_inspect_N0_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H(__VA_ARGS__) \
@@ -59,7 +60,7 @@ extern void inspect__no_match_for_argument_type(struct tmplgen_no_association_fo
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline uint32_t inspect(T * value, FILE * out)
-#line 18 "test/tmpl/inspect.tmpl.h"
+#line 19 "test/tmpl/inspect.tmpl.h"
 #define inspect(...) \
     TMPLGEN_GNU_inspect_TMPLGEN_REFLECTION_H(TMPLGEN_GNU_inspect_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H(TMPLGEN_GNU_inspect_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H(TMPLGEN_GNU_inspect_REFLECT_TYPES_H_AND_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H(inspect__no_match_for_argument_type, __VA_ARGS__), __VA_ARGS__), __VA_ARGS__), __VA_ARGS__)(__VA_ARGS__)
 
@@ -97,50 +98,51 @@ static inline uint32_t inspect_int(int *value, FILE *out)
         const TypeField *field = &RuntimeTypeFieldTable[info->first + i];
         const TypeInfo *type = typeinfo((TypeTag)field->type);
         const unsigned char *at = bytes + field->offset;
-        /* Scalars are read through their own type; an enum through its
-         * underlying integer type (`inner`), which it is compatible with. */
-        TypeTag scalar = type->kind == TYPEKIND_ENUM ? (TypeTag)type->inner : (TypeTag)field->type;
-        long long number = 0;
-        int integer = 1;
-        uint32_t e;
         fprintf(out, "  %s: %s", reflect_str(field->name), typestr((TypeTag)field->type));
         if (field->flags & TYPEFIELD_BITFIELD) {
-            fprintf(out, " : %u @%u bits\n", (unsigned)field->bit_width, (unsigned)field->offset);
-            continue;
-        }
-        switch (scalar) {
-        case typetag(_Bool): fputs(*(const _Bool *)at ? " = true" : " = false", out); integer = 0; break;
-        case typetag(char): number = *(const char *)at; break;
-        case typetag(signed_char): number = *(const signed char *)at; break;
-        case typetag(unsigned_char): number = *(const unsigned char *)at; break;
-        case typetag(short): number = *(const short *)at; break;
-        case typetag(unsigned_short): number = *(const unsigned short *)at; break;
-        case typetag(int): number = *(const int *)at; break;
-        case typetag(unsigned_int): number = *(const unsigned int *)at; break;
-        case typetag(long): number = *(const long *)at; break;
-        case typetag(unsigned_long): number = (long long)*(const unsigned long *)at; break;
-        case typetag(long_long): number = *(const long long *)at; break;
-        case typetag(unsigned_long_long): number = (long long)*(const unsigned long long *)at; break;
-        case typetag(float): fprintf(out, " = %g", (double)*(const float *)at); integer = 0; break;
-        case typetag(double): fprintf(out, " = %g", *(const double *)at); integer = 0; break;
-        default: integer = 0; break;
-        }
-        if (integer) {
+            fprintf(out, " : %u", (unsigned)field->bit_width);
+        } else if (type->kind == TYPEKIND_BOOL) {
+            fputs(*at ? " = true" : " = false", out);
+        } else if (type->kind == TYPEKIND_INT || type->kind == TYPEKIND_ENUM) {
+            int is_signed = (type->flags & TYPEFLAG_SIGNED) != 0;
+            long long number = 0;
+            uint32_t e;
+            if (type->size == 1) {
+                uint8_t raw; memcpy(&raw, at, 1);
+                number = is_signed ? (long long)(int8_t)raw : (long long)raw;
+            } else if (type->size == 2) {
+                uint16_t raw; memcpy(&raw, at, 2);
+                number = is_signed ? (long long)(int16_t)raw : (long long)raw;
+            } else if (type->size == 4) {
+                uint32_t raw; memcpy(&raw, at, 4);
+                number = is_signed ? (long long)(int32_t)raw : (long long)raw;
+            } else if (type->size == 8) {
+                uint64_t raw; memcpy(&raw, at, 8);
+                number = (long long)raw;
+            }
             fprintf(out, " = %lld", number);
             for (e = 0; type->kind == TYPEKIND_ENUM && e < type->count; e++) {
                 const TypeEnumerator *item = &RuntimeTypeEnumTable[type->first + e];
                 if (item->value == number) fprintf(out, " (%s)", reflect_str(item->name));
             }
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(float)) {
+            float number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", (double)number);
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(double)) {
+            double number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", number);
         }
         fprintf(out, " @%u\n", (unsigned)field->offset);
     }
     if (count != 0) fputs("}\n", out);
     return count;
 }
-#line 18 "test/tmpl/inspect.tmpl.h"
+#line 19 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_int(int * value, FILE * out)
 static inline uint32_t inspect_int(int * value, FILE * out);
-#line 144 "/home/elias/Projects/c-tmplgen/test/gen/inspect.gen.h"
+#line 146 "/home/elias/Projects/c-tmplgen/test/gen/inspect.gen.h"
 #undef TMPLGEN_GENERIC_inspect_N0_TMPLGEN_REFLECTION_H
 #define TMPLGEN_GENERIC_inspect_N0_TMPLGEN_REFLECTION_H(...) \
     int *: inspect_int, \
@@ -171,50 +173,51 @@ static inline uint32_t inspect_Point(Point *value, FILE *out)
         const TypeField *field = &RuntimeTypeFieldTable[info->first + i];
         const TypeInfo *type = typeinfo((TypeTag)field->type);
         const unsigned char *at = bytes + field->offset;
-        /* Scalars are read through their own type; an enum through its
-         * underlying integer type (`inner`), which it is compatible with. */
-        TypeTag scalar = type->kind == TYPEKIND_ENUM ? (TypeTag)type->inner : (TypeTag)field->type;
-        long long number = 0;
-        int integer = 1;
-        uint32_t e;
         fprintf(out, "  %s: %s", reflect_str(field->name), typestr((TypeTag)field->type));
         if (field->flags & TYPEFIELD_BITFIELD) {
-            fprintf(out, " : %u @%u bits\n", (unsigned)field->bit_width, (unsigned)field->offset);
-            continue;
-        }
-        switch (scalar) {
-        case typetag(_Bool): fputs(*(const _Bool *)at ? " = true" : " = false", out); integer = 0; break;
-        case typetag(char): number = *(const char *)at; break;
-        case typetag(signed_char): number = *(const signed char *)at; break;
-        case typetag(unsigned_char): number = *(const unsigned char *)at; break;
-        case typetag(short): number = *(const short *)at; break;
-        case typetag(unsigned_short): number = *(const unsigned short *)at; break;
-        case typetag(int): number = *(const int *)at; break;
-        case typetag(unsigned_int): number = *(const unsigned int *)at; break;
-        case typetag(long): number = *(const long *)at; break;
-        case typetag(unsigned_long): number = (long long)*(const unsigned long *)at; break;
-        case typetag(long_long): number = *(const long long *)at; break;
-        case typetag(unsigned_long_long): number = (long long)*(const unsigned long long *)at; break;
-        case typetag(float): fprintf(out, " = %g", (double)*(const float *)at); integer = 0; break;
-        case typetag(double): fprintf(out, " = %g", *(const double *)at); integer = 0; break;
-        default: integer = 0; break;
-        }
-        if (integer) {
+            fprintf(out, " : %u", (unsigned)field->bit_width);
+        } else if (type->kind == TYPEKIND_BOOL) {
+            fputs(*at ? " = true" : " = false", out);
+        } else if (type->kind == TYPEKIND_INT || type->kind == TYPEKIND_ENUM) {
+            int is_signed = (type->flags & TYPEFLAG_SIGNED) != 0;
+            long long number = 0;
+            uint32_t e;
+            if (type->size == 1) {
+                uint8_t raw; memcpy(&raw, at, 1);
+                number = is_signed ? (long long)(int8_t)raw : (long long)raw;
+            } else if (type->size == 2) {
+                uint16_t raw; memcpy(&raw, at, 2);
+                number = is_signed ? (long long)(int16_t)raw : (long long)raw;
+            } else if (type->size == 4) {
+                uint32_t raw; memcpy(&raw, at, 4);
+                number = is_signed ? (long long)(int32_t)raw : (long long)raw;
+            } else if (type->size == 8) {
+                uint64_t raw; memcpy(&raw, at, 8);
+                number = (long long)raw;
+            }
             fprintf(out, " = %lld", number);
             for (e = 0; type->kind == TYPEKIND_ENUM && e < type->count; e++) {
                 const TypeEnumerator *item = &RuntimeTypeEnumTable[type->first + e];
                 if (item->value == number) fprintf(out, " (%s)", reflect_str(item->name));
             }
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(float)) {
+            float number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", (double)number);
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(double)) {
+            double number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", number);
         }
         fprintf(out, " @%u\n", (unsigned)field->offset);
     }
     if (count != 0) fputs("}\n", out);
     return count;
 }
-#line 18 "test/tmpl/inspect.tmpl.h"
+#line 19 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_Point(Point * value, FILE * out)
 static inline uint32_t inspect_Point(Point * value, FILE * out);
-#line 218 "/home/elias/Projects/c-tmplgen/test/gen/inspect.gen.h"
+#line 221 "/home/elias/Projects/c-tmplgen/test/gen/inspect.gen.h"
 #undef TMPLGEN_GENERIC_inspect_N0_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H
 #define TMPLGEN_GENERIC_inspect_N0_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H(...) \
     Point *: inspect_Point, \
@@ -247,40 +250,41 @@ static inline uint32_t inspect_Hero(Hero *value, FILE *out)
         const TypeField *field = &RuntimeTypeFieldTable[info->first + i];
         const TypeInfo *type = typeinfo((TypeTag)field->type);
         const unsigned char *at = bytes + field->offset;
-        /* Scalars are read through their own type; an enum through its
-         * underlying integer type (`inner`), which it is compatible with. */
-        TypeTag scalar = type->kind == TYPEKIND_ENUM ? (TypeTag)type->inner : (TypeTag)field->type;
-        long long number = 0;
-        int integer = 1;
-        uint32_t e;
         fprintf(out, "  %s: %s", reflect_str(field->name), typestr((TypeTag)field->type));
         if (field->flags & TYPEFIELD_BITFIELD) {
-            fprintf(out, " : %u @%u bits\n", (unsigned)field->bit_width, (unsigned)field->offset);
-            continue;
-        }
-        switch (scalar) {
-        case typetag(_Bool): fputs(*(const _Bool *)at ? " = true" : " = false", out); integer = 0; break;
-        case typetag(char): number = *(const char *)at; break;
-        case typetag(signed_char): number = *(const signed char *)at; break;
-        case typetag(unsigned_char): number = *(const unsigned char *)at; break;
-        case typetag(short): number = *(const short *)at; break;
-        case typetag(unsigned_short): number = *(const unsigned short *)at; break;
-        case typetag(int): number = *(const int *)at; break;
-        case typetag(unsigned_int): number = *(const unsigned int *)at; break;
-        case typetag(long): number = *(const long *)at; break;
-        case typetag(unsigned_long): number = (long long)*(const unsigned long *)at; break;
-        case typetag(long_long): number = *(const long long *)at; break;
-        case typetag(unsigned_long_long): number = (long long)*(const unsigned long long *)at; break;
-        case typetag(float): fprintf(out, " = %g", (double)*(const float *)at); integer = 0; break;
-        case typetag(double): fprintf(out, " = %g", *(const double *)at); integer = 0; break;
-        default: integer = 0; break;
-        }
-        if (integer) {
+            fprintf(out, " : %u", (unsigned)field->bit_width);
+        } else if (type->kind == TYPEKIND_BOOL) {
+            fputs(*at ? " = true" : " = false", out);
+        } else if (type->kind == TYPEKIND_INT || type->kind == TYPEKIND_ENUM) {
+            int is_signed = (type->flags & TYPEFLAG_SIGNED) != 0;
+            long long number = 0;
+            uint32_t e;
+            if (type->size == 1) {
+                uint8_t raw; memcpy(&raw, at, 1);
+                number = is_signed ? (long long)(int8_t)raw : (long long)raw;
+            } else if (type->size == 2) {
+                uint16_t raw; memcpy(&raw, at, 2);
+                number = is_signed ? (long long)(int16_t)raw : (long long)raw;
+            } else if (type->size == 4) {
+                uint32_t raw; memcpy(&raw, at, 4);
+                number = is_signed ? (long long)(int32_t)raw : (long long)raw;
+            } else if (type->size == 8) {
+                uint64_t raw; memcpy(&raw, at, 8);
+                number = (long long)raw;
+            }
             fprintf(out, " = %lld", number);
             for (e = 0; type->kind == TYPEKIND_ENUM && e < type->count; e++) {
                 const TypeEnumerator *item = &RuntimeTypeEnumTable[type->first + e];
                 if (item->value == number) fprintf(out, " (%s)", reflect_str(item->name));
             }
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(float)) {
+            float number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", (double)number);
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(double)) {
+            double number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", number);
         }
         fprintf(out, " @%u\n", (unsigned)field->offset);
     }
@@ -301,40 +305,41 @@ static inline uint32_t inspect_Item(Item *value, FILE *out)
         const TypeField *field = &RuntimeTypeFieldTable[info->first + i];
         const TypeInfo *type = typeinfo((TypeTag)field->type);
         const unsigned char *at = bytes + field->offset;
-        /* Scalars are read through their own type; an enum through its
-         * underlying integer type (`inner`), which it is compatible with. */
-        TypeTag scalar = type->kind == TYPEKIND_ENUM ? (TypeTag)type->inner : (TypeTag)field->type;
-        long long number = 0;
-        int integer = 1;
-        uint32_t e;
         fprintf(out, "  %s: %s", reflect_str(field->name), typestr((TypeTag)field->type));
         if (field->flags & TYPEFIELD_BITFIELD) {
-            fprintf(out, " : %u @%u bits\n", (unsigned)field->bit_width, (unsigned)field->offset);
-            continue;
-        }
-        switch (scalar) {
-        case typetag(_Bool): fputs(*(const _Bool *)at ? " = true" : " = false", out); integer = 0; break;
-        case typetag(char): number = *(const char *)at; break;
-        case typetag(signed_char): number = *(const signed char *)at; break;
-        case typetag(unsigned_char): number = *(const unsigned char *)at; break;
-        case typetag(short): number = *(const short *)at; break;
-        case typetag(unsigned_short): number = *(const unsigned short *)at; break;
-        case typetag(int): number = *(const int *)at; break;
-        case typetag(unsigned_int): number = *(const unsigned int *)at; break;
-        case typetag(long): number = *(const long *)at; break;
-        case typetag(unsigned_long): number = (long long)*(const unsigned long *)at; break;
-        case typetag(long_long): number = *(const long long *)at; break;
-        case typetag(unsigned_long_long): number = (long long)*(const unsigned long long *)at; break;
-        case typetag(float): fprintf(out, " = %g", (double)*(const float *)at); integer = 0; break;
-        case typetag(double): fprintf(out, " = %g", *(const double *)at); integer = 0; break;
-        default: integer = 0; break;
-        }
-        if (integer) {
+            fprintf(out, " : %u", (unsigned)field->bit_width);
+        } else if (type->kind == TYPEKIND_BOOL) {
+            fputs(*at ? " = true" : " = false", out);
+        } else if (type->kind == TYPEKIND_INT || type->kind == TYPEKIND_ENUM) {
+            int is_signed = (type->flags & TYPEFLAG_SIGNED) != 0;
+            long long number = 0;
+            uint32_t e;
+            if (type->size == 1) {
+                uint8_t raw; memcpy(&raw, at, 1);
+                number = is_signed ? (long long)(int8_t)raw : (long long)raw;
+            } else if (type->size == 2) {
+                uint16_t raw; memcpy(&raw, at, 2);
+                number = is_signed ? (long long)(int16_t)raw : (long long)raw;
+            } else if (type->size == 4) {
+                uint32_t raw; memcpy(&raw, at, 4);
+                number = is_signed ? (long long)(int32_t)raw : (long long)raw;
+            } else if (type->size == 8) {
+                uint64_t raw; memcpy(&raw, at, 8);
+                number = (long long)raw;
+            }
             fprintf(out, " = %lld", number);
             for (e = 0; type->kind == TYPEKIND_ENUM && e < type->count; e++) {
                 const TypeEnumerator *item = &RuntimeTypeEnumTable[type->first + e];
                 if (item->value == number) fprintf(out, " (%s)", reflect_str(item->name));
             }
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(float)) {
+            float number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", (double)number);
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(double)) {
+            double number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", number);
         }
         fprintf(out, " @%u\n", (unsigned)field->offset);
     }
@@ -355,54 +360,55 @@ static inline uint32_t inspect_Number(Number *value, FILE *out)
         const TypeField *field = &RuntimeTypeFieldTable[info->first + i];
         const TypeInfo *type = typeinfo((TypeTag)field->type);
         const unsigned char *at = bytes + field->offset;
-        /* Scalars are read through their own type; an enum through its
-         * underlying integer type (`inner`), which it is compatible with. */
-        TypeTag scalar = type->kind == TYPEKIND_ENUM ? (TypeTag)type->inner : (TypeTag)field->type;
-        long long number = 0;
-        int integer = 1;
-        uint32_t e;
         fprintf(out, "  %s: %s", reflect_str(field->name), typestr((TypeTag)field->type));
         if (field->flags & TYPEFIELD_BITFIELD) {
-            fprintf(out, " : %u @%u bits\n", (unsigned)field->bit_width, (unsigned)field->offset);
-            continue;
-        }
-        switch (scalar) {
-        case typetag(_Bool): fputs(*(const _Bool *)at ? " = true" : " = false", out); integer = 0; break;
-        case typetag(char): number = *(const char *)at; break;
-        case typetag(signed_char): number = *(const signed char *)at; break;
-        case typetag(unsigned_char): number = *(const unsigned char *)at; break;
-        case typetag(short): number = *(const short *)at; break;
-        case typetag(unsigned_short): number = *(const unsigned short *)at; break;
-        case typetag(int): number = *(const int *)at; break;
-        case typetag(unsigned_int): number = *(const unsigned int *)at; break;
-        case typetag(long): number = *(const long *)at; break;
-        case typetag(unsigned_long): number = (long long)*(const unsigned long *)at; break;
-        case typetag(long_long): number = *(const long long *)at; break;
-        case typetag(unsigned_long_long): number = (long long)*(const unsigned long long *)at; break;
-        case typetag(float): fprintf(out, " = %g", (double)*(const float *)at); integer = 0; break;
-        case typetag(double): fprintf(out, " = %g", *(const double *)at); integer = 0; break;
-        default: integer = 0; break;
-        }
-        if (integer) {
+            fprintf(out, " : %u", (unsigned)field->bit_width);
+        } else if (type->kind == TYPEKIND_BOOL) {
+            fputs(*at ? " = true" : " = false", out);
+        } else if (type->kind == TYPEKIND_INT || type->kind == TYPEKIND_ENUM) {
+            int is_signed = (type->flags & TYPEFLAG_SIGNED) != 0;
+            long long number = 0;
+            uint32_t e;
+            if (type->size == 1) {
+                uint8_t raw; memcpy(&raw, at, 1);
+                number = is_signed ? (long long)(int8_t)raw : (long long)raw;
+            } else if (type->size == 2) {
+                uint16_t raw; memcpy(&raw, at, 2);
+                number = is_signed ? (long long)(int16_t)raw : (long long)raw;
+            } else if (type->size == 4) {
+                uint32_t raw; memcpy(&raw, at, 4);
+                number = is_signed ? (long long)(int32_t)raw : (long long)raw;
+            } else if (type->size == 8) {
+                uint64_t raw; memcpy(&raw, at, 8);
+                number = (long long)raw;
+            }
             fprintf(out, " = %lld", number);
             for (e = 0; type->kind == TYPEKIND_ENUM && e < type->count; e++) {
                 const TypeEnumerator *item = &RuntimeTypeEnumTable[type->first + e];
                 if (item->value == number) fprintf(out, " (%s)", reflect_str(item->name));
             }
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(float)) {
+            float number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", (double)number);
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(double)) {
+            double number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", number);
         }
         fprintf(out, " @%u\n", (unsigned)field->offset);
     }
     if (count != 0) fputs("}\n", out);
     return count;
 }
-#line 18 "test/tmpl/inspect.tmpl.h"
+#line 19 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_Hero(Hero * value, FILE * out)
 static inline uint32_t inspect_Hero(Hero * value, FILE * out);
 /// static inline uint32_t inspect_Item(Item * value, FILE * out)
 static inline uint32_t inspect_Item(Item * value, FILE * out);
 /// static inline uint32_t inspect_Number(Number * value, FILE * out)
 static inline uint32_t inspect_Number(Number * value, FILE * out);
-#line 406 "/home/elias/Projects/c-tmplgen/test/gen/inspect.gen.h"
+#line 412 "/home/elias/Projects/c-tmplgen/test/gen/inspect.gen.h"
 #undef TMPLGEN_GENERIC_inspect_N0_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H
 #define TMPLGEN_GENERIC_inspect_N0_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H(...) \
     Hero *: inspect_Hero, \
@@ -441,50 +447,51 @@ static inline uint32_t inspect_Vec_Item(Vec_Item *value, FILE *out)
         const TypeField *field = &RuntimeTypeFieldTable[info->first + i];
         const TypeInfo *type = typeinfo((TypeTag)field->type);
         const unsigned char *at = bytes + field->offset;
-        /* Scalars are read through their own type; an enum through its
-         * underlying integer type (`inner`), which it is compatible with. */
-        TypeTag scalar = type->kind == TYPEKIND_ENUM ? (TypeTag)type->inner : (TypeTag)field->type;
-        long long number = 0;
-        int integer = 1;
-        uint32_t e;
         fprintf(out, "  %s: %s", reflect_str(field->name), typestr((TypeTag)field->type));
         if (field->flags & TYPEFIELD_BITFIELD) {
-            fprintf(out, " : %u @%u bits\n", (unsigned)field->bit_width, (unsigned)field->offset);
-            continue;
-        }
-        switch (scalar) {
-        case typetag(_Bool): fputs(*(const _Bool *)at ? " = true" : " = false", out); integer = 0; break;
-        case typetag(char): number = *(const char *)at; break;
-        case typetag(signed_char): number = *(const signed char *)at; break;
-        case typetag(unsigned_char): number = *(const unsigned char *)at; break;
-        case typetag(short): number = *(const short *)at; break;
-        case typetag(unsigned_short): number = *(const unsigned short *)at; break;
-        case typetag(int): number = *(const int *)at; break;
-        case typetag(unsigned_int): number = *(const unsigned int *)at; break;
-        case typetag(long): number = *(const long *)at; break;
-        case typetag(unsigned_long): number = (long long)*(const unsigned long *)at; break;
-        case typetag(long_long): number = *(const long long *)at; break;
-        case typetag(unsigned_long_long): number = (long long)*(const unsigned long long *)at; break;
-        case typetag(float): fprintf(out, " = %g", (double)*(const float *)at); integer = 0; break;
-        case typetag(double): fprintf(out, " = %g", *(const double *)at); integer = 0; break;
-        default: integer = 0; break;
-        }
-        if (integer) {
+            fprintf(out, " : %u", (unsigned)field->bit_width);
+        } else if (type->kind == TYPEKIND_BOOL) {
+            fputs(*at ? " = true" : " = false", out);
+        } else if (type->kind == TYPEKIND_INT || type->kind == TYPEKIND_ENUM) {
+            int is_signed = (type->flags & TYPEFLAG_SIGNED) != 0;
+            long long number = 0;
+            uint32_t e;
+            if (type->size == 1) {
+                uint8_t raw; memcpy(&raw, at, 1);
+                number = is_signed ? (long long)(int8_t)raw : (long long)raw;
+            } else if (type->size == 2) {
+                uint16_t raw; memcpy(&raw, at, 2);
+                number = is_signed ? (long long)(int16_t)raw : (long long)raw;
+            } else if (type->size == 4) {
+                uint32_t raw; memcpy(&raw, at, 4);
+                number = is_signed ? (long long)(int32_t)raw : (long long)raw;
+            } else if (type->size == 8) {
+                uint64_t raw; memcpy(&raw, at, 8);
+                number = (long long)raw;
+            }
             fprintf(out, " = %lld", number);
             for (e = 0; type->kind == TYPEKIND_ENUM && e < type->count; e++) {
                 const TypeEnumerator *item = &RuntimeTypeEnumTable[type->first + e];
                 if (item->value == number) fprintf(out, " (%s)", reflect_str(item->name));
             }
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(float)) {
+            float number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", (double)number);
+        } else if (type->kind == TYPEKIND_FLOAT && type->size == sizeof(double)) {
+            double number;
+            memcpy(&number, at, sizeof number);
+            fprintf(out, " = %g", number);
         }
         fprintf(out, " @%u\n", (unsigned)field->offset);
     }
     if (count != 0) fputs("}\n", out);
     return count;
 }
-#line 18 "test/tmpl/inspect.tmpl.h"
+#line 19 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_Vec_Item(Vec_Item * value, FILE * out)
 static inline uint32_t inspect_Vec_Item(Vec_Item * value, FILE * out);
-#line 488 "/home/elias/Projects/c-tmplgen/test/gen/inspect.gen.h"
+#line 495 "/home/elias/Projects/c-tmplgen/test/gen/inspect.gen.h"
 #undef TMPLGEN_GENERIC_inspect_N0_REFLECT_TYPES_H_AND_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H
 #define TMPLGEN_GENERIC_inspect_N0_REFLECT_TYPES_H_AND_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H(...) \
     Vec_Item *: inspect_Vec_Item, \

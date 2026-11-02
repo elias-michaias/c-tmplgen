@@ -238,7 +238,8 @@ The whole API:
   `offsetof` and enumerator values against the table. If libclang saw a
   different target or different macros than your compiler (pass the same
   `--clang-arg` flags), the build fails with "reflected layout of T differs
-  from this compiler or target".
+  from this compiler or target". Bit-field offsets are the exception: C cannot
+  take them, so they are libclang's numbers, unchecked.
 - **`typetag(T)` pastes a name**: it is the enumerator `TYPETAG_<name>`, so it
   costs nothing to compile and works without the type's declaration. Names are
   spelled as identifiers: `struct_Node`, `Vec_int`, `const_char_ptr`,
@@ -252,9 +253,10 @@ The whole API:
   known. An enum type is compatible with its integer type, so `typetag_of`
   gives an enum value the id of that integer type; `enumtag_of` selects among
   the enums only. Two enum types are never compatible with each other, so it
-  selects exactly; an argument that is not of enum type fails to compile,
-  except a plain integer whose type matches the underlying type of exactly one
-  enum in scope, which selects that enum. `any_of(x)` uses `typetag_of`; for an
+  selects exactly. An argument that is not of enum type is an error: tmplgen
+  rejects integers when generating (C alone would let a plain integer select
+  the one enum with that underlying type), and the compiler rejects anything
+  else. `any_of(x)` uses `typetag_of`; for an
   enum write `(Any){ &x, enumtag_of(x) }`.
 - **Rules.** Headers declaring reflected types need an `#ifndef`/`#define`
   include guard (`#pragma once` alone is an error), must declare their types
@@ -315,5 +317,5 @@ using reflection from `test/tmpl/inspect.tmpl.h`), built from
 prefix and `--compiled`.
 
 Never store raw `TypeTag` values: ids are dense and shift when types are added.
-Store names instead, as the demo's text format does. See `REFLECTION.md` for
-the design.
+Store names instead, as the demo's text format does. See
+[Reflection](reflection.md) for the full reference.

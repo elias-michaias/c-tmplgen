@@ -91,6 +91,13 @@ extern void triple_first__no_match_for_argument_type(struct tmplgen_no_associati
 #if defined(TEST_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H
 
+/* ---- triple: Triple_Tag_InferredError_InferredLong ---- */
+typedef struct {
+    Tag first;
+    InferredError second;
+    InferredLong third;
+} Triple_Tag_InferredError_InferredLong;
+
 /* ---- triple: Triple_TestInt_ErrorCode_Tag ---- */
 typedef struct {
     TestInt first;
@@ -104,19 +111,19 @@ typedef struct {
     ErrorCode second;
     Tag third;
 } Triple_double_ErrorCode_Tag;
-
-/* ---- triple: Triple_Tag_InferredError_InferredLong ---- */
-typedef struct {
-    Tag first;
-    InferredError second;
-    InferredLong third;
-} Triple_Tag_InferredError_InferredLong;
+static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third);
 static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third);
 static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third);
-static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third);
-static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value);
 static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value);
+static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value);
 
+
+/* ---- triple: triple_make_Tag_InferredError_InferredLong ---- */
+static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third)
+{
+    Triple_Tag_InferredError_InferredLong result = { first, second, third };
+    return result;
+}
 
 /* ---- triple: triple_make_TestInt_ErrorCode_Tag ---- */
 static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third)
@@ -132,28 +139,26 @@ static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(doubl
     return result;
 }
 
-/* ---- triple: triple_make_Tag_InferredError_InferredLong ---- */
-static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third)
-{
-    Triple_Tag_InferredError_InferredLong result = { first, second, third };
-    return result;
-}
+/* ---- triple: triple_first_Tag_InferredError_InferredLong ---- */
+static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong *value) { return value->first; }
 
 /* ---- triple: triple_first_TestInt_ErrorCode_Tag ---- */
 static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag *value) { return value->first; }
-
-/* ---- triple: triple_first_Tag_InferredError_InferredLong ---- */
-static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong *value) { return value->first; }
 #line 16 "test/tmpl/triple.tmpl.h"
+/// static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third)
+static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third);
 /// static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third)
 static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third);
 /// static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third)
 static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third);
-/// static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third)
-static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third);
 #line 155 "/home/elias/Projects/c-tmplgen/test/gen/triple.gen.h"
 #undef TMPLGEN_GENERIC_triple_make_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_triple_make_N0_TEST_TYPES_H(...) \
+    Tag:     _Generic((GEN_ARG1(__VA_ARGS__)), \
+        InferredError:         _Generic((GEN_ARG2(__VA_ARGS__)), \
+            InferredLong: triple_make_Tag_InferredError_InferredLong, \
+            default: triple_make__no_match_for_argument_type), \
+        default: triple_make__no_match_for_argument_type), \
     TestInt:     _Generic((GEN_ARG1(__VA_ARGS__)), \
         ErrorCode:         _Generic((GEN_ARG2(__VA_ARGS__)), \
             Tag: triple_make_TestInt_ErrorCode_Tag, \
@@ -164,44 +169,39 @@ static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredErro
             Tag: triple_make_double_ErrorCode_Tag, \
             default: triple_make__no_match_for_argument_type), \
         default: triple_make__no_match_for_argument_type), \
-    Tag:     _Generic((GEN_ARG1(__VA_ARGS__)), \
-        InferredError:         _Generic((GEN_ARG2(__VA_ARGS__)), \
-            InferredLong: triple_make_Tag_InferredError_InferredLong, \
-            default: triple_make__no_match_for_argument_type), \
-        default: triple_make__no_match_for_argument_type), \
 
 #undef TMPLGEN_GNU_triple_make_TEST_TYPES_H
 #define TMPLGEN_GNU_triple_make_TEST_TYPES_H(next, ...) \
     __builtin_choose_expr( \
-        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), ErrorCode) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), Tag)), \
-        triple_make_TestInt_ErrorCode_Tag, \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Tag) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), InferredError) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), InferredLong)), \
+        triple_make_Tag_InferredError_InferredLong, \
         __builtin_choose_expr( \
-            (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), double) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), ErrorCode) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), Tag)), \
-            triple_make_double_ErrorCode_Tag, \
+            (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), TestInt) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), ErrorCode) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), Tag)), \
+            triple_make_TestInt_ErrorCode_Tag, \
             __builtin_choose_expr( \
-                (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Tag) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), InferredError) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), InferredLong)), \
-                triple_make_Tag_InferredError_InferredLong, \
+                (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), double) && __builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), ErrorCode) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), Tag)), \
+                triple_make_double_ErrorCode_Tag, \
                 next))) \
 
 #line 23 "test/tmpl/triple.tmpl.h"
-/// static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value)
-static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value);
 /// static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value)
 static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value);
+/// static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value)
+static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value);
 #line 192 "/home/elias/Projects/c-tmplgen/test/gen/triple.gen.h"
 #undef TMPLGEN_GENERIC_triple_first_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_triple_first_N0_TEST_TYPES_H(...) \
-    Triple_TestInt_ErrorCode_Tag *: triple_first_TestInt_ErrorCode_Tag, \
     Triple_Tag_InferredError_InferredLong *: triple_first_Tag_InferredError_InferredLong, \
+    Triple_TestInt_ErrorCode_Tag *: triple_first_TestInt_ErrorCode_Tag, \
 
 #undef TMPLGEN_GNU_triple_first_TEST_TYPES_H
 #define TMPLGEN_GNU_triple_first_TEST_TYPES_H(next, ...) \
     __builtin_choose_expr( \
-        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Triple_TestInt_ErrorCode_Tag *)), \
-        triple_first_TestInt_ErrorCode_Tag, \
+        (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Triple_Tag_InferredError_InferredLong *)), \
+        triple_first_Tag_InferredError_InferredLong, \
         __builtin_choose_expr( \
-            (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Triple_Tag_InferredError_InferredLong *)), \
-            triple_first_Tag_InferredError_InferredLong, \
+            (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Triple_TestInt_ErrorCode_Tag *)), \
+            triple_first_TestInt_ErrorCode_Tag, \
             next)) \
 
 #endif

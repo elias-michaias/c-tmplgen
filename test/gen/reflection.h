@@ -506,8 +506,8 @@ static const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[121] = {
     { 4, 4, 4, 0, 6, 226, 0, 0, 0, 226 }, /* 14: float */
     { 8, 8, 4, 0, 6, 232, 0, 0, 0, 232 }, /* 15: double */
     { 16, 16, 4, 0, 2, 239, 0, 0, 0, 251 }, /* 16: long_double */
-    { 1, 1, 7, 0, 70, 263, 81, 1, 0, 271 }, /* 17: Box_Tag */
-    { 4, 4, 7, 0, 70, 280, 80, 1, 0, 292 }, /* 18: Box_TestInt */
+    { 1, 1, 7, 0, 70, 263, 80, 1, 0, 271 }, /* 17: Box_Tag */
+    { 4, 4, 7, 0, 70, 280, 81, 1, 0, 292 }, /* 18: Box_TestInt */
     { 8, 8, 7, 0, 70, 305, 39, 1, 0, 316 }, /* 19: Box_double */
     { 4, 4, 7, 0, 6, 328, 42, 1, 0, 328 }, /* 20: Dog */
     { 4, 4, 9, 0, 134, 332, 10, 2, 9, 332 }, /* 21: ErrorCode */
@@ -528,24 +528,24 @@ static const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[121] = {
     { 16, 8, 7, 0, 66, 646, 84, 2, 0, 662 }, /* 36: Pair_double_Tag */
     { 16, 8, 7, 0, 6, 680, 27, 3, 0, 680 }, /* 37: PhysicsBody */
     { 8, 4, 7, 0, 6, 692, 0, 2, 0, 692 }, /* 38: Point */
-    { 4, 4, 8, 0, 66, 698, 59, 2, 0, 726 }, /* 39: ResultPayload_Dog_ErrorCode */
-    { 4, 4, 8, 0, 66, 756, 61, 2, 0, 778 }, /* 40: ResultPayload_Dog_int */
-    { 8, 8, 8, 0, 66, 802, 57, 2, 0, 841 }, /* 41: ResultPayload_InferredDouble_ErrorCode */
-    { 8, 8, 8, 0, 66, 882, 55, 2, 0, 923 }, /* 42: ResultPayload_InferredLong_InferredError */
-    { 4, 4, 8, 0, 66, 966, 53, 2, 0, 998 }, /* 43: ResultPayload_Tag_InferredError */
-    { 4, 4, 8, 0, 66, 1032, 51, 2, 0, 1064 }, /* 44: ResultPayload_TestInt_ErrorCode */
+    { 4, 4, 8, 0, 66, 698, 55, 2, 0, 726 }, /* 39: ResultPayload_Dog_ErrorCode */
+    { 4, 4, 8, 0, 66, 756, 57, 2, 0, 778 }, /* 40: ResultPayload_Dog_int */
+    { 8, 8, 8, 0, 66, 802, 53, 2, 0, 841 }, /* 41: ResultPayload_InferredDouble_ErrorCode */
+    { 8, 8, 8, 0, 66, 882, 51, 2, 0, 923 }, /* 42: ResultPayload_InferredLong_InferredError */
+    { 4, 4, 8, 0, 66, 966, 59, 2, 0, 998 }, /* 43: ResultPayload_Tag_InferredError */
+    { 4, 4, 8, 0, 66, 1032, 61, 2, 0, 1064 }, /* 44: ResultPayload_TestInt_ErrorCode */
     { 4, 4, 9, 0, 134, 1098, 6, 2, 9, 1098 }, /* 45: ResultTag */
-    { 8, 4, 7, 0, 66, 1108, 71, 2, 0, 1129 }, /* 46: Result_Dog_ErrorCode */
-    { 8, 4, 7, 0, 66, 1152, 73, 2, 0, 1167 }, /* 47: Result_Dog_int */
-    { 16, 8, 7, 0, 66, 1184, 69, 2, 0, 1216 }, /* 48: Result_InferredDouble_ErrorCode */
-    { 16, 8, 7, 0, 66, 1250, 67, 2, 0, 1284 }, /* 49: Result_InferredLong_InferredError */
-    { 8, 4, 7, 0, 66, 1320, 65, 2, 0, 1345 }, /* 50: Result_Tag_InferredError */
-    { 8, 4, 7, 0, 66, 1372, 63, 2, 0, 1397 }, /* 51: Result_TestInt_ErrorCode */
+    { 8, 4, 7, 0, 66, 1108, 67, 2, 0, 1129 }, /* 46: Result_Dog_ErrorCode */
+    { 8, 4, 7, 0, 66, 1152, 69, 2, 0, 1167 }, /* 47: Result_Dog_int */
+    { 16, 8, 7, 0, 66, 1184, 65, 2, 0, 1216 }, /* 48: Result_InferredDouble_ErrorCode */
+    { 16, 8, 7, 0, 66, 1250, 63, 2, 0, 1284 }, /* 49: Result_InferredLong_InferredError */
+    { 8, 4, 7, 0, 66, 1320, 71, 2, 0, 1345 }, /* 50: Result_Tag_InferredError */
+    { 8, 4, 7, 0, 66, 1372, 73, 2, 0, 1397 }, /* 51: Result_TestInt_ErrorCode */
     { 4, 4, 9, 0, 134, 1424, 0, 3, 9, 1424 }, /* 52: Role */
     { 4, 4, 9, 0, 7, 1429, 3, 3, 8, 1429 }, /* 53: Status */
-    { 16, 8, 7, 0, 66, 1436, 92, 3, 0, 1474 }, /* 54: Triple_Tag_InferredError_InferredLong */
-    { 12, 4, 7, 0, 66, 1515, 86, 3, 0, 1544 }, /* 55: Triple_TestInt_ErrorCode_Tag */
-    { 16, 8, 7, 0, 66, 1576, 89, 3, 0, 1604 }, /* 56: Triple_double_ErrorCode_Tag */
+    { 16, 8, 7, 0, 66, 1436, 86, 3, 0, 1474 }, /* 54: Triple_Tag_InferredError_InferredLong */
+    { 12, 4, 7, 0, 66, 1515, 89, 3, 0, 1544 }, /* 55: Triple_TestInt_ErrorCode_Tag */
+    { 16, 8, 7, 0, 66, 1576, 92, 3, 0, 1604 }, /* 56: Triple_double_ErrorCode_Tag */
     { 24, 8, 7, 0, 68, 1635, 19, 3, 0, 1644 }, /* 57: Vec_Item */
     { 24, 8, 7, 0, 68, 1654, 48, 3, 0, 1666 }, /* 58: Vec_TestInt */
     { 24, 8, 7, 0, 68, 1679, 16, 3, 0, 1687 }, /* 59: Vec_int */
@@ -665,10 +665,6 @@ static const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {
     { 4226, 110, 0, 0, 0, 0, 0 }, /* data */
     { 4231, 11, 8, 0, 0, 0, 0 }, /* len */
     { 4235, 11, 16, 0, 0, 0, 0 }, /* cap */
-    { 4288, 8, 0, 0, 0, 0, 0 }, /* ok */
-    { 4291, 21, 0, 0, 0, 0, 0 }, /* error */
-    { 4288, 5, 0, 0, 0, 0, 0 }, /* ok */
-    { 4291, 23, 0, 0, 0, 0, 0 }, /* error */
     { 4288, 10, 0, 0, 0, 0, 0 }, /* ok */
     { 4291, 23, 0, 0, 0, 0, 0 }, /* error */
     { 4288, 15, 0, 0, 0, 0, 0 }, /* ok */
@@ -677,10 +673,10 @@ static const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {
     { 4291, 21, 0, 0, 0, 0, 0 }, /* error */
     { 4288, 20, 0, 0, 0, 0, 0 }, /* ok */
     { 4291, 8, 0, 0, 0, 0, 0 }, /* error */
-    { 4258, 45, 0, 0, 0, 0, 0 }, /* tag */
-    { 4262, 44, 4, 0, 0, 0, 0 }, /* payload */
-    { 4258, 45, 0, 0, 0, 0, 0 }, /* tag */
-    { 4262, 43, 4, 0, 0, 0, 0 }, /* payload */
+    { 4288, 5, 0, 0, 0, 0, 0 }, /* ok */
+    { 4291, 23, 0, 0, 0, 0, 0 }, /* error */
+    { 4288, 8, 0, 0, 0, 0, 0 }, /* ok */
+    { 4291, 21, 0, 0, 0, 0, 0 }, /* error */
     { 4258, 45, 0, 0, 0, 0, 0 }, /* tag */
     { 4262, 42, 8, 0, 0, 0, 0 }, /* payload */
     { 4258, 45, 0, 0, 0, 0, 0 }, /* tag */
@@ -689,26 +685,30 @@ static const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {
     { 4262, 39, 4, 0, 0, 0, 0 }, /* payload */
     { 4258, 45, 0, 0, 0, 0, 0 }, /* tag */
     { 4262, 40, 4, 0, 0, 0, 0 }, /* payload */
+    { 4258, 45, 0, 0, 0, 0, 0 }, /* tag */
+    { 4262, 43, 4, 0, 0, 0, 0 }, /* payload */
+    { 4258, 45, 0, 0, 0, 0, 0 }, /* tag */
+    { 4262, 44, 4, 0, 0, 0, 0 }, /* payload */
     { 4253, 8, 0, 0, 0, 0, 0 }, /* some */
     { 4258, 31, 0, 0, 0, 0, 0 }, /* tag */
     { 4262, 28, 4, 0, 0, 0, 0 }, /* payload */
     { 4204, 8, 0, 0, 0, 0, 0 }, /* value */
     { 4204, 8, 0, 0, 0, 0, 0 }, /* value */
-    { 4204, 8, 0, 0, 0, 0, 0 }, /* value */
     { 4204, 5, 0, 0, 0, 0, 0 }, /* value */
+    { 4204, 8, 0, 0, 0, 0, 0 }, /* value */
     { 4297, 5, 0, 0, 0, 0, 0 }, /* first */
     { 4303, 15, 8, 0, 0, 0, 0 }, /* second */
     { 4297, 15, 0, 0, 0, 0, 0 }, /* first */
     { 4303, 5, 8, 0, 0, 0, 0 }, /* second */
+    { 4297, 5, 0, 0, 0, 0, 0 }, /* first */
+    { 4303, 23, 4, 0, 0, 0, 0 }, /* second */
+    { 4310, 10, 8, 0, 0, 0, 0 }, /* third */
     { 4297, 8, 0, 0, 0, 0, 0 }, /* first */
     { 4303, 21, 4, 0, 0, 0, 0 }, /* second */
     { 4310, 5, 8, 0, 0, 0, 0 }, /* third */
     { 4297, 15, 0, 0, 0, 0, 0 }, /* first */
     { 4303, 21, 8, 0, 0, 0, 0 }, /* second */
     { 4310, 5, 12, 0, 0, 0, 0 }, /* third */
-    { 4297, 5, 0, 0, 0, 0, 0 }, /* first */
-    { 4303, 23, 4, 0, 0, 0, 0 }, /* second */
-    { 4310, 10, 8, 0, 0, 0, 0 }, /* third */
 };
 
 static const TMPLGEN_SYM(TypeEnumerator) TMPLGEN_SYM(RuntimeTypeEnumTable)[] = {

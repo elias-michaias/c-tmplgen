@@ -56,9 +56,11 @@ tmplgen only for reflection.
 
 tmplgen reads the layout with libclang, so pass the same target and
 preprocessor flags you compile with (`--clang-arg=-std=c11`,
-`--clang-arg=-DFOO`, `--clang-arg=--target=...`). The compiler verifies the
-numbers (see [Layout checks](#layout-checks)), so a mismatch is a build
-error, never a wrong table.
+`--clang-arg=-DFOO`, `--clang-arg=--target=...`). Your compiler checks the
+sizes, alignments, field offsets, and enumerator values against its own (see
+[Layout checks](#layout-checks)), so a mismatch there is a build error.
+Bit-field positions are the exception: C cannot take their offset, so they are
+libclang's numbers, unchecked.
 
 ## Which types are reflected
 
@@ -287,11 +289,22 @@ enumtag_of(player.kind) == typetag(Kind)
 ```
 
 Two different enum types are never compatible with each other, so
-`enumtag_of` selects exactly. An argument that is not of enum type fails to
-compile (`tmplgen_reflect_no_enumtag_for_this_argument_type`), with one
-exception: a plain integer whose type is the underlying type of exactly one
-enum in scope selects that enum. `any_of` uses `typetag_of`; for an enum,
-write `(Any){ &x, enumtag_of(x) }`.
+`enumtag_of` selects exactly. An argument that is not of enum type is an
+error:
+
+- **tmplgen rejects it when generating** (`enumtag_of() argument has type
+  'unsigned int', which is not an enum type`). C alone cannot: a plain
+  integer whose type is the underlying type of exactly one enum in scope would
+  quietly select that enum. Enumerator constants (`KIND_MAGE`) have type `int`
+  in C, so they are rejected too; name the type with `typetag(Kind)` instead.
+- **The compiler rejects the rest** (`tmplgen_reflect_no_enumtag_for_this_argument_type`):
+  structs, pointers, and anything else with no compatible enum.
+
+tmplgen checks `enumtag_of(...)` and `TMPLGEN_ENUMTAG_OF(...)` where they are
+written in project sources. A call inside another macro of yours is left to
+the compiler.
+
+`any_of` uses `typetag_of`; for an enum, write `(Any){ &x, enumtag_of(x) }`.
 
 ## Layout checks
 
@@ -320,6 +333,17 @@ everything once.
 If the build fails with "reflected layout of T differs", the flags passed with
 `--clang-arg` do not match your compiler's (target, `-m32`, packing pragmas
 behind a macro, a `-D` that changes a struct).
+
+What is not checked:
+
+- **Bit-fields.** Their bit offsets and widths come from libclang as they are;
+  C has no `offsetof` for a bit-field, so the compiler cannot confirm them. A
+  record's `sizeof` is still checked, which catches most layout differences
+  around them, but not a reordering inside the same storage.
+- **Types whose header a translation unit has not included** before
+  `reflection.h`. Their sections are skipped there; some other translation
+  unit that includes the header checks them (with `--compiled`,
+  `reflection.gen.c` always does).
 
 ## Include rules
 
@@ -458,6 +482,7 @@ not when a layout does, so fewer files recompile.
 | `reflected layout of T differs from this compiler or target` | `--clang-arg` flags differ from the compiler's. |
 | `tmplgen_reflect_no_typetag_for_this_argument_type` | `typetag_of`/`any_of` on a type without an id (declared in a `.c` file, or its header not included before `reflection.h`). |
 | `tmplgen_reflect_no_enumtag_for_this_argument_type` | `enumtag_of` on something that is not an enum. |
+| `enumtag_of() argument has type '...', which is not an enum type` | `enumtag_of` on an integer (or an enumerator constant), which C alone would accept. Use `typetag_of`, or `typetag(T)` for an enum type. |
 | `... needs a specialization of ..., which includes gen/reflection.h; generate with --reflect=project` | A template using reflection is specialized without `--reflect=project`. |
 
 Limitations:
@@ -483,5 +508,3 @@ Limitations:
   that uses reflection.
 - `test/reflect.sh`: a standalone project covering the include rules, the
   symbol prefix, `--compiled`, layout mismatches, and the generation errors.
-
-The design and its history are in `REFLECTION.md`.
