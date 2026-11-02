@@ -3,10 +3,13 @@
  * T's layout from the reflection tables. Its specializations are compiled
  * when reflection.h is included after the headers declaring the types, here
  * including one from another template (Vec(Item)). */
-#include "../gen/reflection.h"
 #include "reflect_types.h"
 #include <stdio.h>
 #include <string.h>
+
+/* After the headers that declare the types (keep it in its own block so
+   include sorting does not move it up). */
+#include "../gen/reflection.h"
 
 int main(void) {
   Hero hero = {{3, 4}, 90, ROLE_MAGE, STATUS_DOWN, "Ada", 1.5f, 1};

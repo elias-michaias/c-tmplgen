@@ -246,9 +246,23 @@ default: printf("<%s>\n", typestr(value.type)); break;
 }
 ```
 
-Read scalars by `size` and `TYPEFLAG_SIGNED` with `memcpy` rather than through
-casts, as `examples/reflect_demo.c` does; then one function handles every
-integer type and enum.
+To read a scalar, switch on its tag and read it through its own type; for an
+enum, use its underlying type (`TypeInfo.inner`), which it is compatible with:
+
+```c
+const TypeInfo *type = typeinfo(part.type);
+TypeTag scalar = type->kind == TYPEKIND_ENUM ? (TypeTag)type->inner : part.type;
+long long number = 0;
+switch (scalar) {
+case typetag(int): number = *(const int *)part.data; break;
+case typetag(unsigned_int): number = *(const unsigned int *)part.data; break;
+case typetag(long): number = *(const long *)part.data; break;
+/* ...the other builtin integer types... */
+default: break;
+}
+```
+
+`test/tmpl/inspect.tmpl.h` does this for every builtin type.
 
 ## Enums
 

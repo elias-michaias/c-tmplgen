@@ -64,7 +64,7 @@
 #define GEN_ARG2_(arg0, arg1, arg2, ...) arg2
 #endif
 
-#line 19 "test/tmpl/inspect.tmpl.h"
+#line 18 "test/tmpl/inspect.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_inspect_argument { int unused; };
@@ -96,7 +96,7 @@ extern void inspect__no_match_for_argument_type(struct tmplgen_no_association_fo
 #undef inspect
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline uint32_t inspect(T * value, FILE * out)
-#line 19 "test/tmpl/inspect.tmpl.h"
+#line 18 "test/tmpl/inspect.tmpl.h"
 #define inspect(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_inspect_N0_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H(__VA_ARGS__) \
     TMPLGEN_GENERIC_inspect_N0_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H(__VA_ARGS__) \
@@ -106,7 +106,7 @@ extern void inspect__no_match_for_argument_type(struct tmplgen_no_association_fo
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline uint32_t inspect(T * value, FILE * out)
-#line 19 "test/tmpl/inspect.tmpl.h"
+#line 18 "test/tmpl/inspect.tmpl.h"
 #define inspect(...) \
     TMPLGEN_GNU_inspect_TMPLGEN_REFLECTION_H(TMPLGEN_GNU_inspect_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H(TMPLGEN_GNU_inspect_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H(TMPLGEN_GNU_inspect_REFLECT_TYPES_H_AND_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H(inspect__no_match_for_argument_type, __VA_ARGS__), __VA_ARGS__), __VA_ARGS__), __VA_ARGS__)(__VA_ARGS__)
 
@@ -1273,21 +1273,21 @@ static inline int alignment_ok_PhysicsBody(PhysicsBody * value);
 #endif
 #if defined(TMPLGEN_REFLECTION_H) && !defined(TMPLGEN_HAVE_TMPL_H_TMPLGEN_REFLECTION_H)
 #define TMPLGEN_HAVE_TMPL_H_TMPLGEN_REFLECTION_H
-#line 19 "test/tmpl/inspect.tmpl.h"
+#line 18 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_int(int * value, FILE * out)
 static inline uint32_t inspect_int(int * value, FILE * out);
 #line 1280 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
 #if defined(POINT_H) && defined(TMPLGEN_REFLECT_HAVE_POINT_H) && !defined(TMPLGEN_HAVE_TMPL_H_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H)
 #define TMPLGEN_HAVE_TMPL_H_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H
-#line 19 "test/tmpl/inspect.tmpl.h"
+#line 18 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_Point(Point * value, FILE * out)
 static inline uint32_t inspect_Point(Point * value, FILE * out);
 #line 1287 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
 #if defined(REFLECT_TYPES_H) && defined(TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H
-#line 19 "test/tmpl/inspect.tmpl.h"
+#line 18 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_Hero(Hero * value, FILE * out)
 static inline uint32_t inspect_Hero(Hero * value, FILE * out);
 /// static inline uint32_t inspect_Item(Item * value, FILE * out)
@@ -1298,7 +1298,7 @@ static inline uint32_t inspect_Number(Number * value, FILE * out);
 #endif
 #if defined(REFLECT_TYPES_H) && defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H) && defined(TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H) && defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_REFLECT_TYPES_H_AND_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_REFLECT_TYPES_H_AND_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H
-#line 19 "test/tmpl/inspect.tmpl.h"
+#line 18 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_Vec_Item(Vec_Item * value, FILE * out)
 static inline uint32_t inspect_Vec_Item(Vec_Item * value, FILE * out);
 #line 1305 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
