@@ -6,10 +6,16 @@ typedef int T;
 #define Vec(type) Vec
 #endif
 
+/* Field metadata type for @meta annotations (see test/cases/reflect_meta.c). */
+typedef struct FieldInfo { const char *key; int code; } FieldInfo;
+
 // @template T
 typedef struct {
+  // @meta (FieldInfo){.key = "data", .code = 1}
   T *data;
-  size_t len, cap;
+  // @meta (FieldInfo){.key = "len", .code = 2}
+  size_t len;
+  size_t cap;
 } Vec;
 
 // @template T

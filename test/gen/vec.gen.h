@@ -5,10 +5,16 @@
 #include <stdlib.h>
 
 
+/* ---- vec: FieldInfo ---- */
+typedef struct FieldInfo { const char *key; int code; } FieldInfo;
+
 /* ---- vec: Vec_int ---- */
 typedef struct {
+  // @meta (FieldInfo){.key = "data", .code = 1}
   int *data;
-  size_t len, cap;
+  // @meta (FieldInfo){.key = "len", .code = 2}
+  size_t len;
+  size_t cap;
 } Vec_int;
 static inline void push_int(Vec_int * v, int x);
 
@@ -22,7 +28,7 @@ static inline void push_int(Vec_int * v, int x) {
   v->data[v->len++] = x;
 }
 #ifndef TMPLGEN_AGGREGATING
-#line 13 "test/tmpl/vec.tmpl.h"
+#line 19 "test/tmpl/vec.tmpl.h"
 #undef Vec
 #define Vec(type0) Vec_##type0
 
@@ -35,7 +41,7 @@ static inline void push_int(Vec_int * v, int x) {
 #define GEN_ARG1_(arg0, arg1, ...) arg1
 #endif
 
-#line 16 "test/tmpl/vec.tmpl.h"
+#line 22 "test/tmpl/vec.tmpl.h"
 /// static inline void push_int(Vec_int * v, int x)
 static inline void push_int(Vec_int * v, int x);
 /* No dispatch association yet: either the argument type is wrong,
@@ -57,7 +63,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 #undef push
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline void push(Vec(T) * v, T x)
-#line 16 "test/tmpl/vec.tmpl.h"
+#line 22 "test/tmpl/vec.tmpl.h"
 #define push(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Vec_int *: push_int, \
     TMPLGEN_GENERIC_push_N0_TEST_TYPES_H(__VA_ARGS__) \
@@ -66,7 +72,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline void push(Vec(T) * v, T x)
-#line 16 "test/tmpl/vec.tmpl.h"
+#line 22 "test/tmpl/vec.tmpl.h"
 #define push(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_int *)), \
@@ -89,8 +95,11 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 
 /* ---- vec: Vec_Item ---- */
 typedef struct {
+  // @meta (FieldInfo){.key = "data", .code = 1}
   Item *data;
-  size_t len, cap;
+  // @meta (FieldInfo){.key = "len", .code = 2}
+  size_t len;
+  size_t cap;
 } Vec_Item;
 static inline void push_Item(Vec_Item * v, Item x);
 
@@ -103,10 +112,10 @@ static inline void push_Item(Vec_Item * v, Item x) {
   }
   v->data[v->len++] = x;
 }
-#line 16 "test/tmpl/vec.tmpl.h"
+#line 22 "test/tmpl/vec.tmpl.h"
 /// static inline void push_Item(Vec_Item * v, Item x)
 static inline void push_Item(Vec_Item * v, Item x);
-#line 110 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"
+#line 119 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"
 #undef TMPLGEN_GENERIC_push_N0_REFLECT_TYPES_H
 #define TMPLGEN_GENERIC_push_N0_REFLECT_TYPES_H(...) \
     Vec_Item *: push_Item, \
@@ -124,8 +133,11 @@ static inline void push_Item(Vec_Item * v, Item x);
 
 /* ---- vec: Vec_TestInt ---- */
 typedef struct {
+  // @meta (FieldInfo){.key = "data", .code = 1}
   TestInt *data;
-  size_t len, cap;
+  // @meta (FieldInfo){.key = "len", .code = 2}
+  size_t len;
+  size_t cap;
 } Vec_TestInt;
 static inline void push_TestInt(Vec_TestInt * v, TestInt x);
 
@@ -138,10 +150,10 @@ static inline void push_TestInt(Vec_TestInt * v, TestInt x) {
   }
   v->data[v->len++] = x;
 }
-#line 16 "test/tmpl/vec.tmpl.h"
+#line 22 "test/tmpl/vec.tmpl.h"
 /// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
 static inline void push_TestInt(Vec_TestInt * v, TestInt x);
-#line 145 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"
+#line 157 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"
 #undef TMPLGEN_GENERIC_push_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_push_N0_TEST_TYPES_H(...) \
     Vec_TestInt *: push_TestInt, \

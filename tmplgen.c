@@ -3445,6 +3445,10 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
     end = p;
     while (end > start && isspace((unsigned char)end[-1])) --end;
     command = word_copy(start, end);
+    if (str_eq(command, "meta")) {
+        free(command);
+        return 0;
+    }
     if (str_eq(command, "template")) {
         int expect_name = 1;
         char **names = NULL;
@@ -11005,6 +11009,9 @@ typedef struct {
     unsigned bit_width;
     unsigned quals;
     unsigned flags;
+    char *meta_type;    /* @meta type text, or NULL */
+    char *meta_init;    /* @meta initializer text, or NULL */
+    size_t meta_node;   /* ReflectNode index for the metadata type */
 } ReflectField;
 
 typedef struct { long long value; int is_unsigned; char *name; } ReflectEnumerator;
@@ -11020,6 +11027,9 @@ typedef struct {
     char **typedef_usrs;         /* record/enum USR -> first typedef name */
     char **typedef_names;
     size_t typedef_count, typedef_cap;
+    char **meta_types;           /* unique @meta type spellings */
+    size_t *meta_type_nodes;     /* their ReflectNode indices */
+    size_t meta_type_count, meta_type_cap;
 } ReflectGraph;
 
 typedef struct {
@@ -11168,7 +11178,11 @@ static void reflect_graph_free(ReflectGraph *graph)
         free(node->generated);
     }
     free(graph->nodes);
-    for (i = 0U; i < graph->field_count; ++i) free(graph->fields[i].name);
+    for (i = 0U; i < graph->field_count; ++i) {
+        free(graph->fields[i].name);
+        free(graph->fields[i].meta_type);
+        free(graph->fields[i].meta_init);
+    }
     free(graph->fields);
     for (i = 0U; i < graph->enumerator_count; ++i) free(graph->enumerators[i].name);
     free(graph->enumerators);
@@ -11179,6 +11193,9 @@ static void reflect_graph_free(ReflectGraph *graph)
     }
     free(graph->typedef_usrs);
     free(graph->typedef_names);
+    for (i = 0U; i < graph->meta_type_count; ++i) free(graph->meta_types[i]);
+    free(graph->meta_types);
+    free(graph->meta_type_nodes);
     memset(graph, 0, sizeof(*graph));
 }
 
@@ -11269,6 +11286,216 @@ static int reflect_project_path(const ReflectGraph *graph, const char *path)
     return path_is_within_directory(path, g_generated_dir);
 }
 
+/* ---- field metadata: // @meta Type{initializer} ------------------------- */
+
+/* Fields that come from templates are the only ones allowed to carry @meta.
+ * A generated header may be mapped back to its template by #line, so accept
+ * both paths. */
+static int reflect_meta_supported_path(const char *path)
+{
+    if (path == NULL) return 0;
+    if (path_is_within_directory(path, g_generated_dir)) return 1;
+    if (path_has_suffix(path, GEN_TMPL_SUFFIX)) return 1;
+    return path_has_suffix(path, ".tmpl.c");
+}
+
+static const char *reflect_meta_marker(const char *text)
+{
+    const char *at = text;
+    while ((at = strstr(at, "@meta")) != NULL) {
+        if (isspace((unsigned char)at[5])) return at + 5;
+        at += 5;
+    }
+    return NULL;
+}
+
+/* Parses the text after @meta: a compound literal `(Type){ initializer }`.
+ * The annotation ends at the end of the comment line (or at the end of a
+ * block comment); the type parentheses and the initializer braces must be
+ * balanced, and nothing may follow the initializer. */
+static int reflect_meta_parse(const char *at, char **type_out, char **init_out)
+{
+    const char *end = at;
+    const char *close_paren = NULL;
+    const char *type_start;
+    const char *type_end;
+    const char *brace;
+    const char *init_end = NULL;
+    const char *rest;
+    const char *p;
+    size_t depth;
+    char quote;
+    *type_out = NULL;
+    *init_out = NULL;
+    while (*end != '\0' && *end != '\n' && !(end[0] == '*' && end[1] == '/')) ++end;
+    while (at < end && isspace((unsigned char)*at)) ++at;
+    if (at == end || *at != '(') return 0;
+    depth = 0U;
+    quote = '\0';
+    for (p = at; p < end; ++p) {
+        if (quote != '\0') {
+            if (*p == '\\' && p + 1 < end) ++p;
+            else if (*p == quote) quote = '\0';
+            continue;
+        }
+        if (*p == '"' || *p == '\'') {
+            quote = *p;
+        } else if (*p == '(') {
+            ++depth;
+        } else if (*p == ')') {
+            --depth;
+            if (depth == 0U) { close_paren = p; break; }
+        }
+    }
+    if (close_paren == NULL) return 0;
+    type_start = at + 1;
+    while (type_start < close_paren &&
+           isspace((unsigned char)*type_start)) ++type_start;
+    type_end = close_paren;
+    while (type_end > type_start && isspace((unsigned char)type_end[-1])) --type_end;
+    if (type_end == type_start) return 0;
+    brace = close_paren + 1;
+    while (brace < end && isspace((unsigned char)*brace)) ++brace;
+    if (brace == end || *brace != '{') return 0;
+    depth = 0U;
+    quote = '\0';
+    for (p = brace; p < end; ++p) {
+        if (quote != '\0') {
+            if (*p == '\\' && p + 1 < end) ++p;
+            else if (*p == quote) quote = '\0';
+            continue;
+        }
+        if (*p == '"' || *p == '\'') {
+            quote = *p;
+        } else if (*p == '{') {
+            ++depth;
+        } else if (*p == '}') {
+            --depth;
+            if (depth == 0U) { init_end = p + 1; break; }
+        }
+    }
+    if (init_end == NULL) return 0;
+    rest = init_end;
+    while (rest < end && isspace((unsigned char)*rest)) ++rest;
+    if (rest != end) return 0;
+    *type_out = copy_range(type_start, (size_t)(type_end - type_start));
+    *init_out = copy_range(brace, (size_t)(init_end - brace));
+    return 1;
+}
+
+static size_t reflect_meta_type_add(ReflectGraph *graph, const char *type)
+{
+    size_t i;
+    for (i = 0U; i < graph->meta_type_count; ++i) {
+        if (str_eq(graph->meta_types[i], type)) return i;
+    }
+    if (graph->meta_type_count == graph->meta_type_cap) {
+        size_t new_cap = graph->meta_type_cap == 0U ? 8U : graph->meta_type_cap * 2U;
+        char **types;
+        size_t *nodes;
+        if (new_cap < graph->meta_type_cap ||
+            new_cap > (size_t)-1 / sizeof(*graph->meta_types)) die("too many @meta types");
+        types = (char **)realloc(graph->meta_types, new_cap * sizeof(*types));
+        if (types == NULL) die("out of memory");
+        graph->meta_types = types;
+        nodes = (size_t *)realloc(graph->meta_type_nodes, new_cap * sizeof(*nodes));
+        if (nodes == NULL) die("out of memory");
+        graph->meta_type_nodes = nodes;
+        graph->meta_type_cap = new_cap;
+    }
+    graph->meta_types[graph->meta_type_count] = copy_string(type);
+    graph->meta_type_nodes[graph->meta_type_count] = (size_t)-1;
+    return graph->meta_type_count++;
+}
+
+static size_t reflect_meta_type_lookup(const ReflectGraph *graph, const char *type)
+{
+    size_t i;
+    for (i = 0U; i < graph->meta_type_count; ++i) {
+        if (str_eq(graph->meta_types[i], type)) return i;
+    }
+    return (size_t)-1;
+}
+
+/* Collects @meta types from generated header text. The same annotations are
+ * parsed again, field by field, once libclang has the comments. */
+static void reflect_meta_scan_text(ReflectGraph *graph, const char *text)
+{
+    size_t i = 0U;
+    while (text[i] != '\0') {
+        if (text[i] == '"' || text[i] == '\'') {
+            char quote = text[i++];
+            while (text[i] != '\0' && text[i] != quote) {
+                if (text[i] == '\\' && text[i + 1U] != '\0') i += 2U;
+                else ++i;
+            }
+            if (text[i] != '\0') ++i;
+        } else if (text[i] == '/' && text[i + 1U] == '/') {
+            size_t start = ++i;
+            const char *at;
+            while (text[i] != '\0' && text[i] != '\n') ++i;
+            at = reflect_meta_marker(text + start);
+            while (at != NULL && at < text + i) {
+                char *type = NULL, *init = NULL;
+                if (reflect_meta_parse(at, &type, &init)) reflect_meta_type_add(graph, type);
+                free(type);
+                free(init);
+                at = reflect_meta_marker(at);
+            }
+        } else if (text[i] == '/' && text[i + 1U] == '*') {
+            size_t start = i += 2U;
+            const char *at;
+            while (text[i] != '\0' && !(text[i] == '*' && text[i + 1U] == '/')) ++i;
+            at = reflect_meta_marker(text + start);
+            while (at != NULL && at < text + i) {
+                char *type = NULL, *init = NULL;
+                if (reflect_meta_parse(at, &type, &init)) reflect_meta_type_add(graph, type);
+                free(type);
+                free(init);
+                at = reflect_meta_marker(at);
+            }
+            if (text[i] != '\0') i += 2U;
+        } else {
+            ++i;
+        }
+    }
+}
+
+static void reflect_field_meta(ReflectField *field, CXCursor cursor,
+                               ReflectGraph *graph)
+{
+    unsigned offset = 0U;
+    char *path = reflect_cursor_file(cursor, &offset);
+    char *text;
+    const char *at;
+    if (!reflect_meta_supported_path(path)) {
+        free(path);
+        return;
+    }
+    text = copy_cx_string(clang_Cursor_getRawCommentText(cursor));
+    at = reflect_meta_marker(text);
+    if (at == NULL) {
+        free(text);
+        free(path);
+        return;
+    }
+    if (reflect_meta_marker(at) != NULL) {
+        report_error(path, offset, "@meta: only one annotation is allowed per field");
+    } else if (!reflect_meta_parse(at, &field->meta_type, &field->meta_init)) {
+        report_error(path, offset, "@meta: expected '@meta (Type){...}'");
+    } else {
+        size_t type = reflect_meta_type_lookup(graph, field->meta_type);
+        if (type == (size_t)-1) {
+            report_error(path, offset, "@meta: type '%s' was not found in the "
+                         "generated headers", field->meta_type);
+        } else {
+            field->meta_node = graph->meta_type_nodes[type];
+        }
+    }
+    free(text);
+    free(path);
+}
+
 static size_t reflect_node_for_type(ReflectGraph *graph, CXType type, unsigned depth);
 
 typedef struct {
@@ -11299,11 +11526,13 @@ static enum CXVisitorResult reflect_visit_field(CXCursor cursor, CXClientData da
         field.type = reflect_node_for_type(visit->graph, type, visit->depth + 1U);
         field.offset_bits = offset_bits;
         field.quals = reflect_quals(type);
+        field.meta_node = (size_t)-1;
         if (clang_Cursor_isBitField(cursor)) {
             int width = clang_getFieldDeclBitWidth(cursor);
             field.flags |= RFIELD_BITFIELD;
             field.bit_width = width > 0 ? (unsigned)width : 0U;
         }
+        reflect_field_meta(&field, cursor, visit->graph);
         reflect_field_list_add(visit->fields, &field);
     }
     free(name);
@@ -11645,6 +11874,12 @@ static enum CXChildVisitResult reflect_collect_cursor(CXCursor cursor, CXCursor 
                         type.kind == CXType_Long || type.kind == CXType_LongLong) {
                         node->flags |= RF_SIGNED;
                     }
+                }
+            } else if (strncmp(name, "tmplgen_reflect_meta_probe_", 27U) == 0) {
+                unsigned long index = strtoul(name + 27, NULL, 10);
+                if (index < graph->meta_type_count) {
+                    graph->meta_type_nodes[index] =
+                        reflect_node_for_type(graph, clang_getCursorType(cursor), 0U);
                 }
             }
             free(name);
@@ -12174,7 +12409,8 @@ static void reflect_emit_schema(Buf *out)
         "    uint16_t bit_width;\n"
         "    uint8_t quals;      /* TYPEQUAL_* */\n"
         "    uint8_t flags;      /* TYPEFIELD_* */\n"
-        "    uint32_t attr;\n"
+        "    uint32_t attr;      /* @meta index; 0 = none */\n"
+        "    uint32_t meta_type; /* @meta TypeTag; TYPETAG_INVALID = none */\n"
         "} TMPLGEN_SYM(TypeField);\n\n"
         "typedef struct TMPLGEN_SYM(TypeEnumerator) {\n"
         "    int64_t value;\n"
@@ -12489,7 +12725,17 @@ static void emit_reflection_bootstrap(Buf *out)
     buf_puts(out, "#define TMPLGEN_TYPETAG_OF(x) \\\n"
                   "    ((void)(x), TMPLGEN_SYM(TYPETAG_INVALID))\n"
                   "#define TMPLGEN_ENUMTAG_OF(x) \\\n"
-                  "    ((void)(x), TMPLGEN_SYM(TYPETAG_INVALID))\n");
+                  "    ((void)(x), TMPLGEN_SYM(TYPETAG_INVALID))\n"
+                  "static inline const void *TMPLGEN_SYM(reflect_meta)(\n"
+                  "    const TMPLGEN_SYM(TypeField) *field)\n"
+                  "{ (void)field; return 0; }\n"
+                  "static inline TMPLGEN_SYM(TypeTag) TMPLGEN_SYM(reflect_meta_type)(\n"
+                  "    const TMPLGEN_SYM(TypeField) *field)\n"
+                  "{ (void)field; return TMPLGEN_SYM(TYPETAG_INVALID); }\n"
+                  "#ifndef TMPLGEN_SYMBOL_PREFIX\n"
+                  "#define reflect_meta(field) TMPLGEN_SYM(reflect_meta)(field)\n"
+                  "#define reflect_meta_type(field) TMPLGEN_SYM(reflect_meta_type)(field)\n"
+                  "#endif\n");
     reflect_emit_dispatch_api(out);
     buf_puts(out, "#endif\n");
 }
@@ -12542,6 +12788,81 @@ static void reflect_emit_check(Buf *out, const ReflectGraph *graph, const Reflec
     emit_escaped_c_string(out, node->display);
     buf_puts(out, " differs from this compiler or target; regenerate with matching "
                   "--clang-arg flags\");\n");
+}
+
+static void reflect_emit_meta_object(Buf *out, const ReflectField *field,
+                                    size_t field_index)
+{
+    buf_puts(out, "static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_");
+    buf_put_ull(out, (unsigned long long)(field_index + 1U));
+    buf_puts(out, ") = &(");
+    buf_puts(out, field->meta_type);
+    buf_putc(out, ')');
+    buf_puts(out, field->meta_init);
+    buf_puts(out, ";\n");
+}
+
+static void reflect_emit_meta_objects(Buf *out, const ReflectGraph *graph,
+                                     const size_t *order, const char *requirement)
+{
+    size_t n, f;
+    for (n = 0U; n < graph->node_count; ++n) {
+        const ReflectNode *node = &graph->nodes[order[n]];
+        if (!str_eq(node->requirement, requirement)) continue;
+        for (f = 0U; f < node->field_count; ++f) {
+            if (graph->fields[node->first_field + f].meta_init != NULL) {
+                reflect_emit_meta_object(out, &graph->fields[node->first_field + f],
+                                         node->first_field + f);
+            }
+        }
+    }
+}
+
+static void reflect_emit_meta_api(Buf *out, const ReflectGraph *graph,
+                                  const size_t *order)
+{
+    size_t n, f;
+    buf_puts(out,
+        "\n/* Field metadata from template @meta annotations. */\n"
+        "#ifndef TMPLGEN_REFLECT_META_API\n"
+        "#define TMPLGEN_REFLECT_META_API\n"
+        "static inline const void *TMPLGEN_SYM(reflect_meta)(\n"
+        "    const TMPLGEN_SYM(TypeField) *field)\n"
+        "{\n"
+        "    switch (field->attr) {\n");
+    for (n = 0U; n < graph->node_count; ++n) {
+        const ReflectNode *node = &graph->nodes[order[n]];
+        for (f = 0U; f < node->field_count; ++f) {
+            size_t field_index = node->first_field + f;
+            const ReflectField *field = &graph->fields[field_index];
+            if (field->meta_init == NULL) continue;
+            if (node->requirement[0] != '\0') {
+                buf_puts(out, "#if ");
+                buf_put_requirement_condition(out, node->requirement);
+                buf_putc(out, '\n');
+            }
+            buf_puts(out, "    case ");
+            buf_put_ull(out, (unsigned long long)(field_index + 1U));
+            buf_puts(out, ": return TMPLGEN_SYM(tmplgen_reflect_meta_");
+            buf_put_ull(out, (unsigned long long)(field_index + 1U));
+            buf_puts(out, ");\n");
+            if (node->requirement[0] != '\0') buf_puts(out, "#endif\n");
+        }
+    }
+    buf_puts(out,
+        "    default: return NULL;\n"
+        "    }\n"
+        "}\n\n"
+        "static inline TMPLGEN_SYM(TypeTag)\n"
+        "TMPLGEN_SYM(reflect_meta_type)(const TMPLGEN_SYM(TypeField) *field)\n"
+        "{\n"
+        "    return (TMPLGEN_SYM(TypeTag))field->meta_type;\n"
+        "}\n\n"
+        "#ifndef TMPLGEN_SYMBOL_PREFIX\n"
+        "#define reflect_meta(field) TMPLGEN_SYM(reflect_meta)(field)\n"
+        "#define reflect_meta_type(field) TMPLGEN_SYM(reflect_meta_type)(field)\n"
+        "#endif\n"
+        "#endif /* TMPLGEN_REFLECT_META_API */\n");
 }
 
 static void reflect_emit_tables(Buf *out, const ReflectGraph *graph, const size_t *order,
@@ -12640,16 +12961,22 @@ static void reflect_emit_tables(Buf *out, const ReflectGraph *graph, const size_
 
     buf_puts(out, storage);
     buf_puts(out, "const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {\n"
-                  "    /* name, type, offset, bit_width, quals, flags, attr */\n");
-    if (graph->field_count == 0U) buf_puts(out, "    { 0, 0, 0, 0, 0, 0, 0 }\n");
+                  "    /* name, type, offset, bit_width, quals, flags, attr, meta_type */\n");
+    if (graph->field_count == 0U) buf_puts(out, "    { 0, 0, 0, 0, 0, 0, 0, 0 }\n");
     for (i = 0U; i < graph->field_count; ++i) {
         const ReflectField *field = &graph->fields[i];
-        char row[160];
+        char row[192];
         unsigned long long offset = (field->flags & RFIELD_BITFIELD) ?
             field->offset_bits : field->offset_bits / 8U;
-        (void)snprintf(row, sizeof(row), "    { %u, %u, %llu, %u, %u, %u, 0 }, /* %s */\n",
+        unsigned attr = field->meta_init != NULL ? (unsigned)(i + 1U) : 0U;
+        unsigned meta_type = field->meta_node != (size_t)-1 &&
+            field->meta_node < graph->node_count ?
+            graph->nodes[field->meta_node].id : 0U;
+        (void)snprintf(row, sizeof(row),
+                       "    { %u, %u, %llu, %u, %u, %u, %u, %u }, /* %s */\n",
                        field_name_offsets[i], graph->nodes[field->type].id, offset,
-                       field->bit_width, field->quals, field->flags, field->name);
+                       field->bit_width, field->quals, field->flags, attr, meta_type,
+                       field->name);
         buf_puts(out, row);
     }
     buf_puts(out, "};\n\n");
@@ -12705,7 +13032,11 @@ static void reflect_emit(const ReflectGraph *graph, const size_t *order, Buf *he
     char *aggregate_leaf = copy_string(path_leaf(g_output_path));
     size_t i;
     int uses_reflection = 0;
+    int has_meta = 0;
     memset(&requirements, 0, sizeof(requirements));
+    for (i = 0U; i < graph->field_count; ++i) {
+        if (graph->fields[i].meta_init != NULL) { has_meta = 1; break; }
+    }
     for (i = 0U; i < graph->node_count; ++i) {
         const ReflectNode *node = &graph->nodes[i];
         if (node->checked && node->requirement[0] != '\0') {
@@ -12754,6 +13085,7 @@ static void reflect_emit(const ReflectGraph *graph, const size_t *order, Buf *he
         reflect_emit_tables(header, graph, order, "static ");
     }
     reflect_emit_api(header);
+    if (has_meta) reflect_emit_meta_objects(header, graph, order, "");
     reflect_emit_dispatch_core(header, graph, order);
     if (source == NULL) {
         buf_puts(header, "\n/* Builtins and types every translation unit sees. */\n");
@@ -12778,8 +13110,12 @@ static void reflect_emit(const ReflectGraph *graph, const size_t *order, Buf *he
             }
         }
         reflect_emit_dispatch_section(header, graph, order, requirements.items[i]);
+        if (has_meta) {
+            reflect_emit_meta_objects(header, graph, order, requirements.items[i]);
+        }
         buf_puts(header, "#endif\n");
     }
+    if (has_meta) reflect_emit_meta_api(header, graph, order);
     if (uses_reflection) {
         /* Only the sections: the dispatch macros come from the generated
          * headers themselves, and a template including this header must not
@@ -12867,7 +13203,7 @@ static int reflect_generate(GeneratedFileList *outputs)
     char **unsaved_paths;
     size_t unsaved_count = 0U;
     const char **arguments;
-    int argument_count = (int)g_clang_arg_count + 2;
+    int argument_count = (int)g_clang_arg_count + 3;
     char *main_path = join_path(g_generated_dir, ".tmplgen-reflect.c");
     char *aggregate = absolute_path(g_output_path);
     size_t *order;
@@ -12886,6 +13222,12 @@ static int reflect_generate(GeneratedFileList *outputs)
     }
     for (i = 0U; i < headers.count; ++i) {
         string_set_add(&graph.project_headers, headers.items[i]);
+    }
+    for (i = 0U; i < outputs->count; ++i) {
+        const GeneratedFile *file = &outputs->items[i];
+        if (path_has_suffix(file->path, ".h") && file->contents.p != NULL) {
+            reflect_meta_scan_text(&graph, file->contents.p);
+        }
     }
 
     buf_init(&main_text);
@@ -12908,6 +13250,13 @@ static int reflect_generate(GeneratedFileList *outputs)
     buf_puts(&main_text, "#include \"");
     emit_escaped_c_string(&main_text, aggregate);
     buf_puts(&main_text, "\"\n");
+    for (i = 0U; i < graph.meta_type_count; ++i) {
+        buf_puts(&main_text, "extern __typeof__((");
+        buf_puts(&main_text, graph.meta_types[i]);
+        buf_puts(&main_text, "){0}) tmplgen_reflect_meta_probe_");
+        buf_put_ull(&main_text, (unsigned long long)i);
+        buf_puts(&main_text, ";\n");
+    }
 
     unsaved = (struct CXUnsavedFile *)calloc(outputs->count + 4U, sizeof(*unsaved));
     unsaved_paths = (char **)calloc(outputs->count + 4U, sizeof(*unsaved_paths));
@@ -12947,7 +13296,8 @@ static int reflect_generate(GeneratedFileList *outputs)
     if (arguments == NULL) die("out of memory");
     arguments[0] = "-x";
     arguments[1] = "c";
-    for (i = 0U; i < g_clang_arg_count; ++i) arguments[i + 2U] = g_clang_args[i];
+    arguments[2] = "-fparse-all-comments";
+    for (i = 0U; i < g_clang_arg_count; ++i) arguments[i + 3U] = g_clang_args[i];
 
     for (i = 0U; i < REFLECT_BUILTIN_COUNT; ++i) {
         size_t node = reflect_add_node(&graph, g_reflect_builtins[i].reflect_kind,
@@ -12978,8 +13328,11 @@ static int reflect_generate(GeneratedFileList *outputs)
         collect.pass = 2;
         clang_visitChildren(clang_getTranslationUnitCursor(tu), reflect_collect_cursor,
                             &collect);
-        if (!reflect_assign_requirements(&graph)) failed = 1;
-        else reflect_add_record_pointers(&graph);
+        if (g_error_count != 0U) failed = 1;
+        if (!failed) {
+            if (!reflect_assign_requirements(&graph)) failed = 1;
+            else reflect_add_record_pointers(&graph);
+        }
     }
     if (!failed) {
         reflect_compute_flags(&graph);

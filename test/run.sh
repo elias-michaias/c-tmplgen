@@ -158,6 +158,12 @@ fi
     test/cases/reflect_fields.c -o "$BUILD/reflect-fields-c99"
 "$BUILD/reflect-fields-c99" >/dev/null
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/reflect_meta.c -o "$BUILD/reflect-meta"
+"$BUILD/reflect-meta"
+"$CC" -std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/reflect_meta.c -o "$BUILD/reflect-meta-c99"
+"$BUILD/reflect-meta-c99" >/dev/null
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/reflect_any.c -o "$BUILD/reflect-any"
 "$BUILD/reflect-any"
 "$CC" -std=gnu99 -Wall -Wextra -pedantic -Wconversion -Wshadow \

@@ -2298,6 +2298,86 @@ size_t expressionEnd(llvm::StringRef Line, size_t Begin)
     return Line.size();
 }
 
+// Tokens inside an @meta initializer list: field designators are fields,
+// brackets and operators get their own kinds, other identifiers are
+// classified, and literals are left to the editor's syntax grammar.
+void addMetaInitializerTokens(std::vector<SemanticHighlight> &Tokens,
+                              ParsedAST &AST, size_t LineNumber,
+                              llvm::StringRef Line, size_t Begin, size_t End,
+                              unsigned KeywordTokenType)
+{
+    static const llvm::StringRef Operators[] = {
+        "->", "++", "--", "<<", ">>", "<=", ">=", "==", "!=", "&&",
+        "||", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "+",
+        "-",  "*",  "/",  "%",  "<",  ">",  "=",  "!",  "&",  "|",
+        "^",  "~",  "?"};
+    unsigned OperatorToken =
+        static_cast<unsigned>(HighlightingKind::Operator);
+    unsigned FieldToken = static_cast<unsigned>(HighlightingKind::Field);
+    unsigned BracketToken = static_cast<unsigned>(HighlightingKind::Bracket);
+    End = std::min(End, Line.size());
+    for (size_t I = Begin; I < End;) {
+        char Character = Line[I];
+        if (Character == '{' || Character == '}' || Character == '(' ||
+            Character == ')' || Character == '[' || Character == ']') {
+            addAnnotationToken(Tokens, LineNumber, Line, I, I + 1U,
+                               BracketToken);
+            ++I;
+            continue;
+        }
+        if (Character == '.' && I + 1U < End &&
+            (std::isalpha(static_cast<unsigned char>(Line[I + 1U])) ||
+             Line[I + 1U] == '_')) {
+            size_t Start = I + 1U;
+            size_t Stop = Start;
+            while (Stop < End && isIdentifierChar(Line[Stop])) ++Stop;
+            addAnnotationToken(Tokens, LineNumber, Line, Start, Stop,
+                               FieldToken);
+            I = Stop;
+            continue;
+        }
+        if (Character == '"' || Character == '\'') {
+            char Quote = Character;
+            size_t Stop = I + 1U;
+            while (Stop < End && Line[Stop] != Quote) {
+                if (Line[Stop] == '\\' && Stop + 1U < End) ++Stop;
+                ++Stop;
+            }
+            I = Stop < End ? Stop + 1U : Stop;
+            continue;
+        }
+        if (std::isdigit(static_cast<unsigned char>(Character))) {
+            while (I < End &&
+                   (std::isalnum(static_cast<unsigned char>(Line[I])) ||
+                    Line[I] == '.' || Line[I] == '_' || Line[I] == '+' ||
+                    Line[I] == '-')) {
+                ++I;
+            }
+            continue;
+        }
+        if (isIdentifierChar(Character)) {
+            size_t Start = I++;
+            while (I < End && isIdentifierChar(Line[I])) ++I;
+            addAnnotationToken(
+                Tokens, LineNumber, Line, Start, I,
+                classifyAnnotationIdentifier(
+                    AST, Line.slice(Start, I), KeywordTokenType));
+            continue;
+        }
+        bool MatchedOperator = false;
+        for (llvm::StringRef Operator : Operators) {
+            if (I + Operator.size() > End) continue;
+            if (Line.substr(I, Operator.size()) != Operator) continue;
+            addAnnotationToken(Tokens, LineNumber, Line, I,
+                               I + Operator.size(), OperatorToken);
+            I += Operator.size();
+            MatchedOperator = true;
+            break;
+        }
+        if (!MatchedOperator) ++I;
+    }
+}
+
 void highlightAnnotationLine(std::vector<SemanticHighlight> &Tokens,
                              ParsedAST &AST, size_t LineNumber,
                              llvm::StringRef Line,
@@ -2354,6 +2434,58 @@ void highlightAnnotationLine(std::vector<SemanticHighlight> &Tokens,
         addExpressionTokens(Tokens, AST, LineNumber, Line,
                             DirectiveStart + Where.size(), Line.size(),
                             KeywordTokenType);
+        return;
+    }
+
+    // `// @meta (FieldInfo){.key = "data"}`: the annotation is a compound
+    // literal, so the parenthesized type is one type token (no per-name
+    // classification) and the initializer is fields, brackets and operators.
+    llvm::StringRef Meta = "@meta";
+    if (Directive.starts_with(Meta) &&
+        (Directive.size() == Meta.size() ||
+         !isIdentifierChar(Directive[Meta.size()]))) {
+        addAnnotationToken(Tokens, LineNumber, Line, DirectiveStart,
+                           DirectiveStart + Meta.size(), KeywordTokenType);
+        size_t Begin = DirectiveStart + Meta.size();
+        while (Begin < Line.size() &&
+               std::isspace(static_cast<unsigned char>(Line[Begin]))) ++Begin;
+        if (Begin >= Line.size() || Line[Begin] != '(') return;
+        int Depth = 0;
+        size_t Close = llvm::StringRef::npos;
+        for (size_t I = Begin; I < Line.size(); ++I) {
+            if (Line[I] == '(') {
+                ++Depth;
+            } else if (Line[I] == ')' && --Depth == 0) {
+                Close = I;
+                break;
+            }
+        }
+        if (Close == llvm::StringRef::npos) return;
+        unsigned BracketToken =
+            static_cast<unsigned>(HighlightingKind::Bracket);
+        addAnnotationToken(Tokens, LineNumber, Line, Begin, Begin + 1U,
+                           BracketToken);
+        size_t TypeStart = Begin + 1U;
+        size_t TypeEnd = Close;
+        while (TypeStart < TypeEnd &&
+               std::isspace(static_cast<unsigned char>(Line[TypeStart]))) {
+            ++TypeStart;
+        }
+        while (TypeEnd > TypeStart &&
+               std::isspace(static_cast<unsigned char>(Line[TypeEnd - 1U]))) {
+            --TypeEnd;
+        }
+        addAnnotationToken(Tokens, LineNumber, Line, TypeStart, TypeEnd,
+                           static_cast<unsigned>(HighlightingKind::Type));
+        addAnnotationToken(Tokens, LineNumber, Line, Close, Close + 1U,
+                           BracketToken);
+        size_t Brace = Close + 1U;
+        while (Brace < Line.size() &&
+               std::isspace(static_cast<unsigned char>(Line[Brace]))) ++Brace;
+        if (Brace < Line.size() && Line[Brace] == '{') {
+            addMetaInitializerTokens(Tokens, AST, LineNumber, Line, Brace,
+                                     Line.size(), KeywordTokenType);
+        }
     }
 }
 

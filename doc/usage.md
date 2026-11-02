@@ -223,6 +223,7 @@ The whole API:
 | `typeinfo(id)` | `const TypeInfo *`: size, alignment, kind, flags, and where its fields or enumerators are. |
 | `typestr(id)` | Display name, e.g. `"Vec(Item)"`. |
 | `reflect_str(offset)` | A name from the string table (`TypeField.name`, `TypeEnumerator.name`). |
+| `reflect_meta(field)`, `reflect_meta_type(field)` | Field metadata from template `@meta` annotations. |
 | `any_field(value, field)` | `Any` for one field of a value. |
 | `RuntimeTypeInfoTable`, `RuntimeTypeFieldTable`, `RuntimeTypeEnumTable`, `RuntimeTypeStrings` | The tables. A record's fields are `RuntimeTypeFieldTable[first .. first+count)`, an enum's enumerators `RuntimeTypeEnumTable[first .. first+count)`. |
 
@@ -272,6 +273,35 @@ The whole API:
 - **`--compiled`** moves the tables into `gen/reflection.gen.c`, which
   includes every declaring header and runs every layout check once; the header
   then only changes when the set of types changes.
+
+### Field metadata
+
+Attach metadata to template-generated struct/union fields with a comment:
+
+```c
+typedef struct { const char *key; int code; } FieldInfo;
+
+typedef struct {
+    // @meta (FieldInfo){.key = "data", .code = 1}
+    T *data;
+    size_t len;
+} Vec;
+```
+
+The annotation is a compound literal: a parenthesized, already-existing
+metadata type followed by a balanced brace initializer. Each field may have at
+most one `@meta`, and it is only read from template (`.tmpl.h`) fields;
+annotations elsewhere are ignored. Reflection exposes the object without
+copying it:
+
+```c
+const TypeField *field = &RuntimeTypeFieldTable[info->first];
+const void *raw = reflect_meta(field);          /* NULL if unannotated */
+const FieldInfo *meta = (const FieldInfo *)reflect_meta(field);
+TypeTag tag = reflect_meta_type(field);         /* TYPETAG_INVALID if none */
+```
+
+With `TMPLGEN_SYMBOL_PREFIX` defined, use the `TMPLGEN_`-prefixed names.
 
 ### Reflection in templates
 

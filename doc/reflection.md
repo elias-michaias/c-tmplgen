@@ -93,6 +93,8 @@ the enclosing record, with their real offsets.
 | `reflect_str(offset)` | A name from the string table (`TypeField.name`, `TypeEnumerator.name`, `TypeInfo.name`). |
 | `any_field(value, field)` | `Any` for one field of the value in `value`. |
 | `RuntimeTypeInfoTable` | One `TypeInfo` per id. |
+| `reflect_meta(field)` | Pointer to field metadata object from `@meta`, or `NULL` if none. Requires `reflection.h` and the declaring headers. |
+| `reflect_meta_type(field)` | `TypeTag` of the metadata type, or `TYPETAG_INVALID` if none. |
 | `RuntimeTypeFieldTable` | All fields; a record's are `[first, first + count)`. |
 | `RuntimeTypeEnumTable` | All enumerators; an enum's are `[first, first + count)`. |
 | `RuntimeTypeStrings` | The string pool. |
@@ -169,7 +171,8 @@ typedef struct TypeField {
     uint16_t bit_width;
     uint8_t quals;      /* TYPEQUAL_CONST, TYPEQUAL_VOLATILE, TYPEQUAL_RESTRICT */
     uint8_t flags;      /* TYPEFIELD_BITFIELD */
-    uint32_t attr;      /* reserved */
+    uint32_t attr;      /* @meta index; 0 = none */
+    uint32_t meta_type; /* @meta TypeTag; TYPETAG_INVALID = none */
 } TypeField;
 
 typedef struct TypeEnumerator {
