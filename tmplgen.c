@@ -55,6 +55,9 @@
 #if GEN_ENABLE_WATCH && !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
 #define _POSIX_C_SOURCE 199309L
 #endif
+#if defined(CLANGPLUGIN) && !defined(_WIN32) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE /* dladdr: the plugin's own library identifies the generator */
+#endif
 
 /* ========================= INCLUDES ======================== */
 
@@ -75,6 +78,9 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#if defined(CLANGPLUGIN)
+#include <dlfcn.h>
+#endif
 #endif
 
 #if defined(CLANGPLUGIN)
@@ -86,6 +92,18 @@
 typedef struct { char *p; size_t len, cap, newlines; } Buf;
 typedef struct { char *path; Buf contents; } GeneratedFile;
 typedef struct { GeneratedFile *items; size_t count, cap; } GeneratedFileList;
+/* Every file tmplgen writes. All code that must know the outputs (cache
+ * manifest, bootstrap placeholders, parsing overrides, output recognition)
+ * goes through output_registry_build, so a new output cannot be missed. */
+typedef enum {
+    OUTPUT_MODULE,            /* gen/<stem>.gen.h */
+    OUTPUT_MODULE_SOURCE,     /* gen/<stem>.gen.c (--compiled) */
+    OUTPUT_AGGREGATE,         /* gen/all.gen.h */
+    OUTPUT_REFLECTION,        /* gen/reflection.h (--reflect) */
+    OUTPUT_REFLECTION_SOURCE  /* gen/reflection.gen.c (--reflect --compiled) */
+} OutputKind;
+typedef struct { char *path; OutputKind kind; size_t template_index; } OutputEntry;
+typedef struct { OutputEntry *items; size_t count, cap; } OutputRegistry;
 typedef struct {
     char *path;
     unsigned long long hash1, hash2;
@@ -128,6 +146,10 @@ typedef struct {
     char *second_type;
 } TypeVariableMismatch;
 typedef struct { char *name; char *canonical; } TypeAlias;
+/* Where a project type name is declared: `name` is a typedef name or a tag
+ * spelled with its keyword ("struct Foo"), `path` the absolute declaring file
+ * and `offset` the declaration's byte offset in it. */
+typedef struct { char *name; char *path; unsigned offset; } TypeOrigin;
 typedef struct {
     char *name;
     int is_union;
@@ -169,6 +191,8 @@ typedef struct {
     size_t constructor_count, constructor_cap;
     StructuralSchema *schemas;
     size_t schema_count, schema_cap;
+    TypeOrigin *origins;
+    size_t origin_count, origin_cap;
     StringSet dependencies;
     unsigned long long pass1_key, pass2_key;
     int loaded, pass1_valid, pass2_valid;
@@ -186,6 +210,13 @@ static TypeAlias *g_aliases;
 static size_t g_alias_count, g_alias_cap;
 static StructuralSchema *g_structural_schemas;
 static size_t g_structural_schema_count, g_structural_schema_cap;
+static TypeOrigin *g_type_origins;
+static size_t g_type_origin_count, g_type_origin_cap;
+/* Per instance (parallel to g_instances): the sorted include-guard macros of
+ * the headers declaring its argument types, joined by ','; "" when the
+ * instance only needs builtin or template-provided types. */
+static char **g_instance_requirements;
+static size_t g_instance_requirement_count;
 static char *g_source_root;
 static char *g_template_dir;
 static char *g_absolute_template_dir;
@@ -198,6 +229,12 @@ static size_t g_template_count, g_template_cap;
 static char *g_output_path;
 static char *g_generated_dir;
 static char *g_executable_path;
+/* --reflect: REFLECT_NONE (default) or REFLECT_PROJECT. */
+enum { REFLECT_NONE = 0, REFLECT_PROJECT = 1 };
+static int g_reflect_mode;
+/* Parsing stand-in for gen/reflection.h (see emit_reflection_bootstrap). */
+static Buf g_reflection_bootstrap;
+static void emit_reflection_bootstrap(Buf *out);
 static int g_dispatch_backend;
 static int g_emit_line;
 static int g_compiled_output;
@@ -220,6 +257,13 @@ static int is_ident_char(char c);
 static int valid_identifier(const char *s);
 static char *copy_string(const char *s);
 static char *generated_module_source_path(const char *stem);
+static char *generated_module_path(const char *stem);
+static void output_registry_build(OutputRegistry *registry);
+static void output_registry_free(OutputRegistry *registry);
+static int output_is_header(OutputKind kind);
+static char *template_include_target(const char *header, const char *current_stem);
+static char *relative_module_include(const char *current_stem,
+                                     const char *target_stem);
 static char *normalize_spaces(const char *s);
 static size_t identifier_line_in_code(const char *src, const char *name);
 static char *join_suffix(const char *base, const char *suffix);
@@ -247,7 +291,53 @@ static void source_facts_add_constructor(SourceFacts *facts,
                                         size_t argument_count);
 static void source_facts_add_schema(SourceFacts *facts,
                                     const StructuralSchema *schema);
+static void source_facts_add_origin(SourceFacts *facts, const char *name,
+                                    const char *path, unsigned offset);
 static void source_facts_apply(SourceFacts *facts);
+
+static void type_origin_list_add(TypeOrigin **items, size_t *count, size_t *cap,
+                                 const char *name, const char *path,
+                                 unsigned offset)
+{
+    size_t i;
+    TypeOrigin *next;
+    for (i = 0U; i < *count; ++i) {
+        if (str_eq((*items)[i].name, name)) return;
+    }
+    if (*count == *cap) {
+        size_t new_cap = *cap == 0U ? 16U : *cap * 2U;
+        if (new_cap < *cap || new_cap > (size_t)-1 / sizeof(**items)) {
+            die("too many type declarations");
+        }
+        next = (TypeOrigin *)realloc(*items, new_cap * sizeof(**items));
+        if (next == NULL) die("out of memory");
+        *items = next;
+        *cap = new_cap;
+    }
+    (*items)[*count].name = copy_string(name);
+    (*items)[*count].path = copy_string(path);
+    (*items)[*count].offset = offset;
+    ++*count;
+}
+
+static void type_origin_list_free(TypeOrigin *items, size_t count)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) {
+        free(items[i].name);
+        free(items[i].path);
+    }
+    free(items);
+}
+
+static const TypeOrigin *find_type_origin(const char *name)
+{
+    size_t i;
+    for (i = 0U; i < g_type_origin_count; ++i) {
+        if (str_eq(g_type_origins[i].name, name)) return &g_type_origins[i];
+    }
+    return NULL;
+}
 
 static const char *find_alias_canonical(const char *name)
 {
@@ -996,6 +1086,25 @@ void tmplgen_plugin_set_unsaved_source(const char *path,
 }
 #endif
 
+/* In plugin builds the generator lives in the plugin library; its file is the
+ * identity the caches key on (without one, every cache is disabled and each
+ * clangd rebuild re-analyzes the whole project). */
+#if defined(CLANGPLUGIN) && !defined(_WIN32)
+static const char g_plugin_identity_anchor = 0;
+static char *plugin_library_path(void)
+{
+    Dl_info info;
+    if (dladdr(&g_plugin_identity_anchor, &info) == 0 || info.dli_fname == NULL ||
+        info.dli_fname[0] == '\0') return NULL;
+    return absolute_path(info.dli_fname);
+}
+#else
+static char *plugin_library_path(void)
+{
+    return NULL;
+}
+#endif
+
 static char *resolve_executable_path(const char *argument_zero)
 {
     const char *path_environment;
@@ -1231,6 +1340,8 @@ static int discover_template_files(void)
     DIR *directory = opendir(g_template_dir);
     struct dirent *entry;
     if (directory == NULL) {
+        /* A reflection-only project needs no templates. */
+        if (errno == ENOENT && g_reflect_mode != REFLECT_NONE) return 1;
         report_error(g_template_dir, 0U, "cannot scan template directory: %s",
                      strerror(errno));
         return 0;
@@ -1302,8 +1413,14 @@ static int is_generated_output_file(const char *path)
                        absolute[generated_dir_length] == '/' ||
                        absolute[generated_dir_length] == '\\');
     int generated = str_eq(absolute, aggregate);
+    const char *leaf = path_leaf(absolute);
+    int reflection_file = (str_eq(leaf, "reflection.h") ||
+                           str_eq(leaf, "reflection.gen.c")) &&
+        strncmp(absolute, g_generated_dir, generated_dir_length) == 0 &&
+        (absolute[generated_dir_length] == '/' ||
+         absolute[generated_dir_length] == '\\');
     free(aggregate);
-    generated = generated || module_file;
+    generated = generated || module_file || reflection_file;
     free(absolute);
     return generated;
 }
@@ -3115,6 +3232,9 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
     return CXChildVisit_Recurse;
 }
 
+static int template_include_is_reflection(const TemplateInfo *ti, const char *header);
+static char *reflection_header_path(void);
+
 static int analyze_template(TemplateInfo *ti)
 {
     CXIndex index;
@@ -3126,15 +3246,32 @@ static int analyze_template(TemplateInfo *ti)
     char *path = absolute_path(ti->path);
     TemplateAnalysis analysis;
     Buf contents;
-    struct CXUnsavedFile unsaved;
+    Buf stand_in;
+    char *stand_in_path = NULL;
+    struct CXUnsavedFile unsaved[2];
     size_t include_index;
     size_t parameter_index;
     buf_init(&contents);
+    buf_init(&stand_in);
     buf_puts(&contents, GEN_PREAMBLE);
     if (contents.len != 0U && contents.p[contents.len - 1U] != '\n') {
         buf_putc(&contents, '\n');
     }
     for (include_index = 0U; include_index < ti->include_count; ++include_index) {
+        if (template_include_is_reflection(ti, ti->includes[include_index])) {
+            /* The real header may not exist yet or describe other types:
+             * parse against the stand-in, as an unsaved file. */
+            if (stand_in_path == NULL) {
+                char *reflection = reflection_header_path();
+                stand_in_path = absolute_path(reflection);
+                free(reflection);
+                emit_reflection_bootstrap(&stand_in);
+            }
+            buf_puts(&contents, "#include \"");
+            buf_puts(&contents, stand_in_path);
+            buf_puts(&contents, "\"\n");
+            continue;
+        }
         buf_puts(&contents, "#include ");
         buf_puts(&contents, ti->includes[include_index]);
         buf_putc(&contents, '\n');
@@ -3155,11 +3292,16 @@ static int analyze_template(TemplateInfo *ti)
     for (i = 0; i < (int)g_clang_arg_count; ++i) arguments[i + 2] = g_clang_args[i];
     index = clang_createIndex(0, 0);
     if (index == NULL) die("libclang could not create an index");
-    unsaved.Filename = path;
-    unsaved.Contents = contents.p != NULL ? contents.p : "";
-    unsaved.Length = (unsigned long)contents.len;
+    unsaved[0].Filename = path;
+    unsaved[0].Contents = contents.p != NULL ? contents.p : "";
+    unsaved[0].Length = (unsigned long)contents.len;
+    if (stand_in_path != NULL) {
+        unsaved[1].Filename = stand_in_path;
+        unsaved[1].Contents = stand_in.p != NULL ? stand_in.p : "";
+        unsaved[1].Length = (unsigned long)stand_in.len;
+    }
     result = clang_parseTranslationUnit2(index, path, arguments, argument_count,
-                                         &unsaved, 1U,
+                                         unsaved, stand_in_path != NULL ? 2U : 1U,
                                          CXTranslationUnit_DetailedPreprocessingRecord |
                                          CXTranslationUnit_KeepGoing, &tu);
     free(arguments);
@@ -3167,6 +3309,8 @@ static int analyze_template(TemplateInfo *ti)
         report_error(ti->path, 0U, "libclang could not parse template declarations (%d)",
                      (int)result);
         buf_free(&contents);
+        buf_free(&stand_in);
+        free(stand_in_path);
         free(path);
         clang_disposeIndex(index);
         return 0;
@@ -3180,6 +3324,8 @@ static int analyze_template(TemplateInfo *ti)
         clang_disposeTranslationUnit(tu);
         clang_disposeIndex(index);
         buf_free(&contents);
+        buf_free(&stand_in);
+        free(stand_in_path);
         free(path);
         return 0;
     }
@@ -3252,6 +3398,8 @@ static int analyze_template(TemplateInfo *ti)
     clang_disposeTranslationUnit(tu);
     clang_disposeIndex(index);
     buf_free(&contents);
+    buf_free(&stand_in);
+    free(stand_in_path);
     free(path);
     return !analysis.failed;
 }
@@ -3824,6 +3972,18 @@ static int parse_template(TemplateInfo *ti, const char *path)
         buf_free(&source);
         return 0;
     }
+#if defined(CLANGPLUGIN)
+    /* The editor's unsaved buffer of this template, if it is the main file. */
+    if (g_unsaved_source_path != NULL) {
+        char *absolute = absolute_path(path);
+        if (str_eq(absolute, g_unsaved_source_path)) {
+            buf_free(&source);
+            buf_init(&source);
+            buf_putn(&source, g_unsaved_source_contents, g_unsaved_source_length);
+        }
+        free(absolute);
+    }
+#endif
     while (offset < source.len) {
         size_t end = offset;
         size_t content_end;
@@ -5220,6 +5380,642 @@ static int instance_matches_parameters(const TemplateInfo *ti,
     return 1;
 }
 
+/* ===================== ARGUMENT-TYPE REQUIREMENTS ===================
+
+   A specialization such as Vec_Foo can only be compiled where Foo is
+   declared. Generated headers therefore never name a project type in
+   unconditional code: everything that mentions it is emitted in a section
+   guarded by the include guard of the header that declares it,
+
+       #if defined(FOO_H) && !defined(TMPLGEN_HAVE_..._FOO_H)
+
+   and the generated headers have no include guard around those sections, so
+   including them again after the type's header activates them. An instance's
+   "requirement" is the sorted set of such guard macros, joined by ','. */
+
+typedef struct {
+    char *path;
+    char *guard;       /* NULL when the header has no include-guard macro */
+} HeaderGuard;
+
+static HeaderGuard *g_header_guards;
+static size_t g_header_guard_count, g_header_guard_cap;
+static StringSet g_reported_requirement_errors;
+
+static const char *skip_c_trivia_text(const char *p)
+{
+    for (;;) {
+        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n' ||
+               *p == '\f' || *p == '\v') ++p;
+        if (p[0] == '/' && p[1] == '/') {
+            while (*p != '\0' && *p != '\n') ++p;
+        } else if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p != '\0' && !(p[0] == '*' && p[1] == '/')) ++p;
+            if (*p != '\0') p += 2;
+        } else {
+            return p;
+        }
+    }
+}
+
+static const char *skip_horizontal_space(const char *p)
+{
+    while (*p == ' ' || *p == '\t') ++p;
+    return p;
+}
+
+static char *read_directive_identifier(const char **p)
+{
+    const char *start;
+    *p = skip_horizontal_space(*p);
+    if (!is_ident_start(**p)) return NULL;
+    start = *p;
+    while (is_ident_char(**p)) ++*p;
+    return copy_range(start, (size_t)(*p - start));
+}
+
+static int directive_keyword(const char **p, const char *keyword)
+{
+    size_t length = strlen(keyword);
+    if (strncmp(*p, keyword, length) != 0 || is_ident_char((*p)[length])) return 0;
+    *p += length;
+    return 1;
+}
+
+/* Returns the include-guard macro of a header written as
+ *     #ifndef X / #if !defined(X)    followed by    #define X
+ * before any other code, or NULL. */
+static char *parse_include_guard(const char *text)
+{
+    const char *p = skip_c_trivia_text(text);
+    char *guard = NULL;
+    char *defined = NULL;
+    if (*p != '#') return NULL;
+    p = skip_horizontal_space(p + 1);
+    if (directive_keyword(&p, "ifndef")) {
+        guard = read_directive_identifier(&p);
+    } else if (directive_keyword(&p, "if")) {
+        int parenthesized;
+        p = skip_horizontal_space(p);
+        if (*p != '!') return NULL;
+        p = skip_horizontal_space(p + 1);
+        if (!directive_keyword(&p, "defined")) return NULL;
+        p = skip_horizontal_space(p);
+        parenthesized = *p == '(';
+        if (parenthesized) ++p;
+        guard = read_directive_identifier(&p);
+        if (guard == NULL) return NULL;
+        p = skip_horizontal_space(p);
+        if (parenthesized) {
+            if (*p != ')') {
+                free(guard);
+                return NULL;
+            }
+            ++p;
+        }
+    }
+    if (guard == NULL) return NULL;
+    p = skip_c_trivia_text(p);
+    if (*p != '#') {
+        free(guard);
+        return NULL;
+    }
+    p = skip_horizontal_space(p + 1);
+    if (directive_keyword(&p, "define")) defined = read_directive_identifier(&p);
+    if (defined == NULL || !str_eq(defined, guard)) {
+        free(defined);
+        free(guard);
+        return NULL;
+    }
+    free(defined);
+    return guard;
+}
+
+static const HeaderGuard *header_guard_for(const char *path)
+{
+    size_t i;
+    Buf text;
+    HeaderGuard *entry;
+    for (i = 0U; i < g_header_guard_count; ++i) {
+        if (str_eq(g_header_guards[i].path, path)) return &g_header_guards[i];
+    }
+    if (g_header_guard_count == g_header_guard_cap) {
+        size_t new_cap = g_header_guard_cap == 0U ? 8U : g_header_guard_cap * 2U;
+        HeaderGuard *next;
+        if (new_cap < g_header_guard_cap ||
+            new_cap > (size_t)-1 / sizeof(*g_header_guards)) die("too many headers");
+        next = (HeaderGuard *)realloc(g_header_guards,
+                                      new_cap * sizeof(*g_header_guards));
+        if (next == NULL) die("out of memory");
+        g_header_guards = next;
+        g_header_guard_cap = new_cap;
+    }
+    entry = &g_header_guards[g_header_guard_count++];
+    entry->path = copy_string(path);
+    entry->guard = NULL;
+    buf_init(&text);
+    if (read_file(path, &text)) {
+        entry->guard = parse_include_guard(text.p != NULL ? text.p : "");
+    }
+    buf_free(&text);
+    return entry;
+}
+
+static const char *header_path_for_guard(const char *guard)
+{
+    size_t i;
+    for (i = 0U; i < g_header_guard_count; ++i) {
+        if (g_header_guards[i].guard != NULL &&
+            str_eq(g_header_guards[i].guard, guard)) return g_header_guards[i].path;
+    }
+    return NULL;
+}
+
+static void clear_requirement_state(void)
+{
+    size_t i;
+    for (i = 0U; i < g_header_guard_count; ++i) {
+        free(g_header_guards[i].path);
+        free(g_header_guards[i].guard);
+    }
+    free(g_header_guards);
+    g_header_guards = NULL;
+    g_header_guard_count = 0U;
+    g_header_guard_cap = 0U;
+    string_set_free(&g_reported_requirement_errors);
+}
+
+/* Line of the first `#include "..."` of a generated header in `path` that
+ * appears before byte `offset`, or 0. */
+static size_t generated_include_before_target(const char *path, unsigned offset,
+                                             const char *only_target);
+
+static size_t generated_include_before(const char *path, unsigned offset)
+{
+    return generated_include_before_target(path, offset, NULL);
+}
+
+/* As generated_include_before, but with `only_target` (absolute) only that
+ * generated file counts. */
+static size_t generated_include_before_target(const char *path, unsigned offset,
+                                             const char *only_target)
+{
+    Buf text;
+    char *directory;
+    const char *p;
+    size_t line = 1U;
+    size_t found = 0U;
+    buf_init(&text);
+    if (!read_file(path, &text) || text.p == NULL) {
+        buf_free(&text);
+        return 0U;
+    }
+    directory = path_parent(path);
+    p = text.p;
+    while (*p != '\0' && (size_t)(p - text.p) < (size_t)offset && found == 0U) {
+        const char *q = skip_horizontal_space(p);
+        if (*q == '#') {
+            q = skip_horizontal_space(q + 1);
+            if (directive_keyword(&q, "include")) {
+                q = skip_horizontal_space(q);
+                if (*q == '"') {
+                    const char *end = strchr(q + 1, '"');
+                    const char *newline = strchr(q + 1, '\n');
+                    if (end != NULL && (newline == NULL || end < newline)) {
+                        char *target = copy_range(q + 1, (size_t)(end - q - 1));
+                        char *candidate = join_path(directory, target);
+                        if (only_target != NULL) {
+                            char *absolute = absolute_path(candidate);
+                            if (str_eq(absolute, only_target)) found = line;
+                            free(absolute);
+                        } else if (is_generated_output_file(candidate)) {
+                            found = line;
+                        }
+                        free(candidate);
+                        free(target);
+                    }
+                }
+            }
+        }
+        while (*p != '\0' && *p != '\n') ++p;
+        if (*p == '\n') {
+            ++p;
+            ++line;
+        }
+    }
+    free(directory);
+    buf_free(&text);
+    return found;
+}
+
+static int path_has_suffix(const char *path, const char *suffix)
+{
+    size_t length = strlen(path);
+    size_t suffix_length = strlen(suffix);
+    return length >= suffix_length &&
+           strcmp(path + length - suffix_length, suffix) == 0;
+}
+
+static void report_requirement_error(const GenInstance *instance,
+                                     const char *type_name, const char *fmt,
+                                     const char *a, const char *b)
+{
+    if (string_set_has(&g_reported_requirement_errors, type_name)) return;
+    string_set_add(&g_reported_requirement_errors, type_name);
+    report_error(instance->origin_path, instance->origin_line, fmt, a, b);
+}
+
+/* Adds the guard of the header that declares `origin` to `guards`. */
+static int add_origin_requirement(const TypeOrigin *origin, const char *type_name,
+                                  const GenInstance *instance, StringSet *guards)
+{
+    const HeaderGuard *header;
+    size_t include_line;
+    if (path_has_suffix(origin->path, ".c")) {
+        report_requirement_error(instance, type_name,
+            "template argument type '%s' is declared in %s, a .c file; "
+            "declare it in a header with an include guard", type_name,
+            origin->path);
+        return 0;
+    }
+    header = header_guard_for(origin->path);
+    if (header->guard == NULL) {
+        report_requirement_error(instance, type_name,
+            "template argument type '%s' is declared in %s, which has no "
+            "#ifndef/#define include guard (generated code tests that macro; "
+            "#pragma once alone is not enough)", type_name, origin->path);
+        return 0;
+    }
+    include_line = generated_include_before(origin->path, origin->offset);
+    if (include_line != 0U) {
+        report_requirement_error(instance, type_name,
+            "%s includes a generated header before declaring template "
+            "argument type '%s'; declare the type before that #include",
+            origin->path, type_name);
+        return 0;
+    }
+    string_set_add(guards, header->guard);
+    return 1;
+}
+
+static int is_builtin_type_word(const char *word)
+{
+    static const char *const words[] = {
+        "void", "char", "short", "int", "long", "float", "double", "signed",
+        "unsigned", "_Bool", "bool", "_Complex", "_Imaginary", "__int128",
+        "const", "volatile", "restrict", "__restrict", "_Atomic", "static",
+        "inline", "register", "extern"
+    };
+    size_t i;
+    for (i = 0U; i < sizeof(words) / sizeof(words[0]); ++i) {
+        if (str_eq(word, words[i])) return 1;
+    }
+    return 0;
+}
+
+static int compute_instance_requirement(size_t instance_index, unsigned depth);
+static const char *instance_requirement(const GenInstance *instance);
+static void buf_put_requirement_id(Buf *out, const char *requirement);
+static char *generated_module_guard(const char *stem);
+static char *reflection_header_path(void);
+
+/* Whether `header` (an #include operand as written, quotes included) of the
+ * template `ti` names the generated reflection.h: this project's, or, since a
+ * template directory can serve several projects, any "reflection.h" that does
+ * not exist yet or was written by tmplgen. */
+static int template_include_is_reflection(const TemplateInfo *ti, const char *header)
+{
+    size_t length = strlen(header);
+    char *directory, *target, *candidate, *absolute, *reflection, *reflection_absolute;
+    int match;
+    if (length < 2U || header[0] != '"' || header[length - 1U] != '"') return 0;
+    target = copy_range(header + 1, length - 2U);
+    if (!str_eq(path_leaf(target), "reflection.h")) {
+        free(target);
+        return 0;
+    }
+    directory = path_parent(ti->path);
+    candidate = join_path(directory, target);
+    absolute = absolute_path(candidate);
+    reflection = reflection_header_path();
+    reflection_absolute = absolute_path(reflection);
+    match = str_eq(absolute, reflection_absolute);
+    if (!match) {
+        Buf text;
+        buf_init(&text);
+        match = !read_file(candidate, &text) ||
+                (text.p != NULL &&
+                 strstr(text.p, "AUTO-GENERATED by tmplgen (--reflect=project)") != NULL);
+        buf_free(&text);
+    }
+    free(directory);
+    free(target);
+    free(candidate);
+    free(absolute);
+    free(reflection);
+    free(reflection_absolute);
+    return match;
+}
+
+/* A template that includes gen/reflection.h uses the reflection API in its
+ * bodies: its specializations wait for reflection.h's section of their
+ * argument types (see compute_instance_requirement). */
+static int template_uses_reflection(const TemplateInfo *ti)
+{
+    size_t i;
+    for (i = 0U; i < ti->include_count; ++i) {
+        if (template_include_is_reflection(ti, ti->includes[i])) return 1;
+    }
+    return 0;
+}
+
+static int template_index_uses_reflection(size_t template_index)
+{
+    return g_all_template_infos != NULL && template_index < g_all_template_info_count &&
+           template_uses_reflection(&g_all_template_infos[template_index]);
+}
+
+/* The macro that is defined once the specializations of `instance` have been
+ * compiled: the module's include guard for those that need no project type,
+ * otherwise the marker of the module's section for its requirement. */
+static char *instance_section_marker(const GenInstance *instance)
+{
+    char *guard = generated_module_guard(g_templates[instance->template_index].stem);
+    const char *requirement = instance_requirement(instance);
+    Buf marker;
+    if (requirement[0] == '\0') return guard;
+    buf_init(&marker);
+    buf_puts(&marker, "TMPLGEN_HAVE_");
+    buf_puts(&marker, guard);
+    buf_putc(&marker, '_');
+    buf_put_requirement_id(&marker, requirement);
+    free(guard);
+    return marker.p;
+}
+
+/* Index of the instance whose generated type is named `name` (for example
+ * Vec_int, or the tag of a tagged constructor), or (size_t)-1. */
+static size_t instance_for_generated_type(const char *name)
+{
+    size_t i;
+    for (i = 0U; i < g_instance_count; ++i) {
+        const GenInstance *instance = &g_instances[i];
+        const TemplateInfo *ti;
+        size_t j;
+        if (instance->template_index >= g_all_template_info_count) continue;
+        ti = &g_all_template_infos[instance->template_index];
+        for (j = 0U; j < ti->constructor_count; ++j) {
+            const TemplateType *constructor = &ti->constructors[j];
+            char *generated;
+            int match;
+            if (constructor->parameter_count == 0U ||
+                !instance_matches_parameters(ti, instance,
+                    constructor->parameter_names, constructor->parameter_count) ||
+                !type_use_matches(constructor->name, instance->name)) continue;
+            generated = join_suffix(constructor->name, instance->name);
+            match = str_eq(generated, name);
+            free(generated);
+            if (match) return i;
+        }
+    }
+    return (size_t)-1;
+}
+
+static int add_spelling_requirements(const char *spelling,
+                                     const GenInstance *instance,
+                                     StringSet *guards, unsigned depth)
+{
+    const char *p = spelling;
+    const char *tag = NULL;
+    int okay = 1;
+    while (*p != '\0') {
+        const char *start;
+        char *word;
+        if (!is_ident_start(*p)) {
+            ++p;
+            continue;
+        }
+        start = p;
+        while (is_ident_char(*p)) ++p;
+        word = copy_range(start, (size_t)(p - start));
+        if (str_eq(word, "struct") || str_eq(word, "union") || str_eq(word, "enum")) {
+            tag = str_eq(word, "struct") ? "struct " :
+                  str_eq(word, "union") ? "union " : "enum ";
+        } else if (!is_builtin_type_word(word)) {
+            Buf name;
+            const TypeOrigin *origin;
+            buf_init(&name);
+            if (tag != NULL) buf_puts(&name, tag);
+            buf_puts(&name, word);
+            origin = find_type_origin(name.p);
+            if (origin != NULL) {
+                if (!add_origin_requirement(origin, name.p, instance, guards)) okay = 0;
+            } else {
+                size_t generated = instance_for_generated_type(word);
+                if (generated != (size_t)-1 &&
+                    &g_instances[generated] != instance &&
+                    compute_instance_requirement(generated, depth + 1U)) {
+                    const char *requirement = g_instance_requirements[generated];
+                    while (*requirement != '\0') {
+                        const char *comma = strchr(requirement, ',');
+                        size_t length = comma != NULL ? (size_t)(comma - requirement) :
+                                                        strlen(requirement);
+                        char *guard = copy_range(requirement, length);
+                        string_set_add(guards, guard);
+                        free(guard);
+                        requirement += length;
+                        if (*requirement == ',') ++requirement;
+                    }
+                    /* A type from another module also needs that module's
+                     * section (or core) to have run, whatever the order the
+                     * generated headers are included in. */
+                    if (g_instances[generated].template_index != instance->template_index) {
+                        char *marker = instance_section_marker(&g_instances[generated]);
+                        string_set_add(guards, marker);
+                        free(marker);
+                    }
+                }
+            }
+            buf_free(&name);
+            tag = NULL;
+        }
+        free(word);
+    }
+    return okay;
+}
+
+static int compare_strings(const void *left, const void *right)
+{
+    return strcmp(*(const char *const *)left, *(const char *const *)right);
+}
+
+static char *join_requirement(StringSet *guards)
+{
+    Buf key;
+    size_t i;
+    if (guards->count > 1U) {
+        qsort(guards->items, guards->count, sizeof(*guards->items), compare_strings);
+    }
+    buf_init(&key);
+    for (i = 0U; i < guards->count; ++i) {
+        if (i != 0U) buf_putc(&key, ',');
+        buf_puts(&key, guards->items[i]);
+    }
+    return key.p != NULL ? key.p : copy_string("");
+}
+
+static int compute_instance_requirement(size_t instance_index, unsigned depth)
+{
+    const GenInstance *instance = &g_instances[instance_index];
+    StringSet guards;
+    size_t i;
+    int okay = 1;
+    if (g_instance_requirements[instance_index] != NULL) return 1;
+    if (depth > 64U) return 0;
+    memset(&guards, 0, sizeof(guards));
+    for (i = 0U; i < instance->argument_count; ++i) {
+        if (!add_spelling_requirements(instance->arguments[i].c_type, instance,
+                                       &guards, depth)) okay = 0;
+    }
+    if (template_index_uses_reflection(instance->template_index)) {
+        /* The body names reflection.h's API and its typetag_of entries for
+         * the argument types: wait for reflection.h's section of each guard
+         * (reflection.h emits one for every such guard), or for reflection.h
+         * itself when only builtins are involved. */
+        size_t count = guards.count;
+        if (count == 0U) string_set_add(&guards, "TMPLGEN_REFLECTION_H");
+        for (i = 0U; i < count; ++i) {
+            Buf have;
+            buf_init(&have);
+            buf_puts(&have, "TMPLGEN_REFLECT_HAVE_");
+            buf_puts(&have, guards.items[i]);
+            string_set_add(&guards, have.p);
+            buf_free(&have);
+        }
+    }
+    g_instance_requirements[instance_index] = join_requirement(&guards);
+    string_set_free(&guards);
+    return okay;
+}
+
+static int compute_instance_requirements(void)
+{
+    size_t i;
+    int okay = 1;
+    list_free(g_instance_requirements, g_instance_requirement_count);
+    g_instance_requirements = NULL;
+    g_instance_requirement_count = g_instance_count;
+    if (g_instance_count != 0U) {
+        g_instance_requirements = (char **)calloc(g_instance_count,
+                                                  sizeof(*g_instance_requirements));
+        if (g_instance_requirements == NULL) die("out of memory");
+    }
+    for (i = 0U; i < g_instance_count; ++i) {
+        if (!compute_instance_requirement(i, 0U)) okay = 0;
+    }
+    return okay;
+}
+
+static const char *instance_requirement(const GenInstance *instance)
+{
+    size_t index;
+    if (instance == NULL || g_instance_requirements == NULL ||
+        instance < g_instances || instance >= g_instances + g_instance_count) {
+        return "";
+    }
+    index = (size_t)(instance - g_instances);
+    return g_instance_requirements[index] != NULL ?
+        g_instance_requirements[index] : "";
+}
+
+/* "A,B" -> "A_AND_B", for building macro names. */
+static void buf_put_requirement_id(Buf *out, const char *requirement)
+{
+    for (; *requirement != '\0'; ++requirement) {
+        if (*requirement == ',') buf_puts(out, "_AND_");
+        else buf_putc(out, *requirement);
+    }
+}
+
+/* "A,B" -> "defined(A) && defined(B)" */
+static void buf_put_requirement_condition(Buf *out, const char *requirement)
+{
+    int first = 1;
+    while (*requirement != '\0') {
+        const char *comma = strchr(requirement, ',');
+        size_t length = comma != NULL ? (size_t)(comma - requirement) :
+                                        strlen(requirement);
+        if (!first) buf_puts(out, " && ");
+        buf_puts(out, "defined(");
+        buf_putn(out, requirement, length);
+        buf_putc(out, ')');
+        first = 0;
+        requirement += length;
+        if (*requirement == ',') ++requirement;
+    }
+}
+
+static size_t requirement_guard_count(const char *requirement)
+{
+    size_t count = 0U;
+    if (*requirement == '\0') return 0U;
+    for (count = 1U; *requirement != '\0'; ++requirement) {
+        if (*requirement == ',') ++count;
+    }
+    return count;
+}
+
+static int compare_requirements(const void *left, const void *right)
+{
+    const char *a = *(const char *const *)left;
+    const char *b = *(const char *const *)right;
+    size_t count_a = requirement_guard_count(a);
+    size_t count_b = requirement_guard_count(b);
+    if (count_a != count_b) return count_a < count_b ? -1 : 1;
+    return strcmp(a, b);
+}
+
+/* Sorts requirement keys so that a key comes after all of its subsets. */
+static void sort_requirements(StringSet *requirements)
+{
+    if (requirements->count > 1U) {
+        qsort(requirements->items, requirements->count,
+              sizeof(*requirements->items), compare_requirements);
+    }
+}
+
+/* Intersection of two requirement keys. */
+static char *requirement_intersection(const char *a, const char *b)
+{
+    StringSet guards;
+    char *result;
+    memset(&guards, 0, sizeof(guards));
+    while (*a != '\0') {
+        const char *comma = strchr(a, ',');
+        size_t length = comma != NULL ? (size_t)(comma - a) : strlen(a);
+        char *guard = copy_range(a, length);
+        const char *p = b;
+        while (*p != '\0') {
+            const char *other_comma = strchr(p, ',');
+            size_t other_length = other_comma != NULL ? (size_t)(other_comma - p) :
+                                                        strlen(p);
+            if (other_length == length && strncmp(p, guard, length) == 0) {
+                string_set_add(&guards, guard);
+                break;
+            }
+            p += other_length;
+            if (*p == ',') ++p;
+        }
+        free(guard);
+        a += length;
+        if (*a == ',') ++a;
+    }
+    result = join_requirement(&guards);
+    string_set_free(&guards);
+    return result;
+}
+
 static void emit_no_match_declaration(Buf *out, const char *name)
 {
     buf_puts(out, "/* No dispatch association yet: either the argument type is wrong,\n"
@@ -5234,132 +6030,311 @@ static void emit_no_match_declaration(Buf *out, const char *name)
     buf_puts(out, "_argument, ...);\n");
 }
 
-static void emit_generic_tree(Buf *out, const char *name,
-                              const AssocList *assocs,
-                              const size_t *candidates, size_t candidate_count,
-                              size_t depth, unsigned indent,
-                              const char *default_expression)
-{
-    const DispatchAssoc *first = &assocs->items[candidates[0]];
-    size_t i;
-    emit_spaces(out, indent);
-    buf_puts(out, "_Generic((GEN_ARG");
-    buf_put_uint(out, (unsigned long)first->indices[depth]);
-    buf_puts(out, "(__VA_ARGS__)), \\\n");
-    for (i = 0U; i < candidate_count; ++i) {
-        size_t assoc_index = candidates[i];
-        const DispatchAssoc *association = &assocs->items[assoc_index];
-        size_t previous;
-        int seen = 0;
-        size_t subset_count = 0U;
-        size_t *subset;
-        size_t j;
-        for (previous = 0U; previous < i; ++previous) {
-            const DispatchAssoc *prior = &assocs->items[candidates[previous]];
-            if (str_eq(prior->keys[depth], association->keys[depth])) {
-                seen = 1;
-                break;
-            }
-        }
-        if (seen) continue;
-        for (j = i; j < candidate_count; ++j) {
-            const DispatchAssoc *other = &assocs->items[candidates[j]];
-            if (str_eq(other->keys[depth], association->keys[depth])) ++subset_count;
-        }
-        subset = (size_t *)malloc(subset_count * sizeof(*subset));
-        if (subset == NULL) die("out of memory");
-        subset_count = 0U;
-        for (j = i; j < candidate_count; ++j) {
-            const DispatchAssoc *other = &assocs->items[candidates[j]];
-            if (str_eq(other->keys[depth], association->keys[depth])) {
-                subset[subset_count++] = candidates[j];
-            }
-        }
-        emit_spaces(out, indent + 4U);
-        buf_puts(out, association->types[depth]);
-        buf_puts(out, ": ");
-        if (depth + 1U == association->count) {
-            buf_puts(out, association->function_name);
-        } else {
-            emit_generic_tree(out, name, assocs, subset, subset_count,
-                              depth + 1U, indent + 4U, default_expression);
-        }
-        buf_puts(out, ", \\\n");
-        free(subset);
-    }
-    emit_spaces(out, indent + 4U);
-    buf_puts(out, "default: ");
-    if (default_expression != NULL) {
-        buf_puts(out, default_expression);
-    } else {
-        buf_puts(out, name);
-        buf_puts(out, "__no_match_for_argument_type");
-    }
-    buf_putc(out, ')');
-}
-
-static void emit_generic_macro(Buf *out, const char *name,
-                               const AssocList *assocs)
-{
-    size_t *candidates;
-    size_t i;
-    candidates = (size_t *)malloc(assocs->count * sizeof(*candidates));
-    if (candidates == NULL) die("out of memory");
-    for (i = 0U; i < assocs->count; ++i) candidates[i] = i;
-    buf_puts(out, "#define ");
-    buf_puts(out, name);
-    buf_puts(out, "(...) ");
-    emit_generic_tree(out, name, assocs, candidates, assocs->count, 0U, 0U, NULL);
-    buf_puts(out, "(__VA_ARGS__)\n\n");
-    free(candidates);
-}
-
 static void emit_spaces(Buf *out, unsigned count)
 {
     unsigned i;
     for (i = 0U; i < count; ++i) buf_putc(out, ' ');
 }
 
-static void emit_gnu_expression(Buf *out, const AssocList *assocs,
-                               const char *default_expression)
+/* ---- dispatch with per-requirement hooks ----------------------------------
+ * A dispatch macro may only name types that exist where it expands. The
+ * associations that need a project type are therefore moved into hook macros
+ * that start out empty (or pass-through for the GNU chain) and are redefined
+ * inside the requirement's guarded section. Macros expand at the call, so a
+ * hook redefined after the dispatch macro is still picked up. */
+
+typedef struct {
+    char *name;
+    char *requirement;
+    int gnu;               /* GNU hooks take (next, ...), _Generic hooks (...) */
+    Buf body;
+} DispatchHook;
+
+typedef struct {
+    const char *name;
+    const AssocList *assocs;
+    char **requirements;   /* per association */
+    DispatchHook **hooks;
+    size_t hook_count, hook_cap;
+    unsigned next_node;
+} DispatchPlan;
+
+static DispatchHook *dispatch_plan_hook(DispatchPlan *plan, const char *name,
+                                        const char *requirement, int gnu)
 {
     size_t i;
-    size_t depth;
-    for (i = 0U; i < assocs->count; ++i) {
+    DispatchHook *hook;
+    for (i = 0U; i < plan->hook_count; ++i) {
+        if (str_eq(plan->hooks[i]->name, name)) return plan->hooks[i];
+    }
+    if (plan->hook_count == plan->hook_cap) {
+        size_t new_cap = plan->hook_cap == 0U ? 4U : plan->hook_cap * 2U;
+        DispatchHook **next;
+        if (new_cap < plan->hook_cap ||
+            new_cap > (size_t)-1 / sizeof(*plan->hooks)) die("too many dispatch hooks");
+        next = (DispatchHook **)realloc(plan->hooks, new_cap * sizeof(*plan->hooks));
+        if (next == NULL) die("out of memory");
+        plan->hooks = next;
+        plan->hook_cap = new_cap;
+    }
+    hook = (DispatchHook *)calloc(1U, sizeof(*hook));
+    if (hook == NULL) die("out of memory");
+    hook->name = copy_string(name);
+    hook->requirement = copy_string(requirement);
+    hook->gnu = gnu;
+    buf_init(&hook->body);
+    plan->hooks[plan->hook_count++] = hook;
+    return hook;
+}
+
+static void dispatch_plan_free(DispatchPlan *plan)
+{
+    size_t i;
+    for (i = 0U; i < plan->hook_count; ++i) {
+        free(plan->hooks[i]->name);
+        free(plan->hooks[i]->requirement);
+        buf_free(&plan->hooks[i]->body);
+        free(plan->hooks[i]);
+    }
+    free(plan->hooks);
+    if (plan->requirements != NULL) {
+        list_free(plan->requirements, plan->assocs->count);
+    }
+    memset(plan, 0, sizeof(*plan));
+}
+
+static void emit_planned_generic_node(DispatchPlan *plan, Buf *out,
+                                      const size_t *candidates,
+                                      size_t candidate_count, size_t depth,
+                                      unsigned indent, const char *context)
+{
+    const AssocList *assocs = plan->assocs;
+    const DispatchAssoc *first = &assocs->items[candidates[0]];
+    unsigned node = plan->next_node++;
+    StringSet node_hooks;
+    size_t i;
+    memset(&node_hooks, 0, sizeof(node_hooks));
+    emit_spaces(out, indent);
+    buf_puts(out, "_Generic((GEN_ARG");
+    buf_put_uint(out, (unsigned long)first->indices[depth]);
+    buf_puts(out, "(__VA_ARGS__)), \\\n");
+    for (i = 0U; i < candidate_count; ++i) {
+        const DispatchAssoc *association = &assocs->items[candidates[i]];
+        size_t previous, j;
+        int seen = 0;
+        size_t subset_count = 0U;
+        size_t *subset;
+        char *label_requirement;
+        Buf *target = out;
+        for (previous = 0U; previous < i; ++previous) {
+            if (str_eq(assocs->items[candidates[previous]].keys[depth],
+                       association->keys[depth])) {
+                seen = 1;
+                break;
+            }
+        }
+        if (seen) continue;
+        subset = (size_t *)malloc(candidate_count * sizeof(*subset));
+        if (subset == NULL) die("out of memory");
+        label_requirement = copy_string(plan->requirements[candidates[i]]);
+        for (j = i; j < candidate_count; ++j) {
+            if (str_eq(assocs->items[candidates[j]].keys[depth],
+                       association->keys[depth])) {
+                char *common = requirement_intersection(
+                    label_requirement, plan->requirements[candidates[j]]);
+                free(label_requirement);
+                label_requirement = common;
+                subset[subset_count++] = candidates[j];
+            }
+        }
+        if (!str_eq(label_requirement, context)) {
+            Buf hook_name;
+            DispatchHook *hook;
+            buf_init(&hook_name);
+            buf_puts(&hook_name, "TMPLGEN_GENERIC_");
+            buf_puts(&hook_name, plan->name);
+            buf_puts(&hook_name, "_N");
+            buf_put_uint(&hook_name, (unsigned long)node);
+            buf_putc(&hook_name, '_');
+            buf_put_requirement_id(&hook_name, label_requirement);
+            hook = dispatch_plan_hook(plan, hook_name.p, label_requirement, 0);
+            string_set_add(&node_hooks, hook_name.p);
+            target = &hook->body;
+            buf_free(&hook_name);
+        }
+        emit_spaces(target, indent + 4U);
+        buf_puts(target, association->types[depth]);
+        buf_puts(target, ": ");
+        if (depth + 1U == association->count) {
+            buf_puts(target, association->function_name);
+        } else {
+            /* Hooks are heap-allocated, so `target` stays valid while the
+             * subtree creates further hooks. */
+            Buf subtree;
+            buf_init(&subtree);
+            emit_planned_generic_node(plan, &subtree, subset, subset_count,
+                                      depth + 1U, indent + 4U, label_requirement);
+            buf_puts(target, subtree.p != NULL ? subtree.p : "");
+            buf_free(&subtree);
+        }
+        buf_puts(target, ", \\\n");
+        free(label_requirement);
+        free(subset);
+    }
+    for (i = 0U; i < node_hooks.count; ++i) {
+        emit_spaces(out, indent + 4U);
+        buf_puts(out, node_hooks.items[i]);
+        buf_puts(out, "(__VA_ARGS__) \\\n");
+    }
+    emit_spaces(out, indent + 4U);
+    buf_puts(out, "default: ");
+    buf_puts(out, plan->name);
+    buf_puts(out, "__no_match_for_argument_type)");
+    string_set_free(&node_hooks);
+}
+
+static void emit_planned_gnu_chain(Buf *out, const AssocList *assocs,
+                                   const size_t *indices, size_t count,
+                                   const char *tail)
+{
+    size_t i, depth;
+    for (i = 0U; i < count; ++i) {
+        const DispatchAssoc *association = &assocs->items[indices[i]];
         emit_spaces(out, (unsigned)(4U + i * 4U));
         buf_puts(out, "__builtin_choose_expr( \\\n");
         emit_spaces(out, (unsigned)(8U + i * 4U));
         buf_putc(out, '(');
-        for (depth = 0U; depth < assocs->items[i].count; ++depth) {
+        for (depth = 0U; depth < association->count; ++depth) {
             if (depth != 0U) buf_puts(out, " && ");
             buf_puts(out, "__builtin_types_compatible_p(__typeof__(GEN_ARG");
-            buf_put_uint(out, (unsigned long)assocs->items[i].indices[depth]);
+            buf_put_uint(out, (unsigned long)association->indices[depth]);
             buf_puts(out, "(__VA_ARGS__)), ");
-            buf_puts(out, assocs->items[i].types[depth]);
+            buf_puts(out, association->types[depth]);
             buf_putc(out, ')');
         }
         buf_puts(out, "), \\\n");
         emit_spaces(out, (unsigned)(8U + i * 4U));
-        buf_puts(out, assocs->items[i].function_name);
+        buf_puts(out, association->function_name);
         buf_puts(out, ", \\\n");
     }
-    emit_spaces(out, (unsigned)(4U + assocs->count * 4U));
-    buf_puts(out, default_expression);
-    for (i = 0U; i < assocs->count; ++i) buf_putc(out, ')');
+    emit_spaces(out, (unsigned)(4U + count * 4U));
+    buf_puts(out, tail);
+    for (i = 0U; i < count; ++i) buf_putc(out, ')');
 }
 
-static void emit_gnu_macro(Buf *out, const char *name, const AssocList *assocs)
+/* Builds the core dispatch expression for both backends (to be followed by
+ * the call's argument list) and every hook body. */
+static void build_dispatch_plan(DispatchPlan *plan, const TemplateInfo *ti,
+                                const TemplateFunction *function,
+                                const AssocList *assocs, Buf *generic_macro,
+                                Buf *gnu_macro)
 {
-    Buf fallback;
-    buf_init(&fallback);
-    buf_puts(&fallback, name);
-    buf_puts(&fallback, "__no_match_for_argument_type");
+    size_t i;
+    StringSet requirements;
+    size_t *indices;
+    size_t count;
+    Buf tail;
+    memset(plan, 0, sizeof(*plan));
+    plan->name = function->name;
+    plan->assocs = assocs;
+    plan->requirements = (char **)calloc(assocs->count + 1U,
+                                         sizeof(*plan->requirements));
+    if (plan->requirements == NULL) die("out of memory");
+    memset(&requirements, 0, sizeof(requirements));
+    for (i = 0U; i < assocs->count; ++i) {
+        const GenInstance *instance = find_function_instance_for_symbol(
+            ti, function, assocs->items[i].function_name);
+        plan->requirements[i] = copy_string(instance_requirement(instance));
+        if (plan->requirements[i][0] != '\0') {
+            string_set_add(&requirements, plan->requirements[i]);
+        }
+    }
+    sort_requirements(&requirements);
+
+    /* _Generic tree */
+    if (g_dispatch_backend == GEN_DISPATCH_GENERIC ||
+        g_dispatch_backend == GEN_DISPATCH_AUTO) {
+        indices = (size_t *)malloc((assocs->count + 1U) * sizeof(*indices));
+        if (indices == NULL) die("out of memory");
+        for (i = 0U; i < assocs->count; ++i) indices[i] = i;
+        emit_planned_generic_node(plan, generic_macro, indices, assocs->count,
+                                  0U, 0U, "");
+        free(indices);
+    }
+
+    /* GNU chain: unconditional associations first, then one pass-through
+     * hook per requirement, nested so each may append its own tests. */
+    if (g_dispatch_backend == GEN_DISPATCH_GNU ||
+        g_dispatch_backend == GEN_DISPATCH_AUTO) {
+        size_t r;
+        indices = (size_t *)malloc((assocs->count + 1U) * sizeof(*indices));
+        if (indices == NULL) die("out of memory");
+        buf_init(&tail);
+        for (r = 0U; r < requirements.count; ++r) {
+            Buf hook_name;
+            DispatchHook *hook;
+            size_t hook_count = 0U;
+            buf_init(&hook_name);
+            buf_puts(&hook_name, "TMPLGEN_GNU_");
+            buf_puts(&hook_name, function->name);
+            buf_putc(&hook_name, '_');
+            buf_put_requirement_id(&hook_name, requirements.items[r]);
+            hook = dispatch_plan_hook(plan, hook_name.p, requirements.items[r], 1);
+            for (i = 0U; i < assocs->count; ++i) {
+                if (str_eq(plan->requirements[i], requirements.items[r])) {
+                    indices[hook_count++] = i;
+                }
+            }
+            emit_planned_gnu_chain(&hook->body, assocs, indices, hook_count, "next");
+            buf_puts(&hook->body, " \\\n");
+            buf_puts(&tail, hook_name.p);
+            buf_putc(&tail, '(');
+            buf_free(&hook_name);
+        }
+        buf_puts(&tail, function->name);
+        buf_puts(&tail, "__no_match_for_argument_type");
+        for (r = 0U; r < requirements.count; ++r) buf_puts(&tail, ", __VA_ARGS__)");
+        count = 0U;
+        for (i = 0U; i < assocs->count; ++i) {
+            if (plan->requirements[i][0] == '\0') indices[count++] = i;
+        }
+        emit_planned_gnu_chain(gnu_macro, assocs, indices, count,
+                               tail.p != NULL ? tail.p : "0");
+        buf_free(&tail);
+        free(indices);
+    }
+    string_set_free(&requirements);
+}
+
+static void emit_hook_default(Buf *out, const DispatchHook *hook)
+{
+    buf_puts(out, "#ifndef ");
+    buf_puts(out, hook->name);
+    buf_puts(out, "\n#define ");
+    buf_puts(out, hook->name);
+    buf_puts(out, hook->gnu ? "(next, ...) next\n" : "(...)\n");
+    buf_puts(out, "#endif\n");
+}
+
+static void emit_hook_definition(Buf *out, const DispatchHook *hook)
+{
+    buf_puts(out, "#undef ");
+    buf_puts(out, hook->name);
+    buf_puts(out, "\n#define ");
+    buf_puts(out, hook->name);
+    buf_puts(out, hook->gnu ? "(next, ...) \\\n" : "(...) \\\n");
+    buf_puts(out, hook->body.p != NULL ? hook->body.p : "");
+    buf_puts(out, "\n");
+}
+
+static void emit_dispatch_define(Buf *out, const char *name,
+                                 const Buf *expression, int gnu)
+{
     buf_puts(out, "#define ");
     buf_puts(out, name);
-    buf_puts(out, "(...) \\\n");
-    emit_gnu_expression(out, assocs, fallback.p != NULL ? fallback.p : "0");
+    buf_puts(out, gnu ? "(...) \\\n" : "(...) ");
+    buf_puts(out, expression->p != NULL ? expression->p : "");
     buf_puts(out, "(__VA_ARGS__)\n\n");
-    buf_free(&fallback);
 }
 
 static void emit_dispatch_macro(Buf *out, const char *name,
@@ -5367,7 +6342,14 @@ static void emit_dispatch_macro(Buf *out, const char *name,
                                 const TemplateFunction *function,
                                 const AssocList *assocs)
 {
+    DispatchPlan plan;
+    Buf generic_macro, gnu_macro;
+    size_t i;
+    buf_init(&generic_macro);
+    buf_init(&gnu_macro);
+    build_dispatch_plan(&plan, ti, function, assocs, &generic_macro, &gnu_macro);
     emit_no_match_declaration(out, name);
+    for (i = 0U; i < plan.hook_count; ++i) emit_hook_default(out, plan.hooks[i]);
     buf_puts(out, "#undef ");
     buf_puts(out, name);
     buf_putc(out, '\n');
@@ -5375,23 +6357,22 @@ static void emit_dispatch_macro(Buf *out, const char *name,
         buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
         emit_function_signature(out, ti, function, NULL, name, 1);
         emit_line_directive(out, (unsigned long)function->start_line, ti->path);
-        emit_generic_macro(out, name, assocs);
+        emit_dispatch_define(out, name, &generic_macro, 0);
         buf_puts(out, "#elif defined(__GNUC__) || defined(__clang__)\n");
         emit_function_signature(out, ti, function, NULL, name, 1);
         emit_line_directive(out, (unsigned long)function->start_line, ti->path);
-        emit_gnu_macro(out, name, assocs);
+        emit_dispatch_define(out, name, &gnu_macro, 1);
         buf_puts(out, "#else\n#error \"GEN_DISPATCH_AUTO requires C11 or GNU-compatible C\"\n#endif\n\n");
-    } else {
-        if (g_dispatch_backend == GEN_DISPATCH_GENERIC) {
-            emit_function_signature(out, ti, function, NULL, name, 1);
-            emit_line_directive(out, (unsigned long)function->start_line, ti->path);
-            emit_generic_macro(out, name, assocs);
-        } else if (g_dispatch_backend == GEN_DISPATCH_GNU) {
-            emit_function_signature(out, ti, function, NULL, name, 1);
-            emit_line_directive(out, (unsigned long)function->start_line, ti->path);
-            emit_gnu_macro(out, name, assocs);
-        }
+    } else if (g_dispatch_backend == GEN_DISPATCH_GENERIC ||
+               g_dispatch_backend == GEN_DISPATCH_GNU) {
+        int gnu = g_dispatch_backend == GEN_DISPATCH_GNU;
+        emit_function_signature(out, ti, function, NULL, name, 1);
+        emit_line_directive(out, (unsigned long)function->start_line, ti->path);
+        emit_dispatch_define(out, name, gnu ? &gnu_macro : &generic_macro, gnu);
     }
+    buf_free(&generic_macro);
+    buf_free(&gnu_macro);
+    dispatch_plan_free(&plan);
 }
 
 static int function_has_type_variable_mismatch(const char *function_name)
@@ -5432,7 +6413,9 @@ static void emit_dispatch(Buf *out, const TemplateInfo *ti)
             for (j = 0U; j < assocs.count; ++j) {
                 GenInstance *instance = find_function_instance_for_symbol(
                     ti, &ti->functions[i], assocs.items[j].function_name);
-                if (instance != NULL) {
+                /* Specializations that need project types are declared in
+                 * their requirement's section (emit_dispatch_section). */
+                if (instance != NULL && instance_requirement(instance)[0] == '\0') {
                     emit_function_signature(out, ti, &ti->functions[i], instance,
                                             assocs.items[j].function_name, 1);
                     emit_function_signature(out, ti, &ti->functions[i], instance,
@@ -5446,6 +6429,59 @@ static void emit_dispatch(Buf *out, const TemplateInfo *ti)
             emit_line_directive(out,
                 (unsigned long)ti->functions[i].start_line, ti->path);
             emit_mismatch_only_macro(out, &ti->functions[i]);
+        }
+        assoc_list_free(&assocs);
+    }
+}
+
+/* The parts of a template's dispatch that need `requirement`: navigation
+ * prototypes of its specializations and, when `hooks` is set, the hook
+ * definitions that add them to the dispatch macros. */
+static void emit_dispatch_section(Buf *out, const TemplateInfo *ti,
+                                  const char *requirement, int hooks,
+                                  const char *output_path)
+{
+    size_t i;
+    if (g_dispatch_backend == GEN_DISPATCH_NONE) return;
+    for (i = 0U; i < ti->function_count; ++i) {
+        AssocList assocs;
+        size_t j;
+        int emitted_line = 0;
+        memset(&assocs, 0, sizeof(assocs));
+        build_associations(ti->functions[i].name, &assocs);
+        for (j = 0U; j < assocs.count; ++j) {
+            GenInstance *instance = find_function_instance_for_symbol(
+                ti, &ti->functions[i], assocs.items[j].function_name);
+            if (instance == NULL ||
+                !str_eq(instance_requirement(instance), requirement)) continue;
+            if (!emitted_line) {
+                emit_line_directive(out,
+                    (unsigned long)ti->functions[i].start_line, ti->path);
+                emitted_line = 1;
+            }
+            emit_function_signature(out, ti, &ti->functions[i], instance,
+                                    assocs.items[j].function_name, 1);
+            emit_function_signature(out, ti, &ti->functions[i], instance,
+                                    assocs.items[j].function_name, 0);
+        }
+        if (emitted_line) {
+            emit_line_directive(out, (unsigned long)out->newlines + 2UL, output_path);
+        }
+        if (hooks && assocs.count != 0U) {
+            DispatchPlan plan;
+            Buf generic_macro, gnu_macro;
+            buf_init(&generic_macro);
+            buf_init(&gnu_macro);
+            build_dispatch_plan(&plan, ti, &ti->functions[i], &assocs,
+                                &generic_macro, &gnu_macro);
+            for (j = 0U; j < plan.hook_count; ++j) {
+                if (str_eq(plan.hooks[j]->requirement, requirement)) {
+                    emit_hook_definition(out, plan.hooks[j]);
+                }
+            }
+            buf_free(&generic_macro);
+            buf_free(&gnu_macro);
+            dispatch_plan_free(&plan);
         }
         assoc_list_free(&assocs);
     }
@@ -5507,13 +6543,16 @@ static size_t template_dispatch_count(const TemplateInfo *ti)
 }
 
 static void emit_function_forward_declarations(Buf *out, size_t template_index,
-                                              const TemplateInfo *ti)
+                                              const TemplateInfo *ti,
+                                              const char *requirement)
 {
     size_t i;
     for (i = 0U; i < ti->function_count; ++i) {
         const TemplateFunction *function = &ti->functions[i];
         if (function->type_parameter_count == 0U) {
-            emit_function_signature(out, ti, function, NULL, function->name, 0);
+            if (requirement[0] == '\0') {
+                emit_function_signature(out, ti, function, NULL, function->name, 0);
+            }
         } else {
             size_t j;
             for (j = 0U; j < g_instance_count; ++j) {
@@ -5523,7 +6562,8 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
                     !instance_matches_parameters(ti, instance,
                         function->type_parameters,
                         function->type_parameter_count) ||
-                    !generic_use_matches(function->name, instance->name, 0)) continue;
+                    !generic_use_matches(function->name, instance->name, 0) ||
+                    !str_eq(instance_requirement(instance), requirement)) continue;
                 symbol = join_suffix(function->name, instance->name);
                 emit_function_signature(out, ti, function, instance, symbol, 0);
                 free(symbol);
@@ -5545,7 +6585,7 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
         callee_ti = &g_all_template_infos[dependency->callee_template_index];
         callee = find_template_function(callee_ti, dependency->callee_function);
         if (callee == NULL) continue;
-        indices = (size_t *)malloc(callee->type_parameter_count * sizeof(*indices));
+        indices = (size_t *)malloc((callee->type_parameter_count + 1U) * sizeof(*indices));
         if (indices == NULL) die("out of memory");
         for (j = 0U; j < callee->type_parameter_count; ++j) {
             int parameter = template_parameter_index(callee_ti,
@@ -5556,7 +6596,8 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
         instance = find_instance(dependency->callee_template_index,
             dependency->callee_instance, indices, callee->type_parameter_count);
         free(indices);
-        if (instance == NULL) continue;
+        if (instance == NULL ||
+            !str_eq(instance_requirement(instance), requirement)) continue;
         symbol = join_suffix(callee->name, instance->name);
         emit_function_signature(out, callee_ti, callee, instance, symbol, 0);
         free(symbol);
@@ -5564,36 +6605,56 @@ static void emit_function_forward_declarations(Buf *out, size_t template_index,
     buf_putc(out, '\n');
 }
 
-static void emit_template_module(Buf *out, size_t template_index,
-                                 const TemplateInfo *ti, const char *stem,
-                                 const char *output_path,
-                                 const char *guard, Buf *implementation)
+/* Requirements of everything a template module emits, sorted so that every
+ * requirement follows its subsets. */
+static void collect_module_requirements(size_t template_index, StringSet *out)
 {
-    StringSet includes;
+    size_t i;
+    for (i = 0U; i < g_instance_count; ++i) {
+        const char *requirement = instance_requirement(&g_instances[i]);
+        if (g_instances[i].template_index == template_index && requirement[0] != '\0') {
+            string_set_add(out, requirement);
+        }
+    }
+    for (i = 0U; i < g_function_call_dependency_count; ++i) {
+        const FunctionCallDependency *dependency = &g_function_call_dependencies[i];
+        size_t j;
+        if (dependency->caller_template_index != template_index ||
+            dependency->callee_template_index == template_index) continue;
+        for (j = 0U; j < g_instance_count; ++j) {
+            const char *requirement = instance_requirement(&g_instances[j]);
+            if (g_instances[j].template_index == dependency->callee_template_index &&
+                str_eq(g_instances[j].name, dependency->callee_instance) &&
+                requirement[0] != '\0') {
+                string_set_add(out, requirement);
+            }
+        }
+    }
+    sort_requirements(out);
+}
+
+/* Specializations (types, prototypes and bodies) of one template that need
+ * exactly `requirement` ("" for those that need no project type). */
+static void emit_module_part(Buf *out, size_t template_index,
+                             const TemplateInfo *ti, const char *stem,
+                             const char *output_path, Buf *implementation,
+                             const char *requirement)
+{
     GenInstance empty_instance;
     size_t i;
-    memset(&includes, 0, sizeof(includes));
+    int core = requirement[0] == '\0';
     memset(&empty_instance, 0, sizeof(empty_instance));
     empty_instance.name = "";
     empty_instance.template_index = template_index;
-    if (implementation != NULL) {
-        Buf header_name;
-        buf_init(&header_name);
-        buf_puts(&header_name, stem);
-        buf_puts(&header_name, ".gen.h");
-        buf_puts(implementation, "#define TMPLGEN_AGGREGATING\n");
-        emit_include(implementation, header_name.p);
-        buf_puts(implementation, "#undef TMPLGEN_AGGREGATING\n\n");
-        buf_free(&header_name);
-    }
-    emit_preamble(out, guard, ti, 1U, stem, &includes);
     for (i = 0U; i < ti->constructor_count; ++i) {
         const TemplateType *constructor = &ti->constructors[i];
         size_t j;
         if (constructor->parameter_count == 0U) {
-            emit_instance(out, ti, &empty_instance, output_path, stem, constructor->name,
-                          constructor->start_offset, constructor->end_offset,
-                          constructor->start_line, 0);
+            if (core) {
+                emit_instance(out, ti, &empty_instance, output_path, stem,
+                              constructor->name, constructor->start_offset,
+                              constructor->end_offset, constructor->start_line, 0);
+            }
             continue;
         }
         for (j = 0U; j < g_instance_count; ++j) {
@@ -5601,20 +6662,23 @@ static void emit_template_module(Buf *out, size_t template_index,
             if (instance->template_index != template_index ||
                 !instance_matches_parameters(ti, instance,
                     constructor->parameter_names, constructor->parameter_count) ||
-                !type_use_matches(constructor->name, instance->name)) continue;
+                !type_use_matches(constructor->name, instance->name) ||
+                !str_eq(instance_requirement(instance), requirement)) continue;
             emit_instance(out, ti, instance, output_path, stem, constructor->name,
                           constructor->start_offset, constructor->end_offset,
                           constructor->start_line, 0);
         }
     }
-    emit_function_forward_declarations(out, template_index, ti);
+    emit_function_forward_declarations(out, template_index, ti, requirement);
     for (i = 0U; i < ti->function_count; ++i) {
         const TemplateFunction *function = &ti->functions[i];
         size_t j;
         if (function->type_parameter_count == 0U) {
-            emit_instance(out, ti, &empty_instance, output_path, stem, function->name,
-                          function->start_offset, function->end_offset,
-                          function->start_line, 0);
+            if (core) {
+                emit_instance(out, ti, &empty_instance, output_path, stem,
+                              function->name, function->start_offset,
+                              function->end_offset, function->start_line, 0);
+            }
             continue;
         }
         for (j = 0U; j < g_instance_count; ++j) {
@@ -5622,7 +6686,8 @@ static void emit_template_module(Buf *out, size_t template_index,
             if (instance->template_index != template_index ||
                 !instance_matches_parameters(ti, instance,
                     function->type_parameters, function->type_parameter_count) ||
-                !generic_use_matches(function->name, instance->name, 0)) continue;
+                !generic_use_matches(function->name, instance->name, 0) ||
+                !str_eq(instance_requirement(instance), requirement)) continue;
             if (implementation != NULL) {
                 char *implementation_path = generated_module_source_path(stem);
                 emit_instance(implementation, ti, instance, implementation_path,
@@ -5636,6 +6701,167 @@ static void emit_template_module(Buf *out, size_t template_index,
             }
         }
     }
+}
+
+static void buf_put_section_open(Buf *out, const char *have_prefix,
+                                 const char *requirement)
+{
+    buf_puts(out, "#if ");
+    buf_put_requirement_condition(out, requirement);
+    buf_puts(out, " && !defined(");
+    buf_puts(out, have_prefix);
+    buf_put_requirement_id(out, requirement);
+    buf_puts(out, ")\n#define ");
+    buf_puts(out, have_prefix);
+    buf_put_requirement_id(out, requirement);
+    buf_putc(out, '\n');
+}
+
+/* Relative path from directory `from` to file `to` (both absolute). */
+static char *relative_path_between(const char *from, const char *to)
+{
+    size_t common = 0U;
+    size_t i;
+    Buf path;
+    while (from[common] != '\0' && from[common] == to[common]) ++common;
+    if (!((from[common] == '\0' && (to[common] == '/' || to[common] == '\\')) ||
+          (common != 0U && (from[common - 1U] == '/' || from[common - 1U] == '\\')))) {
+        while (common != 0U && from[common - 1U] != '/' && from[common - 1U] != '\\') {
+            --common;
+        }
+    }
+    buf_init(&path);
+    for (i = common; from[i] != '\0'; ++i) {
+        if ((i == common && from[i] != '/' && from[i] != '\\') ||
+            ((from[i] == '/' || from[i] == '\\') && from[i + 1U] != '\0')) {
+            buf_puts(&path, "../");
+        }
+    }
+    while (to[common] == '/' || to[common] == '\\') ++common;
+    buf_puts(&path, to + common);
+    return path.p != NULL ? path.p : copy_string(to);
+}
+
+/* Whether a requirement names module `guard`: its include guard or one of
+ * its section markers. */
+static int requirement_names_module(const char *requirement, const char *guard)
+{
+    size_t guard_length = strlen(guard);
+    while (*requirement != '\0') {
+        const char *comma = strchr(requirement, ',');
+        size_t length = comma != NULL ? (size_t)(comma - requirement) : strlen(requirement);
+        if (length == guard_length && strncmp(requirement, guard, length) == 0) return 1;
+        if (length > 13U + guard_length + 1U &&
+            strncmp(requirement, "TMPLGEN_HAVE_", 13U) == 0 &&
+            strncmp(requirement + 13U, guard, guard_length) == 0 &&
+            requirement[13U + guard_length] == '_') return 1;
+        requirement += length;
+        if (*requirement == ',') ++requirement;
+    }
+    return 0;
+}
+
+/* Before the sections: the modules this one depends on, included again so
+ * that their sections (which the sections below may need) run first. A
+ * module is skipped while it is being included from here, so modules that
+ * depend on each other do not recurse. */
+static void emit_module_dependency_includes(Buf *out, size_t template_index,
+                                            const TemplateInfo *ti, const char *stem,
+                                            const char *guard,
+                                            const StringSet *requirements)
+{
+    StringSet stems;
+    size_t i;
+    memset(&stems, 0, sizeof(stems));
+    for (i = 0U; i < ti->include_count; ++i) {
+        char *target_stem = template_include_target(ti->includes[i], stem);
+        if (target_stem != NULL) string_set_add(&stems, target_stem);
+        free(target_stem);
+    }
+    for (i = 0U; i < gen_template_count(); ++i) {
+        char *other_guard;
+        size_t r;
+        if (i == template_index) continue;
+        other_guard = generated_module_guard(g_templates[i].stem);
+        for (r = 0U; r < requirements->count; ++r) {
+            if (requirement_names_module(requirements->items[r], other_guard)) {
+                string_set_add(&stems, g_templates[i].stem);
+                break;
+            }
+        }
+        free(other_guard);
+    }
+    if (stems.count != 0U) {
+        buf_puts(out, "#ifndef TMPLGEN_INCLUDING_");
+        buf_puts(out, guard);
+        buf_puts(out, "\n#define TMPLGEN_INCLUDING_");
+        buf_puts(out, guard);
+        buf_putc(out, '\n');
+        for (i = 0U; i < stems.count; ++i) {
+            char *include_path = relative_module_include(stem, stems.items[i]);
+            emit_include(out, include_path);
+            free(include_path);
+        }
+        buf_puts(out, "#undef TMPLGEN_INCLUDING_");
+        buf_puts(out, guard);
+        buf_puts(out, "\n#endif\n");
+    }
+    string_set_free(&stems);
+}
+
+static void emit_template_module(Buf *out, size_t template_index,
+                                 const TemplateInfo *ti, const char *stem,
+                                 const char *output_path,
+                                 const char *guard, Buf *implementation)
+{
+    StringSet includes;
+    StringSet requirements;
+    Buf have_prefix;
+    size_t i;
+    memset(&includes, 0, sizeof(includes));
+    memset(&requirements, 0, sizeof(requirements));
+    collect_module_requirements(template_index, &requirements);
+    if (implementation != NULL) {
+        Buf header_name;
+        StringSet headers;
+        memset(&headers, 0, sizeof(headers));
+        /* The implementation file is one translation unit, so it can include
+         * the declaring header of every argument type up front. */
+        for (i = 0U; i < requirements.count; ++i) {
+            const char *requirement = requirements.items[i];
+            while (*requirement != '\0') {
+                const char *comma = strchr(requirement, ',');
+                size_t length = comma != NULL ? (size_t)(comma - requirement) :
+                                                strlen(requirement);
+                char *guard_name = copy_range(requirement, length);
+                const char *header = header_path_for_guard(guard_name);
+                if (header != NULL && !string_set_has(&headers, header)) {
+                    char *relative = relative_path_between(g_generated_dir, header);
+                    string_set_add(&headers, header);
+                    emit_include(implementation, relative);
+                    free(relative);
+                }
+                free(guard_name);
+                requirement += length;
+                if (*requirement == ',') ++requirement;
+            }
+        }
+        string_set_free(&headers);
+        /* Bodies that use reflection need its API and its typetag_of entries
+         * for the argument types, whose headers are all included above. */
+        if (template_uses_reflection(ti) && g_reflect_mode != REFLECT_NONE) {
+            emit_include(implementation, "reflection.h");
+        }
+        buf_init(&header_name);
+        buf_puts(&header_name, stem);
+        buf_puts(&header_name, ".gen.h");
+        buf_puts(implementation, "#define TMPLGEN_AGGREGATING\n");
+        emit_include(implementation, header_name.p);
+        buf_puts(implementation, "#undef TMPLGEN_AGGREGATING\n\n");
+        buf_free(&header_name);
+    }
+    emit_preamble(out, guard, ti, 1U, stem, &includes);
+    emit_module_part(out, template_index, ti, stem, output_path, implementation, "");
     buf_puts(out, "#ifndef TMPLGEN_AGGREGATING\n");
     emit_type_functors(out, ti);
     if (template_dispatch_count(ti) != 0U &&
@@ -5647,6 +6873,28 @@ static void emit_template_module(Buf *out, size_t template_index,
     buf_puts(out, "#endif /* ");
     buf_puts(out, guard);
     buf_puts(out, " */\n");
+    if (requirements.count != 0U) {
+        buf_puts(out,
+            "\n/* Specializations that name project types. Each section is\n"
+            "   compiled once the header declaring those types (identified by its\n"
+            "   include guard) has been included; include this header after them,\n"
+            "   or again. */\n");
+        emit_module_dependency_includes(out, template_index, ti, stem, guard,
+                                        &requirements);
+        buf_init(&have_prefix);
+        buf_puts(&have_prefix, "TMPLGEN_HAVE_");
+        buf_puts(&have_prefix, guard);
+        buf_putc(&have_prefix, '_');
+        for (i = 0U; i < requirements.count; ++i) {
+            buf_put_section_open(out, have_prefix.p, requirements.items[i]);
+            emit_module_part(out, template_index, ti, stem, output_path,
+                             implementation, requirements.items[i]);
+            emit_dispatch_section(out, ti, requirements.items[i], 1, output_path);
+            buf_puts(out, "#endif\n");
+        }
+        buf_free(&have_prefix);
+    }
+    string_set_free(&requirements);
     string_set_free(&includes);
 }
 
@@ -5655,8 +6903,10 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
 {
     size_t i;
     size_t dispatch_count = 0U;
-    buf_puts(out, "#ifndef " GEN_GUARD "\n#define " GEN_GUARD "\n");
-    buf_puts(out, "/* AUTO-GENERATED aggregate. DO NOT EDIT. */\n");
+    StringSet requirements;
+    buf_puts(out, "/* AUTO-GENERATED aggregate. DO NOT EDIT.\n"
+                  "   Include it after the headers that declare the types you use\n"
+                  "   as template arguments; including it again later is fine. */\n");
     buf_puts(out, "#ifndef TMPLGEN_AGGREGATING\n#define TMPLGEN_AGGREGATING\n");
     buf_puts(out, "#define TMPLGEN_AGGREGATING_LOCAL\n#endif\n");
     for (i = 0U; i < template_count; ++i) {
@@ -5669,6 +6919,7 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
     }
     buf_puts(out, "#ifdef TMPLGEN_AGGREGATING_LOCAL\n#undef TMPLGEN_AGGREGATING_LOCAL\n");
     buf_puts(out, "#undef TMPLGEN_AGGREGATING\n#endif\n\n");
+    buf_puts(out, "#ifndef " GEN_GUARD "\n#define " GEN_GUARD "\n");
     for (i = 0U; i < template_count; ++i) {
         emit_type_functors(out, &infos[i]);
     }
@@ -5687,6 +6938,28 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
     }
     emit_type_variable_mismatch_assertions(out);
     buf_puts(out, "\n#endif /* " GEN_GUARD " */\n");
+    memset(&requirements, 0, sizeof(requirements));
+    if (g_dispatch_backend != GEN_DISPATCH_NONE && dispatch_count != 0U) {
+        /* Absolute like the module paths, so the text does not depend on
+         * how --output was spelled (standalone vs. plugins). */
+        char *aggregate_path = absolute_path(g_output_path);
+        for (i = 0U; i < template_count; ++i) {
+            collect_module_requirements(i, &requirements);
+        }
+        sort_requirements(&requirements);
+        for (i = 0U; i < requirements.count; ++i) {
+            size_t t;
+            buf_put_section_open(out, "TMPLGEN_HAVE_" GEN_GUARD "_",
+                                 requirements.items[i]);
+            for (t = 0U; t < template_count; ++t) {
+                emit_dispatch_section(out, &infos[t], requirements.items[i], 0,
+                                      aggregate_path);
+            }
+            buf_puts(out, "#endif\n");
+        }
+        free(aggregate_path);
+    }
+    string_set_free(&requirements);
 }
 
 /* ========================== GENERATION ===================== */
@@ -5907,12 +7180,18 @@ static void emit_preamble(Buf *out, const char *guard,
         for (j = 0U; j < infos[i].include_count; ++j) {
             const char *source_stem = current_stem != NULL ? current_stem :
                 g_templates[infos[i].template_index].stem;
-            char *target_stem = template_include_target(infos[i].includes[j],
-                                                        source_stem);
-            char *include_path = target_stem != NULL ?
+            char *target_stem;
+            char *include_path;
+            char *key;
+            /* reflection.h includes the generated headers (at its end) to
+             * compile the specializations that use it; it is not included
+             * back. */
+            if (template_include_is_reflection(&infos[i], infos[i].includes[j])) continue;
+            target_stem = template_include_target(infos[i].includes[j], source_stem);
+            include_path = target_stem != NULL ?
                 relative_module_include(source_stem, target_stem) :
                 copy_string(infos[i].includes[j]);
-            char *key = include_key(include_path);
+            key = include_key(include_path);
             if (!string_set_has(includes, key)) {
                 string_set_add(includes, key);
                 emit_include(out, include_path);
@@ -5947,6 +7226,75 @@ static char *generated_module_source_path(const char *stem)
     path = join_path(g_generated_dir, relative.p);
     buf_free(&relative);
     return path;
+}
+
+static char *reflection_header_path(void)
+{
+    return join_path(g_generated_dir, "reflection.h");
+}
+
+static char *reflection_source_path(void)
+{
+    return join_path(g_generated_dir, "reflection.gen.c");
+}
+
+static void output_registry_add(OutputRegistry *registry, char *path,
+                                OutputKind kind, size_t template_index)
+{
+    if (registry->count == registry->cap) {
+        size_t new_cap = registry->cap == 0U ? 8U : registry->cap * 2U;
+        OutputEntry *next;
+        if (new_cap < registry->cap ||
+            new_cap > (size_t)-1 / sizeof(*registry->items)) die("too many outputs");
+        next = (OutputEntry *)realloc(registry->items,
+                                      new_cap * sizeof(*registry->items));
+        if (next == NULL) die("out of memory");
+        registry->items = next;
+        registry->cap = new_cap;
+    }
+    registry->items[registry->count].path = path;
+    registry->items[registry->count].kind = kind;
+    registry->items[registry->count].template_index = template_index;
+    ++registry->count;
+}
+
+/* Every output, in the order they are generated and recorded in the cache
+ * manifest. Requires discovered templates. */
+static void output_registry_build(OutputRegistry *registry)
+{
+    size_t i;
+    memset(registry, 0, sizeof(*registry));
+    for (i = 0U; i < gen_template_count(); ++i) {
+        output_registry_add(registry, generated_module_path(g_templates[i].stem),
+                            OUTPUT_MODULE, i);
+        if (g_compiled_output) {
+            output_registry_add(registry,
+                                generated_module_source_path(g_templates[i].stem),
+                                OUTPUT_MODULE_SOURCE, i);
+        }
+    }
+    output_registry_add(registry, copy_string(g_output_path), OUTPUT_AGGREGATE, 0U);
+    if (g_reflect_mode != REFLECT_NONE) {
+        output_registry_add(registry, reflection_header_path(), OUTPUT_REFLECTION, 0U);
+        if (g_compiled_output) {
+            output_registry_add(registry, reflection_source_path(),
+                                OUTPUT_REFLECTION_SOURCE, 0U);
+        }
+    }
+}
+
+static void output_registry_free(OutputRegistry *registry)
+{
+    size_t i;
+    for (i = 0U; i < registry->count; ++i) free(registry->items[i].path);
+    free(registry->items);
+    memset(registry, 0, sizeof(*registry));
+}
+
+static int output_is_header(OutputKind kind)
+{
+    return kind == OUTPUT_MODULE || kind == OUTPUT_AGGREGATE ||
+           kind == OUTPUT_REFLECTION;
 }
 
 static char *generated_module_guard(const char *stem)
@@ -6599,6 +7947,7 @@ static void source_facts_free(SourceFacts *facts)
         list_free(facts->schemas[i].fields, facts->schemas[i].field_count);
     }
     free(facts->schemas);
+    type_origin_list_free(facts->origins, facts->origin_count);
     string_set_free(&facts->dependencies);
     memset(facts, 0, sizeof(*facts));
 }
@@ -6639,6 +7988,14 @@ static void source_facts_add_alias(SourceFacts *facts, const char *name,
     facts->aliases[facts->alias_count].name = copy_string(name);
     facts->aliases[facts->alias_count].canonical = copy_string(canonical);
     ++facts->alias_count;
+}
+
+static void source_facts_add_origin(SourceFacts *facts, const char *name,
+                                    const char *path, unsigned offset)
+{
+    if (facts == NULL) return;
+    type_origin_list_add(&facts->origins, &facts->origin_count,
+                         &facts->origin_cap, name, path, offset);
 }
 
 static void source_facts_add_constructor(SourceFacts *facts,
@@ -6746,6 +8103,11 @@ static void source_facts_apply(SourceFacts *facts)
     size_t i;
     for (i = 0U; i < facts->alias_count; ++i) {
         add_alias(facts->aliases[i].name, facts->aliases[i].canonical);
+    }
+    for (i = 0U; i < facts->origin_count; ++i) {
+        type_origin_list_add(&g_type_origins, &g_type_origin_count,
+                             &g_type_origin_cap, facts->origins[i].name,
+                             facts->origins[i].path, facts->origins[i].offset);
     }
     for (i = 0U; i < facts->constructor_count; ++i) {
         SourceConstructorFact *fact = &facts->constructors[i];
@@ -6970,6 +8332,27 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
         }
     }
     if (!scanned) return CXChildVisit_Recurse;
+    if (context->pass == 1 &&
+        (kind == CXCursor_TypedefDecl ||
+         ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl ||
+           kind == CXCursor_EnumDecl) && clang_isCursorDefinition(cursor) != 0U))) {
+        /* Remember where project types are declared, so generated code that
+         * names them can be guarded by the declaring header's include guard. */
+        char *spelling = copy_cx_string(clang_getCursorSpelling(cursor));
+        if (valid_identifier(spelling)) {
+            Buf origin_name;
+            buf_init(&origin_name);
+            if (kind == CXCursor_StructDecl) buf_puts(&origin_name, "struct ");
+            else if (kind == CXCursor_UnionDecl) buf_puts(&origin_name, "union ");
+            else if (kind == CXCursor_EnumDecl) buf_puts(&origin_name, "enum ");
+            buf_puts(&origin_name, spelling);
+            source_facts_add_origin(context->facts, origin_name.p,
+                                    context->files->items[source_file_index].path,
+                                    offset);
+            buf_free(&origin_name);
+        }
+        free(spelling);
+    }
     if (kind != CXCursor_VarDecl && kind != CXCursor_TypedefDecl &&
         kind != CXCursor_MacroExpansion) return CXChildVisit_Recurse;
     path = kind == CXCursor_MacroExpansion ?
@@ -7274,8 +8657,9 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
     int i;
     struct CXUnsavedFile *unsaved;
     char **unsaved_paths;
-    size_t unsaved_count = gen_template_count() + 2U;
-    size_t source_unsaved_index = unsaved_count - 1U;
+    OutputRegistry registry;
+    size_t unsaved_count;
+    size_t source_unsaved_index;
     size_t unsaved_index;
     CXTranslationUnit tu = NULL;
     enum CXErrorCode result;
@@ -7288,30 +8672,46 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
     for (i = 0; i < (int)g_clang_arg_count; ++i) {
         arguments[i + 2] = g_clang_args[i];
     }
+    /* Generated headers are replaced by stand-ins: the template bootstrap,
+     * and for reflection.h its own stand-in; the main file by its (possibly
+     * unsaved) text; an editor's unsaved file by its buffer. */
+    output_registry_build(&registry);
+    unsaved_count = registry.count + 2U;
     unsaved = (struct CXUnsavedFile *)calloc(unsaved_count, sizeof(*unsaved));
     unsaved_paths = (char **)calloc(unsaved_count, sizeof(*unsaved_paths));
     if (unsaved == NULL || unsaved_paths == NULL) die("out of memory");
-    unsaved_paths[0] = absolute_path(g_output_path);
-    for (unsaved_index = 1U; unsaved_index < unsaved_count; ++unsaved_index) {
-        if (unsaved_index == source_unsaved_index) {
-            unsaved_paths[unsaved_index] = copy_string(source->path);
-        } else {
-            unsaved_paths[unsaved_index] = generated_module_path(
-                g_templates[unsaved_index - 1U].stem);
-        }
+    unsaved_count = 0U;
+    for (unsaved_index = 0U; unsaved_index < registry.count; ++unsaved_index) {
+        const OutputEntry *entry = &registry.items[unsaved_index];
+        const Buf *text = entry->kind == OUTPUT_REFLECTION ?
+            &g_reflection_bootstrap : bootstrap;
+        if (!output_is_header(entry->kind)) continue;
+        unsaved_paths[unsaved_count] = absolute_path(entry->path);
+        unsaved[unsaved_count].Filename = unsaved_paths[unsaved_count];
+        unsaved[unsaved_count].Contents = text->p != NULL ? text->p : "";
+        unsaved[unsaved_count].Length = (unsigned long)text->len;
+        ++unsaved_count;
     }
-    for (unsaved_index = 0U; unsaved_index < unsaved_count; ++unsaved_index) {
-        unsaved[unsaved_index].Filename = unsaved_paths[unsaved_index];
-        if (unsaved_index == source_unsaved_index) {
-            unsaved[unsaved_index].Contents =
-                source->text.p != NULL ? source->text.p : "";
-            unsaved[unsaved_index].Length = (unsigned long)source->text.len;
-        } else {
-            unsaved[unsaved_index].Contents =
-                bootstrap->p != NULL ? bootstrap->p : "";
-            unsaved[unsaved_index].Length = (unsigned long)bootstrap->len;
-        }
+    output_registry_free(&registry);
+    source_unsaved_index = unsaved_count;
+    unsaved_paths[unsaved_count] = copy_string(source->path);
+    unsaved[unsaved_count].Filename = unsaved_paths[unsaved_count];
+    unsaved[unsaved_count].Contents = source->text.p != NULL ? source->text.p : "";
+    unsaved[unsaved_count].Length = (unsigned long)source->text.len;
+    ++unsaved_count;
+#if defined(CLANGPLUGIN)
+    if (g_unsaved_source_path != NULL &&
+        !str_eq(g_unsaved_source_path, source->path)) {
+        /* e.g. the editor's unsaved header included by this file */
+        unsaved_paths[unsaved_count] = copy_string(g_unsaved_source_path);
+        unsaved[unsaved_count].Filename = unsaved_paths[unsaved_count];
+        unsaved[unsaved_count].Contents = g_unsaved_source_contents != NULL ?
+            g_unsaved_source_contents : "";
+        unsaved[unsaved_count].Length = (unsigned long)g_unsaved_source_length;
+        ++unsaved_count;
     }
+#endif
+    (void)source_unsaved_index;
     result = clang_parseTranslationUnit2(index, source->path, arguments,
         argument_count, unsaved, (unsigned)unsaved_count,
         CXTranslationUnit_DetailedPreprocessingRecord |
@@ -7431,7 +8831,8 @@ static void build_bootstrap_associations(size_t template_index,
 
 static void emit_bootstrap_function_prototypes(Buf *out,
                                                const TemplateInfo *infos,
-                                               size_t template_count)
+                                               size_t template_count,
+                                               const char *requirement)
 {
     size_t i;
     for (i = 0U; i < template_count; ++i) {
@@ -7448,7 +8849,8 @@ static void emit_bootstrap_function_prototypes(Buf *out,
                 size_t p;
                 if (instance->template_index != i ||
                     !instance_matches_parameters(&infos[i], instance,
-                        function->type_parameters, function->type_parameter_count)) continue;
+                        function->type_parameters, function->type_parameter_count) ||
+                    !str_eq(instance_requirement(instance), requirement)) continue;
                 buf_init(&return_type);
                 if (function->return_application.constructor != NULL) {
                     rewrite_c_type(function->return_type, &infos[i], instance,
@@ -7490,11 +8892,9 @@ static void emit_bootstrap_function_prototypes(Buf *out,
 
 static void emit_bootstrap_function_macro(Buf *out, const char *name,
                                           const TemplateFunction *function,
-                                          const AssocList *assocs,
-                                          int gnu_backend)
+                                          const Buf *expression)
 {
     size_t i;
-    size_t *candidates;
     buf_puts(out, "#undef ");
     buf_puts(out, name);
     buf_puts(out, "\n#define ");
@@ -7506,26 +8906,19 @@ static void emit_bootstrap_function_macro(Buf *out, const char *name,
         buf_put_uint(out, (unsigned long)i);
         buf_puts(out, "(__VA_ARGS__)");
     }
-    buf_puts(out, ", \\\n    ");
-    if (gnu_backend) {
-        Buf fallback;
-        buf_init(&fallback);
-        buf_puts(&fallback, name);
-        buf_puts(&fallback, "__no_match_for_argument_type");
-        emit_gnu_expression(out, assocs, fallback.p != NULL ? fallback.p : "0");
-        buf_free(&fallback);
-    } else {
-        candidates = (size_t *)malloc(assocs->count * sizeof(*candidates));
-        if (candidates == NULL) die("out of memory");
-        for (i = 0U; i < assocs->count; ++i) candidates[i] = i;
-        emit_generic_tree(out, name, assocs, candidates, assocs->count, 0U, 0U, NULL);
-        free(candidates);
-    }
+    buf_puts(out, ", \\\n");
+    buf_puts(out, expression->p != NULL ? expression->p : "0");
     buf_puts(out, "(__VA_ARGS__))\n");
 }
 
+/* Bootstrap dispatch mirrors the generated one: associations that name
+ * project types are added by hooks defined in requirement sections, so a
+ * translation unit that lacks those types still parses cleanly.
+ * With `requirement` == NULL this emits the core macros, otherwise only the
+ * hooks for that requirement. */
 static void emit_bootstrap_function_macros(Buf *out, const TemplateInfo *infos,
-                                           size_t template_count)
+                                           size_t template_count,
+                                           const char *requirement)
 {
     size_t i;
     for (i = 0U; i < template_count; ++i) {
@@ -7538,15 +8931,40 @@ static void emit_bootstrap_function_macros(Buf *out, const TemplateInfo *infos,
             memset(&assocs, 0, sizeof(assocs));
             build_bootstrap_associations(i, &infos[i], function, &assocs);
             if (assocs.count != 0U) {
-                emit_no_match_declaration(out, function->name);
-                buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
-                emit_bootstrap_function_macro(out, function->name, function,
-                                              &assocs, 0);
-                buf_puts(out, "#elif defined(__GNUC__) || defined(__clang__)\n");
-                emit_bootstrap_function_macro(out, function->name, function,
-                                              &assocs, 1);
-                buf_puts(out, "#else\n#error \"tmplgen bootstrap dispatch requires C11 or GNU C\"\n#endif\n\n");
-            } else if (function_has_type_variable_mismatch(function->name)) {
+                DispatchPlan plan;
+                Buf generic_expression, gnu_expression;
+                int saved_backend = g_dispatch_backend;
+                size_t h;
+                buf_init(&generic_expression);
+                buf_init(&gnu_expression);
+                g_dispatch_backend = GEN_DISPATCH_AUTO;
+                build_dispatch_plan(&plan, &infos[i], function, &assocs,
+                                    &generic_expression, &gnu_expression);
+                g_dispatch_backend = saved_backend;
+                if (requirement == NULL) {
+                    emit_no_match_declaration(out, function->name);
+                    for (h = 0U; h < plan.hook_count; ++h) {
+                        emit_hook_default(out, plan.hooks[h]);
+                    }
+                    buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n");
+                    emit_bootstrap_function_macro(out, function->name, function,
+                                                  &generic_expression);
+                    buf_puts(out, "#elif defined(__GNUC__) || defined(__clang__)\n");
+                    emit_bootstrap_function_macro(out, function->name, function,
+                                                  &gnu_expression);
+                    buf_puts(out, "#else\n#error \"tmplgen bootstrap dispatch requires C11 or GNU C\"\n#endif\n\n");
+                } else {
+                    for (h = 0U; h < plan.hook_count; ++h) {
+                        if (str_eq(plan.hooks[h]->requirement, requirement)) {
+                            emit_hook_definition(out, plan.hooks[h]);
+                        }
+                    }
+                }
+                buf_free(&generic_expression);
+                buf_free(&gnu_expression);
+                dispatch_plan_free(&plan);
+            } else if (requirement == NULL &&
+                       function_has_type_variable_mismatch(function->name)) {
                 emit_mismatch_only_macro(out, function);
             }
             assoc_list_free(&assocs);
@@ -7649,8 +9067,8 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
         }
     }
     if (second_pass) {
-        emit_bootstrap_function_prototypes(out, infos, template_count);
-        emit_bootstrap_function_macros(out, infos, template_count);
+        emit_bootstrap_function_prototypes(out, infos, template_count, "");
+        emit_bootstrap_function_macros(out, infos, template_count, NULL);
     } else {
         for (i = 0U; i < template_count; ++i) {
             size_t j;
@@ -7676,7 +9094,33 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
             }
         }
     }
+    if (second_pass) buf_puts(out, "#define TMPLGEN_BOOTSTRAP_READY\n");
     buf_puts(out, "\n#endif /* " GEN_GUARD " */\n");
+    if (second_pass) {
+        StringSet requirements;
+        memset(&requirements, 0, sizeof(requirements));
+        for (i = 0U; i < template_count; ++i) {
+            collect_module_requirements(i, &requirements);
+        }
+        sort_requirements(&requirements);
+        /* Every generated path maps to this same text, so nested includes
+         * from the core (template includes of other modules) reach here
+         * before the core's stubs exist; wait until it is complete. */
+        if (requirements.count != 0U) {
+            buf_puts(out, "#ifdef TMPLGEN_BOOTSTRAP_READY\n");
+        }
+        for (i = 0U; i < requirements.count; ++i) {
+            buf_put_section_open(out, "TMPLGEN_HAVE_BOOTSTRAP_",
+                                 requirements.items[i]);
+            emit_bootstrap_function_prototypes(out, infos, template_count,
+                                               requirements.items[i]);
+            emit_bootstrap_function_macros(out, infos, template_count,
+                                           requirements.items[i]);
+            buf_puts(out, "#endif\n");
+        }
+        if (requirements.count != 0U) buf_puts(out, "#endif\n");
+        string_set_free(&requirements);
+    }
     string_set_free(&includes);
     string_set_free(&type_stubs);
 }
@@ -8116,6 +9560,7 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                 size_t use_index;
                 const TemplateType *constructor = &ti->constructors[k];
                 size_t *constructor_indices;
+                int exact_application;
                 if (identifier_line_in_code(parameter->type, constructor->name) == 0U) continue;
                 constructor_indices = (size_t *)malloc(
                     constructor->parameter_count * sizeof(*constructor_indices));
@@ -8125,6 +9570,30 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                         constructor->parameter_names[p]);
                     if (mapped < 0) die("invalid type constructor parameter map");
                     constructor_indices[p] = (size_t)mapped;
+                }
+                /* The loose element-type match (2) exists for the first pass,
+                 * where Vec(T) is spelled T. Once some candidate matches the
+                 * spelled type exactly, a loose match is a different
+                 * instance (Vec(Vec_Foo) for an argument of type Vec_Foo *)
+                 * and must not override it. */
+                exact_application = 0;
+                if (parameter->application.constructor != NULL &&
+                    str_eq(parameter->application.constructor, constructor->name)) {
+                    for (use_index = 0U; use_index < g_type_use_count; ++use_index) {
+                        GenInstance *candidate;
+                        if (!str_eq(g_type_uses[use_index].functor, constructor->name)) continue;
+                        candidate = find_instance(template_index,
+                            g_type_uses[use_index].type_name, constructor_indices,
+                            constructor->parameter_count);
+                        if (candidate != NULL &&
+                            application_candidate_matches(ti, parameter, candidate,
+                                use->type_spelling,
+                                use->canonical_spelling != NULL ?
+                                use->canonical_spelling : use->type_spelling) == 1) {
+                            exact_application = 1;
+                            break;
+                        }
+                    }
                 }
                 for (use_index = 0U; use_index < g_type_use_count; ++use_index) {
                     GenInstance *candidate;
@@ -8146,7 +9615,8 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                                 use->type_spelling,
                                 use->canonical_spelling != NULL ?
                                 use->canonical_spelling : use->type_spelling);
-                        if (application_match == 0) continue;
+                        if (application_match == 0 ||
+                            (application_match == 2 && exact_application)) continue;
                         assign_application_parameters(ti, function,
                             &parameter->application, candidate, spellings,
                             canonicals, assigned, application_match == 1,
@@ -9077,6 +10547,8 @@ static int discover_source_usages(const TemplateInfo *infos, size_t template_cou
             collect_suffix_api_uses(&files->items[i], infos, template_count);
         }
         expand_dependencies_to_fixpoint(infos, template_count, 0);
+        /* Errors are reported again (once) after the second pass. */
+        (void)compute_instance_requirements();
         emit_bootstrap_header(&bootstrap, infos, template_count, 1);
         for (i = 0U; i < files->count; ++i) {
             SourceFile *source = &files->items[i];
@@ -9177,6 +10649,13 @@ static void clear_discovery_state(void)
     g_aliases = NULL;
     g_alias_count = 0U;
     g_alias_cap = 0U;
+    type_origin_list_free(g_type_origins, g_type_origin_count);
+    g_type_origins = NULL;
+    g_type_origin_count = 0U;
+    g_type_origin_cap = 0U;
+    list_free(g_instance_requirements, g_instance_requirement_count);
+    g_instance_requirements = NULL;
+    g_instance_requirement_count = 0U;
     for (i = 0U; i < g_function_call_dependency_count; ++i) {
         free(g_function_call_dependencies[i].caller_function);
         free(g_function_call_dependencies[i].caller_instance);
@@ -9198,6 +10677,2057 @@ static void clear_discovery_state(void)
     g_structural_schema_cap = 0U;
 }
 
+/* ============================ REFLECTION ===========================
+
+   --reflect=project writes gen/reflection.h: an id per reflected type and
+   integer tables (size, alignment, fields, offsets, enumerators) computed by
+   libclang in one declaration parse after the template outputs are generated.
+   The tables name no project type, so they are complete in every translation
+   unit; the consumer's compiler verifies the numbers in sections guarded by
+   each declaring header's include guard, the same convention as the template
+   outputs (doc/usage.md). See REFLECTION.md. */
+
+enum {
+    RK_INVALID, RK_VOID, RK_BOOL, RK_INT, RK_FLOAT, RK_POINTER, RK_ARRAY,
+    RK_STRUCT, RK_UNION, RK_ENUM, RK_FUNCTION, RK_OPAQUE
+};
+enum {
+    RF_SIGNED = 1u << 0, RF_POINTER_FREE = 1u << 1, RF_NO_PADDING = 1u << 2,
+    RF_HAS_BITFIELDS = 1u << 3, RF_FLEXIBLE = 1u << 4, RF_ANONYMOUS = 1u << 5,
+    RF_SPECIALIZED = 1u << 6, RF_ENUM_DENSE = 1u << 7
+};
+enum { RFIELD_BITFIELD = 1u << 0 };
+enum { RQUAL_CONST = 1u << 0, RQUAL_VOLATILE = 1u << 1, RQUAL_RESTRICT = 1u << 2 };
+
+typedef struct {
+    int kind;
+    char *key;          /* identity: builtin name, USR, or derived key */
+    char *name;         /* TYPETAG_<name> */
+    char *display;      /* human-readable spelling, e.g. "Vec(int)" */
+    char *spelling;     /* how C code names it (for checks), or NULL */
+    char *header;       /* declaring project header, or NULL */
+    char *generated;    /* declaring generated header, or NULL */
+    char *requirement;  /* section key for its check ("" = core) */
+    unsigned decl_offset;
+    unsigned long long size, align, count;
+    unsigned flags;
+    size_t inner;       /* node index or (size_t)-1 */
+    size_t first_field, field_count;
+    size_t first_enumerator, enumerator_count;
+    int project;        /* declared in the project: fields are reflected */
+    int checked;        /* gets a layout check */
+    unsigned id;
+} ReflectNode;
+
+typedef struct {
+    char *name;
+    size_t type;
+    unsigned long long offset_bits;
+    unsigned bit_width;
+    unsigned quals;
+    unsigned flags;
+} ReflectField;
+
+typedef struct { long long value; int is_unsigned; char *name; } ReflectEnumerator;
+
+typedef struct {
+    ReflectNode *nodes;
+    size_t node_count, node_cap;
+    ReflectField *fields;
+    size_t field_count, field_cap;
+    ReflectEnumerator *enumerators;
+    size_t enumerator_count, enumerator_cap;
+    StringSet project_headers;   /* headers whose records/enums are reflected */
+    char **typedef_usrs;         /* record/enum USR -> first typedef name */
+    char **typedef_names;
+    size_t typedef_count, typedef_cap;
+} ReflectGraph;
+
+typedef struct {
+    ReflectField *items;
+    size_t count, cap;
+} ReflectFieldList;
+
+static const struct {
+    enum CXTypeKind kind;
+    const char *spelling;
+    const char *name;
+    int reflect_kind;
+} g_reflect_builtins[] = {
+    { CXType_Void, "void", "void", RK_VOID },
+    { CXType_Bool, "_Bool", "_Bool", RK_BOOL },
+    { CXType_Char_S, "char", "char", RK_INT },
+    { CXType_SChar, "signed char", "signed_char", RK_INT },
+    { CXType_UChar, "unsigned char", "unsigned_char", RK_INT },
+    { CXType_Short, "short", "short", RK_INT },
+    { CXType_UShort, "unsigned short", "unsigned_short", RK_INT },
+    { CXType_Int, "int", "int", RK_INT },
+    { CXType_UInt, "unsigned int", "unsigned_int", RK_INT },
+    { CXType_Long, "long", "long", RK_INT },
+    { CXType_ULong, "unsigned long", "unsigned_long", RK_INT },
+    { CXType_LongLong, "long long", "long_long", RK_INT },
+    { CXType_ULongLong, "unsigned long long", "unsigned_long_long", RK_INT },
+    { CXType_Float, "float", "float", RK_FLOAT },
+    { CXType_Double, "double", "double", RK_FLOAT },
+    { CXType_LongDouble, "long double", "long_double", RK_FLOAT }
+};
+#define REFLECT_BUILTIN_COUNT (sizeof(g_reflect_builtins) / sizeof(g_reflect_builtins[0]))
+
+static size_t reflect_find_node(const ReflectGraph *graph, const char *key)
+{
+    size_t i;
+    for (i = 0U; i < graph->node_count; ++i) {
+        if (str_eq(graph->nodes[i].key, key)) return i;
+    }
+    return (size_t)-1;
+}
+
+static size_t reflect_add_node(ReflectGraph *graph, int kind, const char *key)
+{
+    ReflectNode *node;
+    if (graph->node_count == graph->node_cap) {
+        size_t new_cap = graph->node_cap == 0U ? 64U : graph->node_cap * 2U;
+        ReflectNode *next;
+        if (new_cap < graph->node_cap ||
+            new_cap > (size_t)-1 / sizeof(*graph->nodes)) die("too many reflected types");
+        next = (ReflectNode *)realloc(graph->nodes, new_cap * sizeof(*graph->nodes));
+        if (next == NULL) die("out of memory");
+        graph->nodes = next;
+        graph->node_cap = new_cap;
+    }
+    node = &graph->nodes[graph->node_count];
+    memset(node, 0, sizeof(*node));
+    node->kind = kind;
+    node->key = copy_string(key);
+    node->requirement = copy_string("");
+    node->inner = (size_t)-1;
+    return graph->node_count++;
+}
+
+static void reflect_field_list_add(ReflectFieldList *list, const ReflectField *field)
+{
+    if (list->count == list->cap) {
+        size_t new_cap = list->cap == 0U ? 8U : list->cap * 2U;
+        ReflectField *next;
+        if (new_cap < list->cap ||
+            new_cap > (size_t)-1 / sizeof(*list->items)) die("too many reflected fields");
+        next = (ReflectField *)realloc(list->items, new_cap * sizeof(*list->items));
+        if (next == NULL) die("out of memory");
+        list->items = next;
+        list->cap = new_cap;
+    }
+    list->items[list->count++] = *field;
+}
+
+static void reflect_add_enumerator(ReflectGraph *graph, const char *name,
+                                   long long value, int is_unsigned)
+{
+    if (graph->enumerator_count == graph->enumerator_cap) {
+        size_t new_cap = graph->enumerator_cap == 0U ? 32U : graph->enumerator_cap * 2U;
+        ReflectEnumerator *next;
+        if (new_cap < graph->enumerator_cap ||
+            new_cap > (size_t)-1 / sizeof(*graph->enumerators)) die("too many enumerators");
+        next = (ReflectEnumerator *)realloc(graph->enumerators,
+                                            new_cap * sizeof(*graph->enumerators));
+        if (next == NULL) die("out of memory");
+        graph->enumerators = next;
+        graph->enumerator_cap = new_cap;
+    }
+    graph->enumerators[graph->enumerator_count].name = copy_string(name);
+    graph->enumerators[graph->enumerator_count].value = value;
+    graph->enumerators[graph->enumerator_count].is_unsigned = is_unsigned;
+    ++graph->enumerator_count;
+}
+
+static void reflect_add_typedef(ReflectGraph *graph, const char *usr, const char *name)
+{
+    size_t i;
+    for (i = 0U; i < graph->typedef_count; ++i) {
+        if (str_eq(graph->typedef_usrs[i], usr)) {
+            /* Prefer a public name (FILE) over an implementation one (__FILE). */
+            if (graph->typedef_names[i][0] == '_' && name[0] != '_') {
+                free(graph->typedef_names[i]);
+                graph->typedef_names[i] = copy_string(name);
+            }
+            return;
+        }
+    }
+    if (graph->typedef_count == graph->typedef_cap) {
+        size_t new_cap = graph->typedef_cap == 0U ? 32U : graph->typedef_cap * 2U;
+        char **usrs, **names;
+        if (new_cap < graph->typedef_cap ||
+            new_cap > (size_t)-1 / sizeof(char *)) die("too many typedefs");
+        usrs = (char **)realloc(graph->typedef_usrs, new_cap * sizeof(char *));
+        if (usrs == NULL) die("out of memory");
+        graph->typedef_usrs = usrs;
+        names = (char **)realloc(graph->typedef_names, new_cap * sizeof(char *));
+        if (names == NULL) die("out of memory");
+        graph->typedef_names = names;
+        graph->typedef_cap = new_cap;
+    }
+    graph->typedef_usrs[graph->typedef_count] = copy_string(usr);
+    graph->typedef_names[graph->typedef_count] = copy_string(name);
+    ++graph->typedef_count;
+}
+
+static const char *reflect_typedef_name_for(const ReflectGraph *graph, const char *usr)
+{
+    size_t i;
+    for (i = 0U; i < graph->typedef_count; ++i) {
+        if (str_eq(graph->typedef_usrs[i], usr)) return graph->typedef_names[i];
+    }
+    return NULL;
+}
+
+static void reflect_graph_free(ReflectGraph *graph)
+{
+    size_t i;
+    for (i = 0U; i < graph->node_count; ++i) {
+        ReflectNode *node = &graph->nodes[i];
+        free(node->key); free(node->name); free(node->display);
+        free(node->spelling); free(node->header); free(node->requirement);
+        free(node->generated);
+    }
+    free(graph->nodes);
+    for (i = 0U; i < graph->field_count; ++i) free(graph->fields[i].name);
+    free(graph->fields);
+    for (i = 0U; i < graph->enumerator_count; ++i) free(graph->enumerators[i].name);
+    free(graph->enumerators);
+    string_set_free(&graph->project_headers);
+    for (i = 0U; i < graph->typedef_count; ++i) {
+        free(graph->typedef_usrs[i]);
+        free(graph->typedef_names[i]);
+    }
+    free(graph->typedef_usrs);
+    free(graph->typedef_names);
+    memset(graph, 0, sizeof(*graph));
+}
+
+/* "unsigned char *" -> "unsigned_char_ptr" */
+static char *reflect_sanitize(const char *text)
+{
+    Buf out;
+    int pending_underscore = 0;
+    buf_init(&out);
+    for (; *text != '\0'; ++text) {
+        if (is_ident_char(*text)) {
+            if (pending_underscore && out.len != 0U) buf_putc(&out, '_');
+            pending_underscore = 0;
+            buf_putc(&out, *text);
+        } else if (*text == '*') {
+            if (out.len != 0U) buf_putc(&out, '_');
+            buf_puts(&out, "ptr");
+            pending_underscore = 0;
+        } else {
+            pending_underscore = 1;
+        }
+    }
+    return out.p != NULL ? out.p : copy_string("anonymous");
+}
+
+static unsigned long long reflect_hash(const char *text)
+{
+    unsigned long long hash = 14695981039346656037ULL;
+    for (; *text != '\0'; ++text) {
+        hash ^= (unsigned char)*text;
+        hash *= 1099511628211ULL;
+    }
+    return hash;
+}
+
+static unsigned long long reflect_size(CXType type)
+{
+    long long size = clang_Type_getSizeOf(type);
+    return size > 0 ? (unsigned long long)size : 0ULL;
+}
+
+static unsigned long long reflect_align(CXType type)
+{
+    long long align = clang_Type_getAlignOf(type);
+    return align > 0 ? (unsigned long long)align : 0ULL;
+}
+
+static unsigned reflect_quals(CXType type)
+{
+    unsigned quals = 0U;
+    if (clang_isConstQualifiedType(type)) quals |= RQUAL_CONST;
+    if (clang_isVolatileQualifiedType(type)) quals |= RQUAL_VOLATILE;
+    if (clang_isRestrictQualifiedType(type)) quals |= RQUAL_RESTRICT;
+    return quals;
+}
+
+static char *reflect_cursor_file(CXCursor cursor, unsigned *offset)
+{
+    CXFile file = NULL;
+    unsigned line = 0U, column = 0U;
+    char *name;
+    char *absolute;
+    *offset = 0U;
+    clang_getExpansionLocation(clang_getCursorLocation(cursor), &file, &line, &column,
+                               offset);
+    if (file == NULL) return NULL;
+    name = copy_cx_string(clang_getFileName(file));
+    if (name[0] == '\0') {
+        free(name);
+        return NULL;
+    }
+    absolute = absolute_path(name);
+    free(name);
+    return absolute;
+}
+
+/* A declaration belongs to the project when it is in a header that declares
+ * project types (from the source scan), in the template directory, or in the
+ * generated directory (specializations and template-provided types). */
+static int reflect_project_path(const ReflectGraph *graph, const char *path)
+{
+    if (path == NULL) return 0;
+    if (str_eq(path_leaf(path), "reflection.h") &&
+        path_is_within_directory(path, g_generated_dir)) return 0;   /* stand-in */
+    if (string_set_has(&graph->project_headers, path)) return 1;
+    if (path_is_within_directory(path, g_absolute_template_dir) &&
+        !path_has_suffix(path, GEN_TMPL_SUFFIX)) return 1;
+    return path_is_within_directory(path, g_generated_dir);
+}
+
+static size_t reflect_node_for_type(ReflectGraph *graph, CXType type, unsigned depth);
+
+typedef struct {
+    ReflectGraph *graph;
+    ReflectFieldList *fields;
+    unsigned long long base_bits;
+    unsigned depth;
+} ReflectFieldVisit;
+
+static enum CXVisitorResult reflect_visit_field(CXCursor cursor, CXClientData data)
+{
+    ReflectFieldVisit *visit = (ReflectFieldVisit *)data;
+    char *name = copy_cx_string(clang_getCursorSpelling(cursor));
+    CXType type = clang_getCursorType(cursor);
+    CXType canonical = clang_getCanonicalType(type);
+    long long offset = clang_Cursor_getOffsetOfField(cursor);
+    unsigned long long offset_bits = visit->base_bits +
+        (offset > 0 ? (unsigned long long)offset : 0ULL);
+    if (!valid_identifier(name) && canonical.kind == CXType_Record) {
+        /* C11 anonymous struct/union member: its fields are the owner's. */
+        ReflectFieldVisit inner = *visit;
+        inner.base_bits = offset_bits;
+        (void)clang_Type_visitFields(canonical, reflect_visit_field, &inner);
+    } else if (valid_identifier(name)) {
+        ReflectField field;
+        memset(&field, 0, sizeof(field));
+        field.name = copy_string(name);
+        field.type = reflect_node_for_type(visit->graph, type, visit->depth + 1U);
+        field.offset_bits = offset_bits;
+        field.quals = reflect_quals(type);
+        if (clang_Cursor_isBitField(cursor)) {
+            int width = clang_getFieldDeclBitWidth(cursor);
+            field.flags |= RFIELD_BITFIELD;
+            field.bit_width = width > 0 ? (unsigned)width : 0U;
+        }
+        reflect_field_list_add(visit->fields, &field);
+    }
+    free(name);
+    return CXVisit_Continue;
+}
+
+typedef struct {
+    ReflectGraph *graph;
+    int is_unsigned;
+} ReflectEnumVisit;
+
+static enum CXChildVisitResult reflect_visit_enumerator(CXCursor cursor, CXCursor parent,
+                                                        CXClientData data)
+{
+    ReflectEnumVisit *visit = (ReflectEnumVisit *)data;
+    (void)parent;
+    if (clang_getCursorKind(cursor) == CXCursor_EnumConstantDecl) {
+        char *name = copy_cx_string(clang_getCursorSpelling(cursor));
+        long long value = visit->is_unsigned ?
+            (long long)clang_getEnumConstantDeclUnsignedValue(cursor) :
+            clang_getEnumConstantDeclValue(cursor);
+        reflect_add_enumerator(visit->graph, name, value, visit->is_unsigned);
+        free(name);
+    }
+    return CXChildVisit_Continue;
+}
+
+/* Records and enums: identity by USR, named after a typedef when one exists. */
+static size_t reflect_node_for_declaration(ReflectGraph *graph, CXType canonical,
+                                           unsigned depth)
+{
+    CXCursor declaration = clang_getTypeDeclaration(canonical);
+    char *usr = copy_cx_string(clang_getCursorUSR(declaration));
+    char *tag = copy_cx_string(clang_getCursorSpelling(declaration));
+    int is_enum = canonical.kind == CXType_Enum;
+    int is_union = clang_getCursorKind(declaration) == CXCursor_UnionDecl;
+    const char *keyword = is_enum ? "enum" : is_union ? "union" : "struct";
+    unsigned offset = 0U;
+    const char *typedef_name;
+    char *path;
+    size_t index;
+    if (usr[0] == '\0') {
+        free(usr);
+        usr = copy_cx_string(clang_getTypeSpelling(canonical));
+    }
+    index = reflect_find_node(graph, usr);
+    if (index != (size_t)-1) {
+        free(usr);
+        free(tag);
+        return index;
+    }
+    path = reflect_cursor_file(declaration, &offset);
+    index = reflect_add_node(graph, is_enum ? RK_ENUM : is_union ? RK_UNION : RK_STRUCT,
+                             usr);
+    typedef_name = reflect_typedef_name_for(graph, usr);
+    if (typedef_name != NULL) {
+        graph->nodes[index].name = copy_string(typedef_name);
+        graph->nodes[index].spelling = copy_string(typedef_name);
+        graph->nodes[index].display = copy_string(typedef_name);
+    } else if (valid_identifier(tag)) {
+        Buf spelled;
+        buf_init(&spelled);
+        buf_puts(&spelled, keyword);
+        buf_putc(&spelled, ' ');
+        buf_puts(&spelled, tag);
+        graph->nodes[index].spelling = copy_string(spelled.p);
+        graph->nodes[index].display = copy_string(spelled.p);
+        graph->nodes[index].name = reflect_sanitize(spelled.p);
+        buf_free(&spelled);
+    } else {
+        /* Unnamed: reachable through a field, describable, not nameable. */
+        char name[48];
+        (void)snprintf(name, sizeof(name), "%s_anon_%08llx", keyword,
+                       reflect_hash(usr) & 0xffffffffULL);
+        char *spelling = copy_cx_string(clang_getTypeSpelling(canonical));
+        char *location = strstr(spelling, "(unnamed at ");
+        if (location == NULL) location = strstr(spelling, "(anonymous at ");
+        graph->nodes[index].name = copy_string(name);
+        if (location != NULL) {
+            /* The spelling names an absolute path; keep outputs portable. */
+            Buf display;
+            buf_init(&display);
+            buf_putn(&display, spelling, (size_t)(location - spelling));
+            buf_puts(&display, "(anonymous)");
+            graph->nodes[index].display = display.p;
+            free(spelling);
+        } else {
+            graph->nodes[index].display = spelling;
+        }
+        graph->nodes[index].flags |= RF_ANONYMOUS;
+    }
+    graph->nodes[index].size = reflect_size(canonical);
+    graph->nodes[index].align = reflect_align(canonical);
+    graph->nodes[index].decl_offset = offset;
+    graph->nodes[index].project = reflect_project_path(graph, path);
+    if (path != NULL && graph->nodes[index].project) {
+        if (path_is_within_directory(path, g_generated_dir)) {
+            graph->nodes[index].generated = copy_string(path);
+        } else {
+            graph->nodes[index].header = copy_string(path);
+        }
+    }
+    if (is_enum) {
+        CXType integer = clang_getEnumDeclIntegerType(declaration);
+        size_t underlying = reflect_node_for_type(graph, integer, depth + 1U);
+        ReflectEnumVisit visit;
+        size_t first = graph->enumerator_count;
+        visit.graph = graph;
+        visit.is_unsigned = !(graph->nodes[underlying].flags & RF_SIGNED);
+        (void)clang_visitChildren(declaration, reflect_visit_enumerator, &visit);
+        graph->nodes[index].inner = underlying;
+        graph->nodes[index].first_enumerator = first;
+        graph->nodes[index].enumerator_count = graph->enumerator_count - first;
+        graph->nodes[index].count = graph->nodes[index].enumerator_count;
+        graph->nodes[index].flags |= graph->nodes[underlying].flags & RF_SIGNED;
+    } else if (graph->nodes[index].size == 0U) {
+        graph->nodes[index].kind = RK_OPAQUE;          /* incomplete */
+    } else if (!graph->nodes[index].project) {
+        graph->nodes[index].kind = RK_OPAQUE;          /* external: size only */
+    } else {
+        /* Collect into a local list (field types may create records whose
+         * fields are appended first), then append contiguously. */
+        ReflectFieldList fields;
+        ReflectFieldVisit visit;
+        size_t i;
+        memset(&fields, 0, sizeof(fields));
+        visit.graph = graph;
+        visit.fields = &fields;
+        visit.base_bits = 0ULL;
+        visit.depth = depth;
+        (void)clang_Type_visitFields(canonical, reflect_visit_field, &visit);
+        graph->nodes[index].first_field = graph->field_count;
+        graph->nodes[index].field_count = fields.count;
+        for (i = 0U; i < fields.count; ++i) {
+            if (graph->field_count == graph->field_cap) {
+                size_t new_cap = graph->field_cap == 0U ? 64U : graph->field_cap * 2U;
+                ReflectField *next;
+                if (new_cap < graph->field_cap ||
+                    new_cap > (size_t)-1 / sizeof(*graph->fields)) {
+                    die("too many reflected fields");
+                }
+                next = (ReflectField *)realloc(graph->fields,
+                                               new_cap * sizeof(*graph->fields));
+                if (next == NULL) die("out of memory");
+                graph->fields = next;
+                graph->field_cap = new_cap;
+            }
+            graph->fields[graph->field_count++] = fields.items[i];
+        }
+        free(fields.items);
+        graph->nodes[index].count = graph->nodes[index].field_count;
+    }
+    free(path);
+    free(usr);
+    free(tag);
+    return index;
+}
+
+static size_t reflect_derived_node(ReflectGraph *graph, int kind, const char *key,
+                                   CXType type, size_t inner)
+{
+    size_t index = reflect_find_node(graph, key);
+    if (index != (size_t)-1) return index;
+    index = reflect_add_node(graph, kind, key);
+    graph->nodes[index].inner = inner;
+    graph->nodes[index].size = reflect_size(type);
+    graph->nodes[index].align = reflect_align(type);
+    return index;
+}
+
+static size_t reflect_node_for_type(ReflectGraph *graph, CXType type, unsigned depth)
+{
+    CXType canonical = clang_getCanonicalType(type);
+    size_t i;
+    char key[96];
+    if (depth > 64U) canonical.kind = CXType_Unexposed;
+    for (i = 0U; i < REFLECT_BUILTIN_COUNT; ++i) {
+        if (g_reflect_builtins[i].kind == canonical.kind ||
+            (canonical.kind == CXType_Char_U && g_reflect_builtins[i].kind == CXType_Char_S)) {
+            return i;
+        }
+    }
+    switch (canonical.kind) {
+    case CXType_Record:
+    case CXType_Enum:
+        return reflect_node_for_declaration(graph, canonical, depth);
+    case CXType_Pointer: {
+        CXType pointee = clang_getPointeeType(canonical);
+        unsigned quals = reflect_quals(pointee);
+        size_t target = reflect_node_for_type(graph, pointee, depth + 1U);
+        size_t index;
+        (void)snprintf(key, sizeof(key), "ptr:%lu:%u", (unsigned long)target, quals);
+        index = reflect_find_node(graph, key);
+        if (index == (size_t)-1) {
+            Buf name, display;
+            index = reflect_derived_node(graph, RK_POINTER, key, canonical, target);
+            buf_init(&name);
+            buf_init(&display);
+            if (quals & RQUAL_CONST) {
+                buf_puts(&name, "const_");
+                buf_puts(&display, "const ");
+            }
+            if (quals & RQUAL_VOLATILE) {
+                buf_puts(&name, "volatile_");
+                buf_puts(&display, "volatile ");
+            }
+            buf_puts(&name, graph->nodes[target].name);
+            buf_puts(&name, "_ptr");
+            buf_puts(&display, graph->nodes[target].display);
+            buf_puts(&display, " *");
+            graph->nodes[index].name = name.p;
+            graph->nodes[index].display = display.p;
+            if (graph->nodes[target].spelling != NULL) {
+                graph->nodes[index].spelling = copy_string(display.p);
+            }
+        }
+        return index;
+    }
+    case CXType_ConstantArray:
+    case CXType_IncompleteArray: {
+        CXType element = clang_getArrayElementType(canonical);
+        size_t target = reflect_node_for_type(graph, element, depth + 1U);
+        long long length = canonical.kind == CXType_ConstantArray ?
+            clang_getArraySize(canonical) : -1;
+        size_t index;
+        (void)snprintf(key, sizeof(key), "arr:%lu:%lld", (unsigned long)target, length);
+        index = reflect_find_node(graph, key);
+        if (index == (size_t)-1) {
+            Buf name, display;
+            char suffix[40];
+            index = reflect_derived_node(graph, RK_ARRAY, key, canonical, target);
+            buf_init(&name);
+            buf_init(&display);
+            buf_puts(&name, graph->nodes[target].name);
+            buf_puts(&display, graph->nodes[target].display);
+            if (length >= 0) {
+                (void)snprintf(suffix, sizeof(suffix), "_arr%lld", length);
+                buf_puts(&name, suffix);
+                (void)snprintf(suffix, sizeof(suffix), "[%lld]", length);
+                buf_puts(&display, suffix);
+                graph->nodes[index].count = (unsigned long long)length;
+            } else {
+                buf_puts(&name, "_arr");
+                buf_puts(&display, "[]");
+            }
+            graph->nodes[index].name = name.p;
+            graph->nodes[index].display = display.p;
+        }
+        return index;
+    }
+    case CXType_FunctionProto:
+    case CXType_FunctionNoProto: {
+        char *spelling = copy_cx_string(clang_getTypeSpelling(canonical));
+        Buf function_key;
+        size_t index;
+        buf_init(&function_key);
+        buf_puts(&function_key, "fn:");
+        buf_puts(&function_key, spelling);
+        index = reflect_find_node(graph, function_key.p);
+        if (index == (size_t)-1) {
+            char name[32];
+            index = reflect_add_node(graph, RK_FUNCTION, function_key.p);
+            (void)snprintf(name, sizeof(name), "fn_%08llx",
+                           reflect_hash(spelling) & 0xffffffffULL);
+            graph->nodes[index].name = copy_string(name);
+            graph->nodes[index].display = copy_string(spelling);
+            graph->nodes[index].inner = reflect_node_for_type(
+                graph, clang_getResultType(canonical), depth + 1U);
+        }
+        buf_free(&function_key);
+        free(spelling);
+        return index;
+    }
+    default: {
+        char *spelling = copy_cx_string(clang_getTypeSpelling(canonical));
+        Buf opaque_key;
+        size_t index;
+        buf_init(&opaque_key);
+        buf_puts(&opaque_key, "opaque:");
+        buf_puts(&opaque_key, spelling);
+        index = reflect_find_node(graph, opaque_key.p);
+        if (index == (size_t)-1) {
+            index = reflect_derived_node(graph, RK_OPAQUE, opaque_key.p, canonical,
+                                         (size_t)-1);
+            graph->nodes[index].name = reflect_sanitize(spelling);
+            graph->nodes[index].display = copy_string(spelling);
+        }
+        buf_free(&opaque_key);
+        free(spelling);
+        return index;
+    }
+    }
+}
+
+/* ---- collection ----------------------------------------------------------- */
+
+static int reflect_is_generator_helper(const char *name)
+{
+    return strncmp(name, "tmplgen_", 8U) == 0;
+}
+
+typedef struct {
+    ReflectGraph *graph;
+    int pass;   /* 1: typedef names and builtin probes, 2: declarations */
+} ReflectCollect;
+
+static enum CXChildVisitResult reflect_collect_cursor(CXCursor cursor, CXCursor parent,
+                                                      CXClientData data)
+{
+    ReflectCollect *collect = (ReflectCollect *)data;
+    ReflectGraph *graph = collect->graph;
+    enum CXCursorKind kind = clang_getCursorKind(cursor);
+    (void)parent;
+    if (collect->pass == 1) {
+        if (kind == CXCursor_TypedefDecl) {
+            CXType underlying = clang_getCanonicalType(
+                clang_getTypedefDeclUnderlyingType(cursor));
+            if (underlying.kind == CXType_Record || underlying.kind == CXType_Enum) {
+                char *name = copy_cx_string(clang_getCursorSpelling(cursor));
+                char *usr = copy_cx_string(clang_getCursorUSR(
+                    clang_getTypeDeclaration(underlying)));
+                if (valid_identifier(name) && usr[0] != '\0') {
+                    reflect_add_typedef(graph, usr, name);
+                }
+                free(name);
+                free(usr);
+            }
+        } else if (kind == CXCursor_VarDecl) {
+            char *name = copy_cx_string(clang_getCursorSpelling(cursor));
+            if (strncmp(name, "tmplgen_reflect_builtin_", 24U) == 0) {
+                unsigned long index = strtoul(name + 24, NULL, 10);
+                CXType type = clang_getCanonicalType(clang_getCursorType(cursor));
+                if (index < REFLECT_BUILTIN_COUNT) {
+                    ReflectNode *node = &graph->nodes[index];
+                    node->size = reflect_size(type);
+                    node->align = reflect_align(type);
+                    if (type.kind == CXType_SChar || type.kind == CXType_Char_S ||
+                        type.kind == CXType_Short || type.kind == CXType_Int ||
+                        type.kind == CXType_Long || type.kind == CXType_LongLong) {
+                        node->flags |= RF_SIGNED;
+                    }
+                }
+            }
+            free(name);
+        }
+        return CXChildVisit_Recurse;
+    }
+    if (kind == CXCursor_VarDecl) {
+        char *name = copy_cx_string(clang_getCursorSpelling(cursor));
+        if (strncmp(name, "tmplgen_reflect_pointer_", 24U) == 0) {
+            (void)reflect_node_for_type(graph, clang_getCursorType(cursor), 0U);
+        }
+        free(name);
+        return CXChildVisit_Continue;
+    }
+    if ((kind == CXCursor_StructDecl || kind == CXCursor_UnionDecl ||
+         kind == CXCursor_EnumDecl) && clang_isCursorDefinition(cursor) != 0U) {
+        unsigned offset = 0U;
+        char *path = reflect_cursor_file(cursor, &offset);
+        if (reflect_project_path(graph, path)) {
+            CXType type = clang_getCanonicalType(clang_getCursorType(cursor));
+            char *usr = copy_cx_string(clang_getCursorUSR(cursor));
+            char *tag = copy_cx_string(clang_getCursorSpelling(cursor));
+            /* Unnamed types are reached through the fields that use them. */
+            if (valid_identifier(tag) || reflect_typedef_name_for(graph, usr) != NULL) {
+                int generated = path_is_within_directory(path, g_generated_dir);
+                int keep = 1;
+                if (generated) {
+                    /* Generated headers also contain the generator's own
+                     * helper types; keep specializations and the
+                     * parameterless types a template provides. */
+                    const char *name = reflect_typedef_name_for(graph, usr);
+                    keep = !reflect_is_generator_helper(name != NULL ? name : tag);
+                }
+                if (keep) (void)reflect_node_for_type(graph, type, 0U);
+            }
+            free(usr);
+            free(tag);
+        }
+        free(path);
+    }
+    return CXChildVisit_Recurse;
+}
+
+/* ---- analysis --------------------------------------------------------------- */
+
+/* "Vec(int)" for the specialization named `name`, or NULL. */
+static char *reflect_specialization_display(const char *name, size_t *instance_out)
+{
+    size_t i;
+    for (i = 0U; i < g_instance_count; ++i) {
+        const GenInstance *instance = &g_instances[i];
+        const TemplateInfo *ti;
+        size_t j;
+        if (instance->template_index >= g_all_template_info_count) continue;
+        ti = &g_all_template_infos[instance->template_index];
+        for (j = 0U; j < ti->constructor_count; ++j) {
+            const TemplateType *constructor = &ti->constructors[j];
+            char *generated;
+            int match;
+            size_t k;
+            Buf display;
+            if (constructor->parameter_count == 0U ||
+                !instance_matches_parameters(ti, instance,
+                    constructor->parameter_names, constructor->parameter_count) ||
+                !type_use_matches(constructor->name, instance->name)) continue;
+            generated = join_suffix(constructor->name, instance->name);
+            match = str_eq(generated, name);
+            free(generated);
+            if (!match) continue;
+            buf_init(&display);
+            buf_puts(&display, constructor->name);
+            buf_putc(&display, '(');
+            for (k = 0U; k < constructor->parameter_count; ++k) {
+                int parameter = template_parameter_index(ti,
+                    constructor->parameter_names[k]);
+                int position = parameter >= 0 ?
+                    instance_parameter_position(instance, (size_t)parameter) : -1;
+                if (k != 0U) buf_puts(&display, ", ");
+                buf_puts(&display, position >= 0 ?
+                         instance->arguments[position].c_type : "?");
+            }
+            buf_putc(&display, ')');
+            *instance_out = i;
+            return display.p;
+        }
+    }
+    return NULL;
+}
+
+/* Include guard of the generated module at `path`, or NULL. */
+static char *reflect_generated_module_guard(const char *path)
+{
+    char *absolute;
+    size_t i;
+    if (path == NULL) return NULL;
+    absolute = absolute_path(path);
+    for (i = 0U; i < gen_template_count(); ++i) {
+        char *module = generated_module_path(g_templates[i].stem);
+        char *module_absolute = absolute_path(module);
+        int match = str_eq(module_absolute, absolute);
+        free(module);
+        free(module_absolute);
+        if (match) {
+            free(absolute);
+            return generated_module_guard(g_templates[i].stem);
+        }
+    }
+    free(absolute);
+    return NULL;
+}
+
+static void reflect_set_requirement(ReflectNode *node, const char *requirement)
+{
+    free(node->requirement);
+    node->requirement = copy_string(requirement);
+}
+
+/* Decides which nodes get a layout check and under which section; reports
+ * declaring headers the sections cannot key on. */
+static int reflect_assign_requirements(ReflectGraph *graph)
+{
+    size_t i;
+    int okay = 1;
+    for (i = 0U; i < graph->node_count; ++i) {
+        ReflectNode *node = &graph->nodes[i];
+        if (i < REFLECT_BUILTIN_COUNT) {
+            node->checked = node->kind != RK_VOID;
+            continue;
+        }
+        if (node->spelling == NULL || (node->flags & RF_ANONYMOUS) ||
+            !node->project || node->kind == RK_POINTER ||
+            node->kind == RK_OPAQUE || node->size == 0U) continue;
+        if (node->header != NULL) {
+            const HeaderGuard *header = header_guard_for(node->header);
+            if (header->guard == NULL) {
+                report_error(node->header, 0U,
+                    "reflected type '%s' is declared in a header without an "
+                    "#ifndef/#define include guard; reflection sections test that "
+                    "macro (#pragma once alone is not enough)", node->display);
+                okay = 0;
+                continue;
+            }
+            {
+                /* Only reflection.h matters here: its section for this header
+                 * names the type, so it must not run before the declaration. */
+                char *reflection = reflection_header_path();
+                char *absolute = absolute_path(reflection);
+                size_t line = generated_include_before_target(node->header,
+                                                              node->decl_offset,
+                                                              absolute);
+                free(reflection);
+                free(absolute);
+                if (line != 0U) {
+                    report_error(node->header, line,
+                        "includes gen/reflection.h before declaring reflected type "
+                        "'%s'; declare the type before that #include", node->display);
+                    okay = 0;
+                    continue;
+                }
+            }
+            reflect_set_requirement(node, header->guard);
+            node->checked = 1;
+        } else {
+            /* Declared in a generated header. */
+            size_t instance = (size_t)-1;
+            char *display;
+            const char *generated_name = node->spelling;
+            if (reflect_is_generator_helper(node->name)) continue;
+            /* Tagged constructors are spelled "struct TaggedBox_int". */
+            if (strncmp(generated_name, "struct ", 7U) == 0) generated_name += 7;
+            else if (strncmp(generated_name, "union ", 6U) == 0) generated_name += 6;
+            else if (strncmp(generated_name, "enum ", 5U) == 0) generated_name += 5;
+            display = reflect_specialization_display(generated_name, &instance);
+            if (display != NULL) {
+                /* Checked where its module's section has declared it. */
+                char *marker = instance_section_marker(&g_instances[instance]);
+                free(node->display);
+                node->display = display;
+                node->flags |= RF_SPECIALIZED;
+                reflect_set_requirement(node, marker);
+                free(marker);
+            } else {
+                /* Plain code of a template, such as an enum it declares:
+                 * checked once its module is included. */
+                char *guard = reflect_generated_module_guard(node->generated);
+                if (guard == NULL) continue;
+                reflect_set_requirement(node, guard);
+                free(guard);
+            }
+            node->checked = 1;
+        }
+    }
+    return okay;
+}
+
+/* `T *` for every nameable record, so typetag_of(&value) has an id. */
+static void reflect_add_record_pointers(ReflectGraph *graph)
+{
+    size_t void_pointer = reflect_find_node(graph, "ptr:0:0");
+    unsigned long long size, align;
+    size_t i, count = graph->node_count;
+    if (void_pointer == (size_t)-1) return;
+    size = graph->nodes[void_pointer].size;
+    align = graph->nodes[void_pointer].align;
+    for (i = 0U; i < count; ++i) {
+        char key[64];
+        Buf name, display;
+        size_t index;
+        if (!(graph->nodes[i].kind == RK_STRUCT || graph->nodes[i].kind == RK_UNION) ||
+            !graph->nodes[i].checked || graph->nodes[i].spelling == NULL) continue;
+        (void)snprintf(key, sizeof(key), "ptr:%lu:0", (unsigned long)i);
+        if (reflect_find_node(graph, key) != (size_t)-1) continue;
+        index = reflect_add_node(graph, RK_POINTER, key);
+        graph->nodes[index].inner = i;
+        graph->nodes[index].size = size;
+        graph->nodes[index].align = align;
+        buf_init(&name);
+        buf_init(&display);
+        buf_puts(&name, graph->nodes[i].name);
+        buf_puts(&name, "_ptr");
+        buf_puts(&display, graph->nodes[i].display);
+        buf_puts(&display, " *");
+        graph->nodes[index].name = name.p;
+        graph->nodes[index].display = copy_string(display.p);
+        buf_free(&display);
+        buf_init(&display);
+        buf_puts(&display, graph->nodes[i].spelling);
+        buf_puts(&display, " *");
+        graph->nodes[index].spelling = display.p;
+    }
+}
+
+static void reflect_compute_flags(ReflectGraph *graph)
+{
+    size_t i;
+    int changed = 1;
+    /* POINTER_FREE: fixpoint, optimistic for records (cycles only go through
+     * pointers, which are never pointer-free). */
+    for (i = 0U; i < graph->node_count; ++i) {
+        ReflectNode *node = &graph->nodes[i];
+        if (node->kind == RK_BOOL || node->kind == RK_INT || node->kind == RK_FLOAT ||
+            node->kind == RK_ENUM || node->kind == RK_STRUCT || node->kind == RK_UNION ||
+            node->kind == RK_ARRAY) {
+            node->flags |= RF_POINTER_FREE;
+        }
+    }
+    while (changed) {
+        changed = 0;
+        for (i = 0U; i < graph->node_count; ++i) {
+            ReflectNode *node = &graph->nodes[i];
+            int pointer_free = (node->flags & RF_POINTER_FREE) != 0U;
+            size_t f;
+            if (!pointer_free) continue;
+            if (node->kind == RK_ARRAY && node->inner != (size_t)-1 &&
+                !(graph->nodes[node->inner].flags & RF_POINTER_FREE)) pointer_free = 0;
+            for (f = 0U; f < node->field_count && pointer_free; ++f) {
+                const ReflectField *field = &graph->fields[node->first_field + f];
+                if (!(graph->nodes[field->type].flags & RF_POINTER_FREE)) pointer_free = 0;
+            }
+            if (!pointer_free) {
+                node->flags &= ~(unsigned)RF_POINTER_FREE;
+                changed = 1;
+            }
+        }
+    }
+    /* NO_PADDING, HAS_BITFIELDS, FLEXIBLE, ENUM_DENSE */
+    for (i = 0U; i < graph->node_count; ++i) {
+        ReflectNode *node = &graph->nodes[i];
+        if (node->kind == RK_BOOL || node->kind == RK_INT || node->kind == RK_POINTER ||
+            node->kind == RK_ENUM ||
+            (node->kind == RK_FLOAT && i != REFLECT_BUILTIN_COUNT - 1U)) {
+            node->flags |= RF_NO_PADDING;
+        }
+    }
+    changed = 1;
+    while (changed) {
+        changed = 0;
+        for (i = 0U; i < graph->node_count; ++i) {
+            ReflectNode *node = &graph->nodes[i];
+            unsigned long long total = 0ULL;
+            int padded = 0;
+            size_t f;
+            if ((node->flags & RF_NO_PADDING) || node->size == 0U) continue;
+            if (node->kind == RK_ARRAY) {
+                if (node->inner != (size_t)-1 &&
+                    (graph->nodes[node->inner].flags & RF_NO_PADDING)) {
+                    node->flags |= RF_NO_PADDING;
+                    changed = 1;
+                }
+                continue;
+            }
+            if (node->kind != RK_STRUCT || node->field_count == 0U) continue;
+            for (f = 0U; f < node->field_count; ++f) {
+                const ReflectField *field = &graph->fields[node->first_field + f];
+                const ReflectNode *type = &graph->nodes[field->type];
+                if ((field->flags & RFIELD_BITFIELD) || !(type->flags & RF_NO_PADDING)) {
+                    padded = 1;
+                    break;
+                }
+                total += type->size;
+            }
+            if (!padded && total == node->size) {
+                node->flags |= RF_NO_PADDING;
+                changed = 1;
+            }
+        }
+    }
+    for (i = 0U; i < graph->node_count; ++i) {
+        ReflectNode *node = &graph->nodes[i];
+        size_t f;
+        for (f = 0U; f < node->field_count; ++f) {
+            const ReflectField *field = &graph->fields[node->first_field + f];
+            if (field->flags & RFIELD_BITFIELD) node->flags |= RF_HAS_BITFIELDS;
+            if (f + 1U == node->field_count &&
+                graph->nodes[field->type].kind == RK_ARRAY &&
+                graph->nodes[field->type].size == 0U) node->flags |= RF_FLEXIBLE;
+        }
+        if (node->kind == RK_ENUM && node->enumerator_count != 0U) {
+            long long minimum = graph->enumerators[node->first_enumerator].value;
+            int dense = 1;
+            size_t e, k;
+            for (e = 1U; e < node->enumerator_count; ++e) {
+                long long value = graph->enumerators[node->first_enumerator + e].value;
+                if (value < minimum) minimum = value;
+            }
+            for (k = 0U; k < node->enumerator_count && dense; ++k) {
+                int found = 0;
+                for (e = 0U; e < node->enumerator_count; ++e) {
+                    if (graph->enumerators[node->first_enumerator + e].value ==
+                        minimum + (long long)k) found = 1;
+                }
+                if (!found) dense = 0;
+            }
+            if (dense) node->flags |= RF_ENUM_DENSE;
+        }
+    }
+}
+
+static int reflect_order_class(const ReflectNode *node, size_t index)
+{
+    if (index < REFLECT_BUILTIN_COUNT) return 0;
+    if ((node->kind == RK_STRUCT || node->kind == RK_UNION || node->kind == RK_ENUM ||
+         node->kind == RK_OPAQUE) && node->project && node->spelling != NULL) return 1;
+    return 2;
+}
+
+static const ReflectGraph *g_reflect_sort_graph;
+
+static int reflect_compare_nodes(const void *left, const void *right)
+{
+    size_t a = *(const size_t *)left;
+    size_t b = *(const size_t *)right;
+    const ReflectNode *na = &g_reflect_sort_graph->nodes[a];
+    const ReflectNode *nb = &g_reflect_sort_graph->nodes[b];
+    int ca = reflect_order_class(na, a);
+    int cb = reflect_order_class(nb, b);
+    int names;
+    if (ca != cb) return ca < cb ? -1 : 1;
+    if (ca == 0) return a < b ? -1 : (a > b ? 1 : 0);
+    names = strcmp(na->name, nb->name);
+    if (names != 0) return names;
+    return strcmp(na->key, nb->key);
+}
+
+/* Deterministic ids: builtins, then nameable project types, then everything
+ * reached from them; colliding names get a hash suffix. Returns the order. */
+static size_t *reflect_assign_ids(ReflectGraph *graph)
+{
+    size_t *order = (size_t *)malloc((graph->node_count + 1U) * sizeof(*order));
+    size_t i;
+    if (order == NULL) die("out of memory");
+    for (i = 0U; i < graph->node_count; ++i) order[i] = i;
+    g_reflect_sort_graph = graph;
+    qsort(order, graph->node_count, sizeof(*order), reflect_compare_nodes);
+    for (i = 1U; i < graph->node_count; ++i) {
+        ReflectNode *previous = &graph->nodes[order[i - 1U]];
+        ReflectNode *node = &graph->nodes[order[i]];
+        if (str_eq(previous->name, node->name)) {
+            char suffix[32];
+            Buf renamed;
+            (void)snprintf(suffix, sizeof(suffix), "_h%08llx",
+                           reflect_hash(node->key) & 0xffffffffULL);
+            buf_init(&renamed);
+            buf_puts(&renamed, node->name);
+            buf_puts(&renamed, suffix);
+            free(node->name);
+            node->name = renamed.p;
+            if (g_verbose) {
+                fprintf(stderr, "tmplgen: reflected type name collision: %s\n",
+                        node->name);
+            }
+        }
+    }
+    for (i = 0U; i < graph->node_count; ++i) {
+        graph->nodes[order[i]].id = (unsigned)(i + 1U);    /* 0 is INVALID */
+    }
+    return order;
+}
+
+/* ---- emission ----------------------------------------------------------------- */
+
+typedef struct {
+    Buf pool;
+    char **strings;
+    unsigned *offsets;
+    size_t count, cap;
+} ReflectStrings;
+
+static unsigned reflect_string(ReflectStrings *strings, const char *text)
+{
+    size_t i;
+    unsigned offset;
+    for (i = 0U; i < strings->count; ++i) {
+        if (str_eq(strings->strings[i], text)) return strings->offsets[i];
+    }
+    if (strings->count == strings->cap) {
+        size_t new_cap = strings->cap == 0U ? 64U : strings->cap * 2U;
+        char **next_strings;
+        unsigned *next_offsets;
+        if (new_cap < strings->cap || new_cap > (size_t)-1 / sizeof(char *)) {
+            die("too many reflected strings");
+        }
+        next_strings = (char **)realloc(strings->strings, new_cap * sizeof(char *));
+        if (next_strings == NULL) die("out of memory");
+        strings->strings = next_strings;
+        next_offsets = (unsigned *)realloc(strings->offsets, new_cap * sizeof(unsigned));
+        if (next_offsets == NULL) die("out of memory");
+        strings->offsets = next_offsets;
+        strings->cap = new_cap;
+    }
+    offset = (unsigned)strings->pool.len;
+    strings->strings[strings->count] = copy_string(text);
+    strings->offsets[strings->count] = offset;
+    ++strings->count;
+    buf_putn(&strings->pool, text, strlen(text) + 1U);   /* with its NUL */
+    return offset;
+}
+
+static void reflect_strings_free(ReflectStrings *strings)
+{
+    list_free(strings->strings, strings->count);
+    free(strings->offsets);
+    buf_free(&strings->pool);
+    memset(strings, 0, sizeof(*strings));
+}
+
+static void buf_put_ull(Buf *out, unsigned long long value)
+{
+    char text[32];
+    (void)snprintf(text, sizeof(text), "%llu", value);
+    buf_puts(out, text);
+}
+
+/* The parts of reflection.h that do not depend on the type graph. */
+static void reflect_emit_schema(Buf *out)
+{
+    buf_puts(out,
+        "#include <stddef.h>\n"
+        "#include <stdint.h>\n\n"
+        "/* Every identifier below is spelled TMPLGEN_SYM(name): define\n"
+        "   TMPLGEN_SYMBOL_PREFIX (the same in every translation unit, e.g. with -D)\n"
+        "   to prefix them all. The macros typetag, typetag_of, enumtag_of and any_of\n"
+        "   are then only available as TMPLGEN_TYPETAG, TMPLGEN_TYPETAG_OF,\n"
+        "   TMPLGEN_ENUMTAG_OF and TMPLGEN_ANY_OF. */\n"
+        "#ifdef TMPLGEN_SYMBOL_PREFIX\n"
+        "#define TMPLGEN_REFLECT_PREFIX_ TMPLGEN_SYMBOL_PREFIX\n"
+        "#else\n"
+        "#define TMPLGEN_REFLECT_PREFIX_\n"
+        "#endif\n"
+        "#define TMPLGEN_REFLECT_CAT_(a, b) a##b\n"
+        "#define TMPLGEN_REFLECT_CAT(a, b) TMPLGEN_REFLECT_CAT_(a, b)\n"
+        "#define TMPLGEN_SYM(name) TMPLGEN_REFLECT_CAT(TMPLGEN_REFLECT_PREFIX_, name)\n\n"
+        "/* Layout checks: the tables hold libclang's numbers; the compiler confirms\n"
+        "   them wherever the type is visible. */\n"
+        "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n"
+        "#define TMPLGEN_REFLECT_CHECK(cond, msg) _Static_assert(cond, msg)\n"
+        "#define TMPLGEN_REFLECT_ALIGN_IS(T, n) (_Alignof(T) == (n))\n"
+        "#elif defined(__GNUC__) || defined(__clang__)\n"
+        "#define TMPLGEN_REFLECT_CHECK(cond, msg) __extension__ _Static_assert(cond, msg)\n"
+        "#define TMPLGEN_REFLECT_ALIGN_IS(T, n) 1\n"
+        "#else\n"
+        "#define TMPLGEN_REFLECT_CHECK(cond, msg) \\\n"
+        "    typedef char TMPLGEN_REFLECT_CAT(tmplgen_reflect_check_, __LINE__)[(cond) ? 1 : -1]\n"
+        "#define TMPLGEN_REFLECT_ALIGN_IS(T, n) 1\n"
+        "#endif\n\n");
+    buf_puts(out,
+        "typedef enum TMPLGEN_SYM(TypeKind) {\n"
+        "    TMPLGEN_SYM(TYPEKIND_INVALID), TMPLGEN_SYM(TYPEKIND_VOID),\n"
+        "    TMPLGEN_SYM(TYPEKIND_BOOL), TMPLGEN_SYM(TYPEKIND_INT),\n"
+        "    TMPLGEN_SYM(TYPEKIND_FLOAT), TMPLGEN_SYM(TYPEKIND_POINTER),\n"
+        "    TMPLGEN_SYM(TYPEKIND_ARRAY), TMPLGEN_SYM(TYPEKIND_STRUCT),\n"
+        "    TMPLGEN_SYM(TYPEKIND_UNION), TMPLGEN_SYM(TYPEKIND_ENUM),\n"
+        "    TMPLGEN_SYM(TYPEKIND_FUNCTION), TMPLGEN_SYM(TYPEKIND_OPAQUE)\n"
+        "} TMPLGEN_SYM(TypeKind);\n\n"
+        "enum {\n"
+        "    TMPLGEN_SYM(TYPEFLAG_SIGNED) = 1u << 0,\n"
+        "    TMPLGEN_SYM(TYPEFLAG_POINTER_FREE) = 1u << 1, /* no pointers inside */\n"
+        "    TMPLGEN_SYM(TYPEFLAG_NO_PADDING) = 1u << 2,\n"
+        "    TMPLGEN_SYM(TYPEFLAG_HAS_BITFIELDS) = 1u << 3,\n"
+        "    TMPLGEN_SYM(TYPEFLAG_FLEXIBLE) = 1u << 4,   /* flexible array member */\n"
+        "    TMPLGEN_SYM(TYPEFLAG_ANONYMOUS) = 1u << 5,\n"
+        "    TMPLGEN_SYM(TYPEFLAG_SPECIALIZED) = 1u << 6, /* template instance */\n"
+        "    TMPLGEN_SYM(TYPEFLAG_ENUM_DENSE) = 1u << 7\n"
+        "};\n"
+        "enum { TMPLGEN_SYM(TYPEFIELD_BITFIELD) = 1u << 0 };\n"
+        "enum {\n"
+        "    TMPLGEN_SYM(TYPEQUAL_CONST) = 1u << 0,\n"
+        "    TMPLGEN_SYM(TYPEQUAL_VOLATILE) = 1u << 1,\n"
+        "    TMPLGEN_SYM(TYPEQUAL_RESTRICT) = 1u << 2\n"
+        "};\n\n"
+        "typedef struct TMPLGEN_SYM(TypeInfo) {\n"
+        "    uint32_t size;\n"
+        "    uint16_t align;\n"
+        "    uint8_t kind;       /* TypeKind */\n"
+        "    uint8_t reserved;\n"
+        "    uint32_t flags;\n"
+        "    uint32_t name;      /* offset into RuntimeTypeStrings */\n"
+        "    uint32_t first;     /* first field or enumerator */\n"
+        "    uint32_t count;     /* fields, enumerators, or array length */\n"
+        "    uint32_t inner;     /* TypeTag: pointee, element, underlying, or result */\n"
+        "    uint32_t display;   /* pretty name, e.g. \"Vec(int)\" */\n"
+        "} TMPLGEN_SYM(TypeInfo);\n\n"
+        "typedef struct TMPLGEN_SYM(TypeField) {\n"
+        "    uint32_t name;\n"
+        "    uint32_t type;      /* TypeTag */\n"
+        "    uint32_t offset;    /* bytes; bits for TYPEFIELD_BITFIELD */\n"
+        "    uint16_t bit_width;\n"
+        "    uint8_t quals;      /* TYPEQUAL_* */\n"
+        "    uint8_t flags;      /* TYPEFIELD_* */\n"
+        "    uint32_t attr;\n"
+        "} TMPLGEN_SYM(TypeField);\n\n"
+        "typedef struct TMPLGEN_SYM(TypeEnumerator) {\n"
+        "    int64_t value;\n"
+        "    uint32_t name;\n"
+        "    uint32_t pad;\n"
+        "} TMPLGEN_SYM(TypeEnumerator);\n\n");
+}
+
+/* Declarations shared by the real header and the parsing stand-in, after the
+ * TypeTag enum and table declarations. */
+static void reflect_emit_api(Buf *out)
+{
+    buf_puts(out,
+        "typedef struct TMPLGEN_SYM(Any) {\n"
+        "    void *data;\n"
+        "    TMPLGEN_SYM(TypeTag) type;\n"
+        "} TMPLGEN_SYM(Any);\n\n"
+        "/* typetag(T): the id of a type *name* (Hero, Role, struct_Packed,\n"
+        "   const_char_ptr, Hero_ptr); needs no declaration of the type. */\n"
+        "#define TMPLGEN_TYPETAG(T) TMPLGEN_SYM(TYPETAG_##T)\n\n"
+        "/* A struct's or union's fields are RuntimeTypeFieldTable[first .. first+count),\n"
+        "   an enum's enumerators RuntimeTypeEnumTable[first .. first+count). */\n"
+        "static inline const TMPLGEN_SYM(TypeInfo) *\n"
+        "TMPLGEN_SYM(typeinfo)(TMPLGEN_SYM(TypeTag) id)\n"
+        "{\n"
+        "    return &TMPLGEN_SYM(RuntimeTypeInfoTable)[id];\n"
+        "}\n\n"
+        "/* Display name of a type, e.g. \"Vec(Item)\". */\n"
+        "static inline const char *TMPLGEN_SYM(typestr)(TMPLGEN_SYM(TypeTag) id)\n"
+        "{\n"
+        "    return TMPLGEN_SYM(RuntimeTypeStrings) +\n"
+        "           TMPLGEN_SYM(RuntimeTypeInfoTable)[id].display;\n"
+        "}\n\n"
+        "/* The name stored at a string-table offset (TypeField.name,\n"
+        "   TypeEnumerator.name, TypeInfo.name). */\n"
+        "static inline const char *TMPLGEN_SYM(reflect_str)(uint32_t offset)\n"
+        "{\n"
+        "    return TMPLGEN_SYM(RuntimeTypeStrings) + offset;\n"
+        "}\n\n"
+        "/* The field `field` of the value in `value`. */\n"
+        "static inline TMPLGEN_SYM(Any)\n"
+        "TMPLGEN_SYM(any_field)(TMPLGEN_SYM(Any) value,\n"
+        "                               const TMPLGEN_SYM(TypeField) *field)\n"
+        "{\n"
+        "    TMPLGEN_SYM(Any) result;\n"
+        "    result.data = (char *)value.data + field->offset;\n"
+        "    result.type = (TMPLGEN_SYM(TypeTag))field->type;\n"
+        "    return result;\n"
+        "}\n\n"
+        "#ifndef TMPLGEN_SYMBOL_PREFIX\n"
+        "#define typetag(T) TMPLGEN_TYPETAG(T)\n"
+        "#endif\n\n");
+}
+
+static void reflect_emit_table_declarations(Buf *out, const char *storage,
+                                            size_t type_count)
+{
+    buf_puts(out, storage);
+    buf_puts(out, "const char TMPLGEN_SYM(RuntimeTypeStrings)[];\n");
+    buf_puts(out, storage);
+    buf_puts(out, "const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[");
+    buf_put_ull(out, (unsigned long long)type_count);
+    buf_puts(out, "];\n");
+    buf_puts(out, storage);
+    buf_puts(out, "const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[];\n");
+    buf_puts(out, storage);
+    buf_puts(out, "const TMPLGEN_SYM(TypeEnumerator) TMPLGEN_SYM(RuntimeTypeEnumTable)[];\n\n");
+}
+
+/* Operators built on TMPLGEN_TYPETAG_OF and TMPLGEN_ENUMTAG_OF; shared with
+ * the parsing stand-in. */
+static void reflect_emit_dispatch_api(Buf *out)
+{
+    buf_puts(out,
+        "/* any_of(x): an Any pointing at the lvalue x. */\n"
+        "#define TMPLGEN_ANY_OF(x) \\\n"
+        "    ((TMPLGEN_SYM(Any)){ (void *)&(x), TMPLGEN_TYPETAG_OF(x) })\n"
+        "#ifndef TMPLGEN_SYMBOL_PREFIX\n"
+        "#define typetag_of(x) TMPLGEN_TYPETAG_OF(x)\n"
+        "#define enumtag_of(x) TMPLGEN_ENUMTAG_OF(x)\n"
+        "#define any_of(x) TMPLGEN_ANY_OF(x)\n"
+        "#endif\n\n");
+}
+
+/* ---- dispatch: typetag_of(x), enumtag_of(x) --------------------------------
+ * Two selections over the static type: typetag_of lists every nameable
+ * non-enum type (builtins, project records, specializations, and pointers to
+ * those), enumtag_of lists the enums. They are separate because an enum is
+ * compatible with its integer type, so one selection cannot list both; two
+ * enum types are never compatible with each other. Associations that name a
+ * project type are added by hook macros redefined in that type's section, so
+ * the macros only ever name types visible at the call. */
+
+static const char *reflect_dispatch_requirement(const ReflectGraph *graph, size_t index,
+                                                int enums)
+{
+    const ReflectNode *node = &graph->nodes[index];
+    if (enums) {
+        if (node->kind == RK_ENUM && node->checked && node->spelling != NULL) {
+            return node->requirement;
+        }
+        return NULL;
+    }
+    if (index < REFLECT_BUILTIN_COUNT) return node->kind == RK_VOID ? NULL : "";
+    if (node->kind == RK_POINTER) {
+        const ReflectNode *target;
+        if (node->spelling == NULL || node->inner == (size_t)-1) return NULL;
+        target = &graph->nodes[node->inner];
+        if (node->inner < REFLECT_BUILTIN_COUNT) return "";
+        if ((target->kind == RK_STRUCT || target->kind == RK_UNION) && target->checked) {
+            return target->requirement;
+        }
+        return NULL;
+    }
+    if ((node->kind == RK_STRUCT || node->kind == RK_UNION) && node->checked &&
+        node->spelling != NULL) return node->requirement;
+    return NULL;
+}
+
+static void buf_put_typetag(Buf *out, const ReflectNode *node)
+{
+    buf_puts(out, "TMPLGEN_SYM(TYPETAG_");
+    buf_puts(out, node->name);
+    buf_putc(out, ')');
+}
+
+static void buf_put_hook_name(Buf *out, const char *kind, const char *requirement)
+{
+    buf_puts(out, "TMPLGEN_REFLECT_");
+    buf_puts(out, kind);
+    buf_putc(out, '_');
+    buf_put_requirement_id(out, requirement);
+}
+
+/* Hook names: the _Generic associations and the GNU chain of one list. */
+static const char *reflect_generic_hook(int enums) { return enums ? "ENUMTAG" : "TYPETAG"; }
+static const char *reflect_gnu_hook(int enums) { return enums ? "GNUENUM" : "GNU"; }
+
+/* Generic-selection entries ("T: TYPETAG_T, ") and the GNU chain for the
+ * types that need exactly `requirement`. */
+static void reflect_emit_dispatch_entries(Buf *generic, Buf *gnu,
+                                          const ReflectGraph *graph,
+                                          const size_t *order, const char *requirement,
+                                          int enums, const char *tail)
+{
+    size_t i, depth = 0U;
+    for (i = 0U; i < graph->node_count; ++i) {
+        const ReflectNode *node = &graph->nodes[order[i]];
+        const char *needs = reflect_dispatch_requirement(graph, order[i], enums);
+        if (needs == NULL || !str_eq(needs, requirement)) continue;
+        buf_puts(generic, "    ");
+        buf_puts(generic, node->spelling);
+        buf_puts(generic, ": ");
+        buf_put_typetag(generic, node);
+        buf_puts(generic, ", \\\n");
+        buf_puts(gnu, "    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ");
+        buf_puts(gnu, node->spelling);
+        buf_puts(gnu, "), ");
+        buf_put_typetag(gnu, node);
+        buf_puts(gnu, ", \\\n");
+        ++depth;
+    }
+    buf_puts(gnu, "    ");
+    buf_puts(gnu, tail);
+    for (i = 0U; i < depth; ++i) buf_putc(gnu, ')');
+}
+
+static void reflect_dispatch_requirements(const ReflectGraph *graph, int enums,
+                                          StringSet *out)
+{
+    size_t i;
+    for (i = 0U; i < graph->node_count; ++i) {
+        const char *needs = reflect_dispatch_requirement(graph, i, enums);
+        if (needs != NULL && needs[0] != '\0') string_set_add(out, needs);
+    }
+    sort_requirements(out);
+}
+
+/* The default hooks and the selection macro `name` for one list. */
+static void reflect_emit_dispatch_macro(Buf *out, const ReflectGraph *graph,
+                                        const size_t *order, int enums,
+                                        const char *name, const char *unknown)
+{
+    StringSet requirements;
+    Buf generic, gnu, tail;
+    size_t i;
+    memset(&requirements, 0, sizeof(requirements));
+    reflect_dispatch_requirements(graph, enums, &requirements);
+    buf_init(&generic);
+    buf_init(&gnu);
+    buf_init(&tail);
+    for (i = 0U; i < requirements.count; ++i) {
+        buf_puts(out, "#ifndef ");
+        buf_put_hook_name(out, reflect_generic_hook(enums), requirements.items[i]);
+        buf_puts(out, "\n#define ");
+        buf_put_hook_name(out, reflect_generic_hook(enums), requirements.items[i]);
+        buf_puts(out, "\n#endif\n#ifndef ");
+        buf_put_hook_name(out, reflect_gnu_hook(enums), requirements.items[i]);
+        buf_puts(out, "\n#define ");
+        buf_put_hook_name(out, reflect_gnu_hook(enums), requirements.items[i]);
+        buf_puts(out, "(x, next) next\n#endif\n");
+        buf_put_hook_name(&tail, reflect_gnu_hook(enums), requirements.items[i]);
+        buf_puts(&tail, "(x, ");
+    }
+    buf_puts(&tail, unknown);
+    for (i = 0U; i < requirements.count; ++i) buf_putc(&tail, ')');
+    reflect_emit_dispatch_entries(&generic, &gnu, graph, order, "", enums, tail.p);
+    buf_puts(out, "#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L\n#define ");
+    buf_puts(out, name);
+    buf_puts(out, "(x) _Generic((x), \\\n");
+    buf_puts(out, generic.p != NULL ? generic.p : "");
+    for (i = 0U; i < requirements.count; ++i) {
+        buf_puts(out, "    ");
+        buf_put_hook_name(out, reflect_generic_hook(enums), requirements.items[i]);
+        buf_puts(out, " \\\n");
+    }
+    buf_puts(out, "    default: ");
+    buf_puts(out, unknown);
+    buf_puts(out, ")\n#elif defined(__GNUC__) || defined(__clang__)\n#define ");
+    buf_puts(out, name);
+    buf_puts(out, "(x) \\\n");
+    buf_puts(out, gnu.p != NULL ? gnu.p : "");
+    buf_puts(out, "\n#endif\n\n");
+    buf_free(&generic);
+    buf_free(&gnu);
+    buf_free(&tail);
+    string_set_free(&requirements);
+}
+
+static void reflect_emit_dispatch_core(Buf *out, const ReflectGraph *graph,
+                                       const size_t *order)
+{
+    buf_puts(out,
+        "/* typetag_of(x): the id of the type of the expression x; enums are\n"
+        "   compatible with their integer type and get its id. enumtag_of(x): the id\n"
+        "   of the enum type of x. An argument whose type has no id selects one of\n"
+        "   these objects, so the use fails to compile with its name in the message. */\n"
+        "struct tmplgen_reflect_unknown_type { int unused; };\n"
+        "extern const struct tmplgen_reflect_unknown_type\n"
+        "    tmplgen_reflect_no_typetag_for_this_argument_type,\n"
+        "    tmplgen_reflect_no_enumtag_for_this_argument_type;\n\n");
+    reflect_emit_dispatch_macro(out, graph, order, 0, "TMPLGEN_TYPETAG_OF",
+                                "tmplgen_reflect_no_typetag_for_this_argument_type");
+    reflect_emit_dispatch_macro(out, graph, order, 1, "TMPLGEN_ENUMTAG_OF",
+                                "tmplgen_reflect_no_enumtag_for_this_argument_type");
+    reflect_emit_dispatch_api(out);
+}
+
+static void reflect_emit_dispatch_hooks(Buf *out, const ReflectGraph *graph,
+                                        const size_t *order, const char *requirement,
+                                        int enums)
+{
+    Buf generic, gnu;
+    size_t i;
+    int any = 0;
+    for (i = 0U; i < graph->node_count; ++i) {
+        const char *needs = reflect_dispatch_requirement(graph, i, enums);
+        if (needs != NULL && str_eq(needs, requirement)) any = 1;
+    }
+    if (!any) return;
+    buf_init(&generic);
+    buf_init(&gnu);
+    reflect_emit_dispatch_entries(&generic, &gnu, graph, order, requirement, enums, "next");
+    buf_puts(out, "#undef ");
+    buf_put_hook_name(out, reflect_generic_hook(enums), requirement);
+    buf_puts(out, "\n#define ");
+    buf_put_hook_name(out, reflect_generic_hook(enums), requirement);
+    buf_puts(out, " \\\n");
+    buf_puts(out, generic.p != NULL ? generic.p : "");
+    buf_puts(out, "\n#undef ");
+    buf_put_hook_name(out, reflect_gnu_hook(enums), requirement);
+    buf_puts(out, "\n#define ");
+    buf_put_hook_name(out, reflect_gnu_hook(enums), requirement);
+    buf_puts(out, "(x, next) \\\n");
+    buf_puts(out, gnu.p != NULL ? gnu.p : "");
+    buf_puts(out, "\n");
+    buf_free(&generic);
+    buf_free(&gnu);
+}
+
+static void reflect_emit_dispatch_section(Buf *out, const ReflectGraph *graph,
+                                          const size_t *order, const char *requirement)
+{
+    reflect_emit_dispatch_hooks(out, graph, order, requirement, 0);
+    reflect_emit_dispatch_hooks(out, graph, order, requirement, 1);
+}
+
+/* gen/reflection.h stand-in while libclang parses project sources: same API,
+ * ids only for builtins. */
+static void emit_reflection_bootstrap(Buf *out)
+{
+    size_t i;
+    buf_puts(out, "#ifndef TMPLGEN_REFLECTION_H\n#define TMPLGEN_REFLECTION_H\n");
+    reflect_emit_schema(out);
+    buf_puts(out, "typedef enum TMPLGEN_SYM(TypeTag) {\n"
+                  "    TMPLGEN_SYM(TYPETAG_INVALID)");
+    for (i = 0U; i < REFLECT_BUILTIN_COUNT; ++i) {
+        buf_puts(out, ",\n    TMPLGEN_SYM(TYPETAG_");
+        buf_puts(out, g_reflect_builtins[i].name);
+        buf_putc(out, ')');
+    }
+    buf_puts(out, "\n} TMPLGEN_SYM(TypeTag);\n");
+    reflect_emit_table_declarations(out, "extern ", REFLECT_BUILTIN_COUNT + 1U);
+    reflect_emit_api(out);
+    buf_puts(out, "#define TMPLGEN_TYPETAG_OF(x) \\\n"
+                  "    ((void)(x), TMPLGEN_SYM(TYPETAG_INVALID))\n"
+                  "#define TMPLGEN_ENUMTAG_OF(x) \\\n"
+                  "    ((void)(x), TMPLGEN_SYM(TYPETAG_INVALID))\n");
+    reflect_emit_dispatch_api(out);
+    buf_puts(out, "#endif\n");
+}
+
+static void reflect_emit_check(Buf *out, const ReflectGraph *graph, const ReflectNode *node)
+{
+    size_t f;
+    buf_puts(out, "TMPLGEN_REFLECT_CHECK(sizeof(");
+    buf_puts(out, node->spelling);
+    buf_puts(out, ") == ");
+    buf_put_ull(out, node->size);
+    if (node->align != 0U) {
+        buf_puts(out, " && TMPLGEN_REFLECT_ALIGN_IS(");
+        buf_puts(out, node->spelling);
+        buf_puts(out, ", ");
+        buf_put_ull(out, node->align);
+        buf_putc(out, ')');
+    }
+    for (f = 0U; f < node->field_count; ++f) {
+        const ReflectField *field = &graph->fields[node->first_field + f];
+        if (field->flags & RFIELD_BITFIELD) continue;
+        buf_puts(out, " &&\n    offsetof(");
+        buf_puts(out, node->spelling);
+        buf_puts(out, ", ");
+        buf_puts(out, field->name);
+        buf_puts(out, ") == ");
+        buf_put_ull(out, field->offset_bits / 8U);
+    }
+    for (f = 0U; f < node->enumerator_count; ++f) {
+        const ReflectEnumerator *enumerator =
+            &graph->enumerators[node->first_enumerator + f];
+        char value[48];
+        if (enumerator->is_unsigned) {
+            buf_puts(out, " &&\n    (unsigned long long)");
+            buf_puts(out, enumerator->name);
+            (void)snprintf(value, sizeof(value), " == %lluULL",
+                           (unsigned long long)enumerator->value);
+        } else {
+            buf_puts(out, " &&\n    (long long)");
+            buf_puts(out, enumerator->name);
+            if (enumerator->value == LLONG_MIN) {
+                (void)snprintf(value, sizeof(value), " == (-%lldLL - 1)", LLONG_MAX);
+            } else {
+                (void)snprintf(value, sizeof(value), " == %lldLL", enumerator->value);
+            }
+        }
+        buf_puts(out, value);
+    }
+    buf_puts(out, ",\n    \"tmplgen: reflected layout of ");
+    emit_escaped_c_string(out, node->display);
+    buf_puts(out, " differs from this compiler or target; regenerate with matching "
+                  "--clang-arg flags\");\n");
+}
+
+static void reflect_emit_tables(Buf *out, const ReflectGraph *graph, const size_t *order,
+                                const char *storage)
+{
+    ReflectStrings strings;
+    unsigned *name_offsets;
+    unsigned *display_offsets;
+    unsigned *field_name_offsets;
+    unsigned *enumerator_name_offsets;
+    size_t i;
+    memset(&strings, 0, sizeof(strings));
+    (void)reflect_string(&strings, "");
+    name_offsets = (unsigned *)calloc(graph->node_count + 1U, sizeof(unsigned));
+    display_offsets = (unsigned *)calloc(graph->node_count + 1U, sizeof(unsigned));
+    field_name_offsets = (unsigned *)calloc(graph->field_count + 1U, sizeof(unsigned));
+    enumerator_name_offsets = (unsigned *)calloc(graph->enumerator_count + 1U,
+                                                 sizeof(unsigned));
+    if (name_offsets == NULL || display_offsets == NULL || field_name_offsets == NULL ||
+        enumerator_name_offsets == NULL) die("out of memory");
+    for (i = 0U; i < graph->node_count; ++i) {
+        const ReflectNode *node = &graph->nodes[order[i]];
+        name_offsets[order[i]] = reflect_string(&strings, node->name);
+        display_offsets[order[i]] = reflect_string(&strings, node->display);
+    }
+    for (i = 0U; i < graph->field_count; ++i) {
+        field_name_offsets[i] = reflect_string(&strings, graph->fields[i].name);
+    }
+    for (i = 0U; i < graph->enumerator_count; ++i) {
+        enumerator_name_offsets[i] = reflect_string(&strings, graph->enumerators[i].name);
+    }
+
+    buf_puts(out, storage);
+    buf_puts(out, "const char TMPLGEN_SYM(RuntimeTypeStrings)[] =");
+    if (strings.pool.len <= 4000U) {
+        buf_putc(out, '\n');
+        for (i = 0U; i < strings.count; ++i) {
+            buf_puts(out, "    \"");
+            emit_escaped_c_string(out, strings.strings[i]);
+            buf_puts(out, "\\0\"");
+            if (i + 1U == strings.count) buf_putc(out, ';');
+            buf_puts(out, " /* ");
+            buf_put_ull(out, strings.offsets[i]);
+            buf_puts(out, " */\n");
+        }
+    } else {
+        /* C99 only guarantees 4095-character string literals; a brace list
+         * has no such limit. */
+        buf_puts(out, " {\n");
+        for (i = 0U; i < strings.count; ++i) {
+            const char *p = strings.strings[i];
+            buf_puts(out, "    ");
+            for (; *p != '\0'; ++p) {
+                if (isalnum((unsigned char)*p) || *p == '_' || *p == ' ' || *p == '*' ||
+                    *p == '(' || *p == ')' || *p == '[' || *p == ']' || *p == ',' ||
+                    *p == ':' || *p == '.') {
+                    buf_putc(out, '\'');
+                    buf_putc(out, *p);
+                    buf_puts(out, "',");
+                } else {
+                    buf_put_ull(out, (unsigned long long)(unsigned char)*p);
+                    buf_putc(out, ',');
+                }
+            }
+            buf_puts(out, "0, /* ");
+            buf_put_ull(out, strings.offsets[i]);
+            buf_puts(out, ": ");
+            buf_puts(out, strings.strings[i]);
+            buf_puts(out, " */\n");
+        }
+        buf_puts(out, "};\n");
+    }
+    buf_puts(out, "\n");
+
+    buf_puts(out, storage);
+    buf_puts(out, "const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[");
+    buf_put_ull(out, (unsigned long long)graph->node_count + 1ULL);
+    buf_puts(out, "] = {\n    /* size, align, kind, -, flags, name, first, count, inner, display */\n"
+                  "    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, /* 0: INVALID */\n");
+    for (i = 0U; i < graph->node_count; ++i) {
+        const ReflectNode *node = &graph->nodes[order[i]];
+        unsigned long long first = node->kind == RK_ENUM ? node->first_enumerator :
+                                   node->field_count != 0U ? node->first_field : 0U;
+        unsigned long long inner = node->inner != (size_t)-1 ?
+            graph->nodes[node->inner].id : 0U;
+        char row[256];
+        (void)snprintf(row, sizeof(row),
+            "    { %llu, %llu, %d, 0, %u, %u, %llu, %llu, %llu, %u }, /* %u: ",
+            node->size, node->align, node->kind, node->flags, name_offsets[order[i]],
+            first, node->count, inner, display_offsets[order[i]], node->id);
+        buf_puts(out, row);
+        buf_puts(out, node->name);
+        buf_puts(out, " */\n");
+    }
+    buf_puts(out, "};\n\n");
+
+    buf_puts(out, storage);
+    buf_puts(out, "const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {\n"
+                  "    /* name, type, offset, bit_width, quals, flags, attr */\n");
+    if (graph->field_count == 0U) buf_puts(out, "    { 0, 0, 0, 0, 0, 0, 0 }\n");
+    for (i = 0U; i < graph->field_count; ++i) {
+        const ReflectField *field = &graph->fields[i];
+        char row[160];
+        unsigned long long offset = (field->flags & RFIELD_BITFIELD) ?
+            field->offset_bits : field->offset_bits / 8U;
+        (void)snprintf(row, sizeof(row), "    { %u, %u, %llu, %u, %u, %u, 0 }, /* %s */\n",
+                       field_name_offsets[i], graph->nodes[field->type].id, offset,
+                       field->bit_width, field->quals, field->flags, field->name);
+        buf_puts(out, row);
+    }
+    buf_puts(out, "};\n\n");
+
+    buf_puts(out, storage);
+    buf_puts(out, "const TMPLGEN_SYM(TypeEnumerator) TMPLGEN_SYM(RuntimeTypeEnumTable)[] = {\n");
+    if (graph->enumerator_count == 0U) buf_puts(out, "    { 0, 0, 0 }\n");
+    for (i = 0U; i < graph->enumerator_count; ++i) {
+        const ReflectEnumerator *enumerator = &graph->enumerators[i];
+        char row[160];
+        if (enumerator->is_unsigned) {
+            (void)snprintf(row, sizeof(row), "    { (int64_t)%lluULL, %u, 0 }, /* %s */\n",
+                           (unsigned long long)enumerator->value,
+                           enumerator_name_offsets[i], enumerator->name);
+        } else if (enumerator->value == LLONG_MIN) {
+            (void)snprintf(row, sizeof(row), "    { -%lldLL - 1, %u, 0 }, /* %s */\n",
+                           LLONG_MAX, enumerator_name_offsets[i], enumerator->name);
+        } else {
+            (void)snprintf(row, sizeof(row), "    { %lldLL, %u, 0 }, /* %s */\n",
+                           enumerator->value, enumerator_name_offsets[i],
+                           enumerator->name);
+        }
+        buf_puts(out, row);
+    }
+    buf_puts(out, "};\n\n");
+    free(name_offsets);
+    free(display_offsets);
+    free(field_name_offsets);
+    free(enumerator_name_offsets);
+    reflect_strings_free(&strings);
+}
+
+static void reflect_emit_ids(Buf *out, const ReflectGraph *graph, const size_t *order)
+{
+    size_t i;
+    buf_puts(out, "typedef enum TMPLGEN_SYM(TypeTag) {\n"
+                  "    TMPLGEN_SYM(TYPETAG_INVALID) = 0");
+    for (i = 0U; i < graph->node_count; ++i) {
+        const ReflectNode *node = &graph->nodes[order[i]];
+        buf_puts(out, ",\n");
+        if (i == REFLECT_BUILTIN_COUNT) buf_puts(out, "    /* project types */\n");
+        buf_puts(out, "    TMPLGEN_SYM(TYPETAG_");
+        buf_puts(out, node->name);
+        buf_putc(out, ')');
+    }
+    buf_puts(out, ",\n    TMPLGEN_SYM(TYPETAG_COUNT)\n} TMPLGEN_SYM(TypeTag);\n\n");
+}
+
+static void reflect_emit(const ReflectGraph *graph, const size_t *order, Buf *header,
+                         Buf *source)
+{
+    StringSet requirements;
+    char *aggregate_leaf = copy_string(path_leaf(g_output_path));
+    size_t i;
+    int uses_reflection = 0;
+    memset(&requirements, 0, sizeof(requirements));
+    for (i = 0U; i < graph->node_count; ++i) {
+        const ReflectNode *node = &graph->nodes[i];
+        if (node->checked && node->requirement[0] != '\0') {
+            string_set_add(&requirements, node->requirement);
+        }
+    }
+    reflect_dispatch_requirements(graph, 0, &requirements);
+    reflect_dispatch_requirements(graph, 1, &requirements);
+    /* Specializations of templates that use reflection wait for
+     * TMPLGEN_REFLECT_HAVE_<guard>; every such guard gets a section, even an
+     * empty one. */
+    for (i = 0U; i < g_instance_count; ++i) {
+        const char *requirement = instance_requirement(&g_instances[i]);
+        if (!template_index_uses_reflection(g_instances[i].template_index)) continue;
+        uses_reflection = 1;
+        while (*requirement != '\0') {
+            const char *comma = strchr(requirement, ',');
+            size_t length = comma != NULL ? (size_t)(comma - requirement) :
+                                            strlen(requirement);
+            if (length > 21U && strncmp(requirement, "TMPLGEN_REFLECT_HAVE_", 21U) == 0) {
+                char *guard = copy_range(requirement + 21U, length - 21U);
+                string_set_add(&requirements, guard);
+                free(guard);
+            }
+            requirement += length;
+            if (*requirement == ',') ++requirement;
+        }
+    }
+    for (i = 0U; i < g_all_template_info_count; ++i) {
+        if (template_uses_reflection(&g_all_template_infos[i])) uses_reflection = 1;
+    }
+    sort_requirements(&requirements);
+
+    buf_puts(header,
+        "/* AUTO-GENERATED by tmplgen (--reflect=project). DO NOT EDIT.\n"
+        "   Type ids and layout tables for every project type. The tables are\n"
+        "   plain numbers, complete in every translation unit; the sections at the\n"
+        "   end let the compiler verify them for the headers (and generated\n"
+        "   headers) included before this one. */\n");
+    buf_puts(header, "\n#ifndef TMPLGEN_REFLECTION_H\n#define TMPLGEN_REFLECTION_H\n");
+    reflect_emit_schema(header);
+    reflect_emit_ids(header, graph, order);
+    if (source != NULL) {
+        reflect_emit_table_declarations(header, "extern ", graph->node_count + 1U);
+    } else {
+        reflect_emit_tables(header, graph, order, "static ");
+    }
+    reflect_emit_api(header);
+    reflect_emit_dispatch_core(header, graph, order);
+    if (source == NULL) {
+        buf_puts(header, "\n/* Builtins and types every translation unit sees. */\n");
+        for (i = 0U; i < graph->node_count; ++i) {
+            const ReflectNode *node = &graph->nodes[order[i]];
+            if (node->checked && node->requirement[0] == '\0') {
+                reflect_emit_check(header, graph, node);
+            }
+        }
+    }
+    buf_puts(header, "\n#endif /* TMPLGEN_REFLECTION_H */\n");
+    for (i = 0U; i < requirements.count; ++i) {
+        size_t n;
+        buf_putc(header, '\n');
+        buf_put_section_open(header, "TMPLGEN_REFLECT_HAVE_", requirements.items[i]);
+        if (source == NULL) {
+            for (n = 0U; n < graph->node_count; ++n) {
+                const ReflectNode *node = &graph->nodes[order[n]];
+                if (node->checked && str_eq(node->requirement, requirements.items[i])) {
+                    reflect_emit_check(header, graph, node);
+                }
+            }
+        }
+        reflect_emit_dispatch_section(header, graph, order, requirements.items[i]);
+        buf_puts(header, "#endif\n");
+    }
+    if (uses_reflection) {
+        /* Only the sections: the dispatch macros come from the generated
+         * headers themselves, and a template including this header must not
+         * see its own functions' dispatch macros. */
+        buf_puts(header,
+            "\n/* Templates that use reflection: their specializations are compiled\n"
+            "   once the sections above have run. */\n"
+            "#ifndef TMPLGEN_AGGREGATING\n#define TMPLGEN_AGGREGATING\n"
+            "#define TMPLGEN_REFLECT_AGGREGATING_LOCAL\n#endif\n");
+        for (i = 0U; i < g_all_template_info_count; ++i) {
+            Buf module;
+            if (!template_uses_reflection(&g_all_template_infos[i])) continue;
+            buf_init(&module);
+            buf_puts(&module, g_templates[i].stem);
+            buf_puts(&module, ".gen.h");
+            emit_include(header, module.p);
+            buf_free(&module);
+        }
+        buf_puts(header,
+            "#ifdef TMPLGEN_REFLECT_AGGREGATING_LOCAL\n"
+            "#undef TMPLGEN_REFLECT_AGGREGATING_LOCAL\n#undef TMPLGEN_AGGREGATING\n#endif\n");
+    }
+    if (source != NULL) {
+        /* --compiled: one translation unit defines the tables and, including
+         * every declaring header, verifies every layout. */
+        StringSet headers;
+        memset(&headers, 0, sizeof(headers));
+        buf_puts(source, "/* AUTO-GENERATED by tmplgen (--reflect=project --compiled). DO NOT EDIT. */\n");
+        for (i = 0U; i < graph->node_count; ++i) {
+            const ReflectNode *node = &graph->nodes[order[i]];
+            if (node->checked && node->header != NULL &&
+                !string_set_has(&headers, node->header)) {
+                char *relative = relative_path_between(g_generated_dir, node->header);
+                string_set_add(&headers, node->header);
+                emit_include(source, relative);
+                free(relative);
+            }
+        }
+        emit_include(source, aggregate_leaf);
+        emit_include(source, "reflection.h");
+        buf_putc(source, '\n');
+        reflect_emit_tables(source, graph, order, "");
+        for (i = 0U; i < graph->node_count; ++i) {
+            const ReflectNode *node = &graph->nodes[order[i]];
+            if (node->checked) reflect_emit_check(source, graph, node);
+        }
+        string_set_free(&headers);
+    }
+    free(aggregate_leaf);
+    string_set_free(&requirements);
+}
+
+/* ---- driver ------------------------------------------------------------------- */
+
+static void reflect_report_diagnostics(CXTranslationUnit tu, int *failed)
+{
+    unsigned count = clang_getNumDiagnostics(tu);
+    unsigned i;
+    for (i = 0U; i < count; ++i) {
+        CXDiagnostic diagnostic = clang_getDiagnostic(tu, i);
+        if (clang_getDiagnosticSeverity(diagnostic) >= CXDiagnostic_Error) {
+            char *text = copy_cx_string(clang_formatDiagnostic(
+                diagnostic, clang_defaultDiagnosticDisplayOptions()));
+            report_error(NULL, 0U, "reflection: project headers do not compile "
+                         "together: %s", text);
+            free(text);
+            *failed = 1;
+        }
+        clang_disposeDiagnostic(diagnostic);
+    }
+}
+
+/* Parses every header that declares a project type together with the new
+ * generated headers, collects the type graph and layout, and adds
+ * reflection.h (and reflection.gen.c) to `outputs`. */
+static int reflect_generate(GeneratedFileList *outputs)
+{
+    ReflectGraph graph;
+    ReflectCollect collect;
+    CXIndex index;
+    CXTranslationUnit tu = NULL;
+    Buf main_text, header, source;
+    StringSet headers;
+    struct CXUnsavedFile *unsaved;
+    char **unsaved_paths;
+    size_t unsaved_count = 0U;
+    const char **arguments;
+    int argument_count = (int)g_clang_arg_count + 2;
+    char *main_path = join_path(g_generated_dir, ".tmplgen-reflect.c");
+    char *aggregate = absolute_path(g_output_path);
+    size_t *order;
+    size_t i;
+    int failed = 0;
+    enum CXErrorCode result;
+
+    memset(&graph, 0, sizeof(graph));
+    memset(&headers, 0, sizeof(headers));
+    for (i = 0U; i < g_type_origin_count; ++i) {
+        const char *path = g_type_origins[i].path;
+        if (!path_has_suffix(path, ".c")) string_set_add(&headers, path);
+    }
+    if (headers.count > 1U) {
+        qsort(headers.items, headers.count, sizeof(*headers.items), compare_strings);
+    }
+    for (i = 0U; i < headers.count; ++i) {
+        string_set_add(&graph.project_headers, headers.items[i]);
+    }
+
+    buf_init(&main_text);
+    for (i = 0U; i < REFLECT_BUILTIN_COUNT; ++i) {
+        if (g_reflect_builtins[i].reflect_kind == RK_VOID) continue;
+        buf_puts(&main_text, "extern ");
+        buf_puts(&main_text, g_reflect_builtins[i].spelling);
+        buf_puts(&main_text, " tmplgen_reflect_builtin_");
+        buf_put_ull(&main_text, (unsigned long long)i);
+        buf_puts(&main_text, ";\n");
+    }
+    buf_puts(&main_text, "extern void *tmplgen_reflect_pointer_0;\n"
+                         "extern char *tmplgen_reflect_pointer_1;\n"
+                         "extern const char *tmplgen_reflect_pointer_2;\n");
+    for (i = 0U; i < headers.count; ++i) {
+        buf_puts(&main_text, "#include \"");
+        emit_escaped_c_string(&main_text, headers.items[i]);
+        buf_puts(&main_text, "\"\n");
+    }
+    buf_puts(&main_text, "#include \"");
+    emit_escaped_c_string(&main_text, aggregate);
+    buf_puts(&main_text, "\"\n");
+
+    unsaved = (struct CXUnsavedFile *)calloc(outputs->count + 4U, sizeof(*unsaved));
+    unsaved_paths = (char **)calloc(outputs->count + 4U, sizeof(*unsaved_paths));
+    if (unsaved == NULL || unsaved_paths == NULL) die("out of memory");
+    unsaved_paths[unsaved_count] = copy_string(main_path);
+    unsaved[unsaved_count].Filename = unsaved_paths[unsaved_count];
+    unsaved[unsaved_count].Contents = main_text.p != NULL ? main_text.p : "";
+    unsaved[unsaved_count].Length = (unsigned long)main_text.len;
+    ++unsaved_count;
+    for (i = 0U; i < outputs->count; ++i) {
+        const GeneratedFile *file = &outputs->items[i];
+        if (!path_has_suffix(file->path, ".h")) continue;
+        unsaved_paths[unsaved_count] = absolute_path(file->path);
+        unsaved[unsaved_count].Filename = unsaved_paths[unsaved_count];
+        unsaved[unsaved_count].Contents = file->contents.p != NULL ? file->contents.p : "";
+        unsaved[unsaved_count].Length = (unsigned long)file->contents.len;
+        ++unsaved_count;
+    }
+    unsaved_paths[unsaved_count] = reflection_header_path();
+    unsaved[unsaved_count].Filename = unsaved_paths[unsaved_count];
+    unsaved[unsaved_count].Contents = g_reflection_bootstrap.p != NULL ?
+        g_reflection_bootstrap.p : "";
+    unsaved[unsaved_count].Length = (unsigned long)g_reflection_bootstrap.len;
+    ++unsaved_count;
+#if defined(CLANGPLUGIN)
+    if (g_unsaved_source_path != NULL) {
+        unsaved_paths[unsaved_count] = copy_string(g_unsaved_source_path);
+        unsaved[unsaved_count].Filename = unsaved_paths[unsaved_count];
+        unsaved[unsaved_count].Contents = g_unsaved_source_contents != NULL ?
+            g_unsaved_source_contents : "";
+        unsaved[unsaved_count].Length = (unsigned long)g_unsaved_source_length;
+        ++unsaved_count;
+    }
+#endif
+
+    arguments = (const char **)malloc((size_t)argument_count * sizeof(*arguments));
+    if (arguments == NULL) die("out of memory");
+    arguments[0] = "-x";
+    arguments[1] = "c";
+    for (i = 0U; i < g_clang_arg_count; ++i) arguments[i + 2U] = g_clang_args[i];
+
+    for (i = 0U; i < REFLECT_BUILTIN_COUNT; ++i) {
+        size_t node = reflect_add_node(&graph, g_reflect_builtins[i].reflect_kind,
+                                       g_reflect_builtins[i].spelling);
+        graph.nodes[node].name = copy_string(g_reflect_builtins[i].name);
+        graph.nodes[node].display = copy_string(g_reflect_builtins[i].spelling);
+        graph.nodes[node].spelling = copy_string(g_reflect_builtins[i].spelling);
+        graph.nodes[node].project = 1;
+    }
+
+    index = clang_createIndex(0, 0);
+    if (index == NULL) die("libclang could not create an index");
+    result = clang_parseTranslationUnit2(index, main_path, arguments, argument_count,
+        unsaved, (unsigned)unsaved_count,
+        CXTranslationUnit_SkipFunctionBodies | CXTranslationUnit_KeepGoing, &tu);
+    if (result != CXError_Success || tu == NULL) {
+        report_error(NULL, 0U, "reflection: libclang could not parse the project "
+                     "headers (%d)", (int)result);
+        failed = 1;
+    } else {
+        reflect_report_diagnostics(tu, &failed);
+    }
+    if (!failed) {
+        collect.graph = &graph;
+        collect.pass = 1;
+        clang_visitChildren(clang_getTranslationUnitCursor(tu), reflect_collect_cursor,
+                            &collect);
+        collect.pass = 2;
+        clang_visitChildren(clang_getTranslationUnitCursor(tu), reflect_collect_cursor,
+                            &collect);
+        if (!reflect_assign_requirements(&graph)) failed = 1;
+        else reflect_add_record_pointers(&graph);
+    }
+    if (!failed) {
+        reflect_compute_flags(&graph);
+        order = reflect_assign_ids(&graph);
+        buf_init(&header);
+        buf_init(&source);
+        reflect_emit(&graph, order, &header, g_compiled_output ? &source : NULL);
+        {
+            char *path = reflection_header_path();
+            generated_file_list_add(outputs, path, &header);
+            free(path);
+        }
+        if (g_compiled_output) {
+            char *path = reflection_source_path();
+            generated_file_list_add(outputs, path, &source);
+            free(path);
+        }
+        buf_free(&header);
+        buf_free(&source);
+        free(order);
+    }
+    if (tu != NULL) clang_disposeTranslationUnit(tu);
+    clang_disposeIndex(index);
+    free(arguments);
+    list_free(unsaved_paths, unsaved_count);
+    free(unsaved);
+    buf_free(&main_text);
+    string_set_free(&headers);
+    free(main_path);
+    free(aggregate);
+    reflect_graph_free(&graph);
+    return !failed;
+}
+
 static int generate(GeneratedFileList *out)
 {
     TemplateInfo *infos;
@@ -9207,8 +12737,11 @@ static int generate(GeneratedFileList *out)
     memset(&source_files, 0, sizeof(source_files));
     memset(out, 0, sizeof(*out));
     clear_discovery_state();
+    clear_requirement_state();
     string_set_free(&g_clang_dependencies);
     g_error_count = 0U;
+    buf_free(&g_reflection_bootstrap);
+    if (g_reflect_mode != REFLECT_NONE) emit_reflection_bootstrap(&g_reflection_bootstrap);
     if (!discover_template_files()) return 0;
     if (!config_validate()) return 0;
     infos = (TemplateInfo *)calloc(gen_template_count() + 1U, sizeof(*infos));
@@ -9236,6 +12769,7 @@ static int generate(GeneratedFileList *out)
             buf_free(&path);
             goto failed;
         }
+
         buf_free(&path);
         module_path = generated_module_path(g_templates[i].stem);
         absolute_module_path = absolute_path(module_path);
@@ -9265,6 +12799,19 @@ static int generate(GeneratedFileList *out)
     if (!discover_source_usages(infos, gen_template_count(), &source_files)) goto failed;
     if (!validate_structural_constraints(infos, gen_template_count())) goto failed;
     if (g_error_count != 0U) goto failed;
+    if (!compute_instance_requirements() || g_error_count != 0U) goto failed;
+    if (g_reflect_mode == REFLECT_NONE) {
+        /* Specializations of a template that uses reflection wait for
+         * reflection.h, which this mode does not write. */
+        for (i = 0U; i < g_instance_count; ++i) {
+            if (!template_uses_reflection(&infos[g_instances[i].template_index])) continue;
+            report_error(g_instances[i].origin_path, g_instances[i].origin_line,
+                         "%s needs a specialization of %s, which includes "
+                         "gen/reflection.h; generate with --reflect=project",
+                         g_instances[i].name, infos[g_instances[i].template_index].path);
+            goto failed;
+        }
+    }
     for (i = 0U; i < gen_template_count(); ++i) {
         Buf module;
         Buf implementation;
@@ -9293,6 +12840,7 @@ static int generate(GeneratedFileList *out)
         generated_file_list_add(out, g_output_path, &aggregate);
         buf_free(&aggregate);
     }
+    if (g_reflect_mode != REFLECT_NONE && !reflect_generate(out)) goto failed;
     string_set_free(&emitted_guards);
     source_list_free(&source_files);
     for (i = 0U; i < gen_template_count(); ++i) template_info_free(&infos[i]);
@@ -9300,6 +12848,7 @@ static int generate(GeneratedFileList *out)
     g_all_template_infos = NULL;
     g_all_template_info_count = 0U;
     clear_discovery_state();
+    clear_requirement_state();
     return 1;
 
 failed:
@@ -9310,6 +12859,7 @@ failed:
     g_all_template_infos = NULL;
     g_all_template_info_count = 0U;
     clear_discovery_state();
+    clear_requirement_state();
     return 0;
 }
 
@@ -9331,6 +12881,18 @@ static int source_file_path_compare(const void *left, const void *right)
     const SourceFile *a = (const SourceFile *)left;
     const SourceFile *b = (const SourceFile *)right;
     return strcmp(a->path, b->path);
+}
+
+static int directory_exists(const char *path)
+{
+#if defined(_WIN32)
+    DWORD attributes = GetFileAttributesA(path);
+    return attributes != INVALID_FILE_ATTRIBUTES &&
+           (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0U;
+#else
+    struct stat info;
+    return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+#endif
 }
 
 static int compute_input_signature(unsigned long long *signature)
@@ -9355,6 +12917,7 @@ static int compute_input_signature(unsigned long long *signature)
         return 0;
     }
     if (!str_eq(source_root, template_root) &&
+        !(g_reflect_mode != REFLECT_NONE && !directory_exists(template_root)) &&
         !scan_source_directory(&files, template_root)) {
         free(source_root);
         free(template_root);
@@ -9377,9 +12940,9 @@ static int compute_input_signature(unsigned long long *signature)
     signature_mix(&hash, GEN_LSP_GUARD, strlen(GEN_LSP_GUARD));
     signature_mix(&hash, GEN_TMPL_SUFFIX, strlen(GEN_TMPL_SUFFIX));
     signature_mix(&hash, GEN_PREAMBLE, strlen(GEN_PREAMBLE));
-    (void)snprintf(config, sizeof(config), "%d:%d:%d:%d",
+    (void)snprintf(config, sizeof(config), "%d:%d:%d:%d:%d",
                    g_dispatch_backend, g_emit_line, g_compiled_output,
-                   GEN_ENABLE_WATCH);
+                   GEN_ENABLE_WATCH, g_reflect_mode);
     signature_mix(&hash, config, strlen(config));
     signature_mix(&hash, __DATE__, strlen(__DATE__));
     signature_mix(&hash, __TIME__, strlen(__TIME__));
@@ -9537,18 +13100,13 @@ static char *cache_manifest_path(void)
 
 static void cache_expected_outputs(StringSet *outputs)
 {
+    OutputRegistry registry;
     size_t i;
-    for (i = 0U; i < gen_template_count(); ++i) {
-        char *path = generated_module_path(g_templates[i].stem);
-        string_set_add(outputs, path);
-        free(path);
-        if (g_compiled_output) {
-            path = generated_module_source_path(g_templates[i].stem);
-            string_set_add(outputs, path);
-            free(path);
-        }
+    output_registry_build(&registry);
+    for (i = 0U; i < registry.count; ++i) {
+        string_set_add(outputs, registry.items[i].path);
     }
-    string_set_add(outputs, g_output_path);
+    output_registry_free(&registry);
 }
 
 static int cache_try_hit(unsigned long long signature, int check_only)
@@ -9681,8 +13239,9 @@ static unsigned long long source_facts_key(const SourceFile *source,
     if (g_line_path_base != NULL) {
         signature_mix(&hash, g_line_path_base, strlen(g_line_path_base));
     }
-    (void)snprintf(config, sizeof(config), "%d:%d:%d:%d", pass,
-                   g_dispatch_backend, g_emit_line, g_compiled_output);
+    (void)snprintf(config, sizeof(config), "%d:%d:%d:%d:%d", pass,
+                   g_dispatch_backend, g_emit_line, g_compiled_output,
+                   g_reflect_mode);
     signature_mix(&hash, config, strlen(config));
     signature_mix(&hash, __DATE__, strlen(__DATE__));
     signature_mix(&hash, __TIME__, strlen(__TIME__));
@@ -9872,7 +13431,7 @@ static int source_facts_load(SourceFile *source, const SourceList *files)
         return 0;
     }
     if (fgets(header, sizeof(header), file) == NULL ||
-        !str_eq(header, "TMPLGEN-FACTS-1\n") ||
+        !str_eq(header, "TMPLGEN-FACTS-2\n") ||
         fscanf(file, "%16llx %16llx\n", &source->facts.pass1_key,
                &source->facts.pass2_key) != 2 ||
         fscanf(file, "%lu\n", &count) != 1 || count > 1000000UL) goto done;
@@ -9978,6 +13537,20 @@ static int source_facts_load(SourceFile *source, const SourceList *files)
         free(schema.name);
         list_free(schema.fields, schema.field_count);
     }
+    if (fscanf(file, "%lu\n", &count) != 1 || count > 1000000UL) goto done;
+    for (i = 0UL; i < count; ++i) {
+        unsigned long origin_offset;
+        char *name = NULL, *origin_path = NULL;
+        if (fscanf(file, "%lu\n", &origin_offset) != 1 || origin_offset > UINT_MAX ||
+            !source_facts_read_string(file, &name) ||
+            !source_facts_read_string(file, &origin_path)) {
+            free(name); free(origin_path);
+            goto done;
+        }
+        source_facts_add_origin(&source->facts, name, origin_path,
+                                (unsigned)origin_offset);
+        free(name); free(origin_path);
+    }
     if (!source_facts_read_uses(file, &source->facts.pass1_uses, files) ||
         !source_facts_read_uses(file, &source->facts.pass2_uses, files)) goto done;
     if (fgetc(file) == EOF && !ferror(file)) okay = 1;
@@ -10026,7 +13599,7 @@ static int source_facts_save(const SourceFile *source,
     if (!ensure_parent_directories(path)) goto done;
     file = fopen(temporary, "wb");
     if (file == NULL) goto done;
-    if (fprintf(file, "TMPLGEN-FACTS-1\n%016llx %016llx\n%lu\n",
+    if (fprintf(file, "TMPLGEN-FACTS-2\n%016llx %016llx\n%lu\n",
                 source->facts.pass1_key, source->facts.pass2_key,
                 (unsigned long)dependencies.count) < 0) goto close_file;
     for (i = 0U; i < dependencies.count; ++i) {
@@ -10074,6 +13647,15 @@ static int source_facts_save(const SourceFile *source,
                 goto close_file;
             }
         }
+    }
+    if (fprintf(file, "%lu\n", (unsigned long)source->facts.origin_count) < 0) {
+        goto close_file;
+    }
+    for (i = 0U; i < source->facts.origin_count; ++i) {
+        const TypeOrigin *origin = &source->facts.origins[i];
+        if (fprintf(file, "%u\n", origin->offset) < 0 ||
+            !source_facts_write_string(file, origin->name) ||
+            !source_facts_write_string(file, origin->path)) goto close_file;
     }
     if (!source_facts_write_uses(file, &source->facts.pass1_uses, files) ||
         !source_facts_write_uses(file, &source->facts.pass2_uses, files)) goto close_file;
@@ -10133,6 +13715,7 @@ static void usage(FILE *out)
             "  --dispatch MODE     auto, generic, gnu, or none\n"
             "  --clang-arg ARG     pass one argument to libclang (repeatable)\n"
             "  --line-path-base DIR  write template #line paths relative to DIR\n"
+            "  --reflect=MODE      none (default) or project: also write gen/reflection.h\n"
             "  --emit-line         map generated definitions to template locations\n"
             "  --no-emit-line      keep generated locations in the output header\n",
             g_output_path != NULL ? g_output_path : GEN_OUTPUT,
@@ -10173,6 +13756,8 @@ static void reset_invocation_state(void)
     g_error_count = 0U;
     g_verbose = 0;
     g_compiled_output = 0;
+    g_reflect_mode = REFLECT_NONE;
+    buf_free(&g_reflection_bootstrap);
 }
 
 /* Sources are parsed with the generated headers replaced by an in-memory
@@ -10206,18 +13791,18 @@ static int ensure_bootstrap_placeholder(const char *path, StringSet *created)
 
 static int ensure_bootstrap_placeholders(StringSet *created)
 {
+    OutputRegistry registry;
     size_t i;
-    if (!discover_template_files() ||
-        !ensure_bootstrap_placeholder(g_output_path, created)) {
-        return 0;
+    int okay = 1;
+    if (!discover_template_files()) return 0;
+    output_registry_build(&registry);
+    for (i = 0U; i < registry.count && okay; ++i) {
+        if (output_is_header(registry.items[i].kind)) {
+            okay = ensure_bootstrap_placeholder(registry.items[i].path, created);
+        }
     }
-    for (i = 0U; i < g_template_count; ++i) {
-        char *path = generated_module_path(g_templates[i].stem);
-        int okay = ensure_bootstrap_placeholder(path, created);
-        free(path);
-        if (!okay) return 0;
-    }
-    return 1;
+    output_registry_free(&registry);
+    return okay;
 }
 
 /* After a failed run, drop placeholders that are still empty so a broken
@@ -10252,6 +13837,73 @@ static void add_clang_argument(const char *argument)
         g_clang_arg_cap = new_cap;
     }
     g_clang_args[g_clang_arg_count++] = copy_string(argument);
+}
+
+static int directory_has_file(const char *directory, const char *relative)
+{
+    char *path = join_path(directory, relative);
+    FILE *file = fopen(path, "rb");
+    free(path);
+    if (file == NULL) return 0;
+    (void)fclose(file);
+    return 1;
+}
+
+/* Some libclang installs cannot locate their own builtin headers (stddef.h,
+ * stdarg.h, ...). The generator used to parse such files with errors that
+ * KeepGoing hid; the reflection parse must be complete. Unless the caller
+ * passes -resource-dir, look for the matching install's headers. */
+static void add_default_resource_dir(void)
+{
+    static const char *const prefixes[] = {
+        "/usr/lib/clang/", "/usr/lib64/clang/", "/usr/local/lib/clang/",
+        "/opt/homebrew/opt/llvm/lib/clang/", "/usr/local/opt/llvm/lib/clang/"
+    };
+    CXString version;
+    const char *text;
+    const char *digits;
+    char major[16];
+    size_t i, length = 0U;
+    for (i = 0U; i < g_clang_arg_count; ++i) {
+        if (strncmp(g_clang_args[i], "-resource-dir", 13U) == 0) return;
+    }
+    version = clang_getClangVersion();
+    text = clang_getCString(version);
+    digits = text != NULL ? strstr(text, "version ") : NULL;
+    if (digits != NULL) {
+        digits += 8;
+        while (isdigit((unsigned char)digits[length]) && length + 1U < sizeof(major)) {
+            major[length] = digits[length];
+            ++length;
+        }
+    }
+    major[length] = '\0';
+    clang_disposeString(version);
+    if (length == 0U) return;
+    for (i = 0U; i < sizeof(prefixes) / sizeof(prefixes[0]) + 1U; ++i) {
+        Buf candidate;
+        buf_init(&candidate);
+        if (i < sizeof(prefixes) / sizeof(prefixes[0])) {
+            buf_puts(&candidate, prefixes[i]);
+            buf_puts(&candidate, major);
+        } else {
+            buf_puts(&candidate, "/usr/lib/llvm-");
+            buf_puts(&candidate, major);
+            buf_puts(&candidate, "/lib/clang/");
+            buf_puts(&candidate, major);
+        }
+        if (directory_has_file(candidate.p, "include/stddef.h")) {
+            Buf argument;
+            buf_init(&argument);
+            buf_puts(&argument, "-resource-dir=");
+            buf_puts(&argument, candidate.p);
+            add_clang_argument(argument.p);
+            buf_free(&argument);
+            buf_free(&candidate);
+            return;
+        }
+        buf_free(&candidate);
+    }
 }
 
 static int parse_dispatch_backend(const char *name)
@@ -10390,6 +14042,22 @@ static int tmplgen_main(int argc, char **argv)
             }
         } else if (strncmp(argv[i], "--clang-arg=", 12U) == 0) {
             add_clang_argument(argv[i] + 12U);
+        } else if (strncmp(argv[i], "--reflect=", 10U) == 0 ||
+                   str_eq(argv[i], "--reflect")) {
+            const char *mode = argv[i][9] == '=' ? argv[i] + 10U : NULL;
+            if (mode == NULL) {
+                if (i + 1 >= argc) {
+                    fputs("tmplgen: --reflect requires a value\n", stderr);
+                    return 2;
+                }
+                mode = argv[++i];
+            }
+            if (str_eq(mode, "none")) g_reflect_mode = REFLECT_NONE;
+            else if (str_eq(mode, "project")) g_reflect_mode = REFLECT_PROJECT;
+            else {
+                fprintf(stderr, "tmplgen: unsupported reflection mode '%s'\n", mode);
+                return 2;
+            }
         } else if (str_eq(argv[i], "--emit-line")) {
             g_emit_line = 1;
         } else if (str_eq(argv[i], "--no-emit-line")) {
@@ -10407,6 +14075,8 @@ static int tmplgen_main(int argc, char **argv)
     }
     if (!TMPLGEN_PLUGIN_BUILD) {
         g_executable_path = resolve_executable_path(argv[0]);
+    } else {
+        g_executable_path = plugin_library_path();
     }
     {
         char *parent = path_parent(g_output_path);
@@ -10419,6 +14089,7 @@ static int tmplgen_main(int argc, char **argv)
         g_source_root = absolute_root;
     }
     g_absolute_template_dir = absolute_path(g_template_dir);
+    add_default_resource_dir();
     if (g_line_path_base != NULL) {
         char *absolute_base = absolute_path(g_line_path_base);
         free(g_line_path_base);

@@ -44,7 +44,7 @@ clang \
 
 Plugin arguments use `key=value` after the `-fplugin-arg-tmplgen-` prefix. The
 supported keys are `source-root`, `template-dir`, `output`, `line-path-base`,
-`dispatch`, and repeatable `clang-arg`; the flags `compiled`, `no-cache`, `verbose`, `emit-line`,
+`dispatch`, `reflect` (`none` or `project`), and repeatable `clang-arg`; the flags `compiled`, `no-cache`, `verbose`, `emit-line`,
 `no-emit-line`, and `check` are also accepted. If paths are omitted, the plugin
 searches upward from the compilation command’s working directory for a project
 template directory. It recognizes both the normal `tmpl/` layout and this
@@ -122,6 +122,7 @@ match the workspace:
 | `TMPLGEN_OUTPUT` | Aggregate generated header path |
 | `TMPLGEN_DISPATCH` | Dispatch backend: `auto`, `generic`, `gnu`, or `none` |
 | `TMPLGEN_LINE_PATH_BASE` | Directory that template `#line` paths are relative to |
+| `TMPLGEN_REFLECT` | `project` to also write `gen/reflection.h` (see `doc/usage.md`) |
 | `TMPLGEN_CLANG_ARGS` | Newline-separated arguments passed to libclang |
 | `TMPLGEN_COMPILED` | Set to a nonzero value to emit `.gen.c` files |
 | `TMPLGEN_NO_CACHE` | Set to a nonzero value to disable caches |

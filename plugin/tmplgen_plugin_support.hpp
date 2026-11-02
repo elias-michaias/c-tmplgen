@@ -46,6 +46,7 @@ inline void appendEnvironmentOptions(std::vector<std::string> &options)
         {"TMPLGEN_OUTPUT", "output"},
         {"TMPLGEN_DISPATCH", "dispatch"},
         {"TMPLGEN_LINE_PATH_BASE", "line-path-base"},
+        {"TMPLGEN_REFLECT", "reflect"},
     };
     size_t i;
     for (i = 0U; i < sizeof(Paths) / sizeof(Paths[0]); ++i) {
@@ -120,6 +121,13 @@ inline bool appendOption(llvm::StringRef argument,
         hasLinePathBase = true;
     } else if (name == "dispatch") {
         option = "--dispatch";
+    } else if (name == "reflect") {
+        if (equals == llvm::StringRef::npos || value.empty()) {
+            llvm::errs() << "tmplgen: plugin argument 'reflect' requires a value\n";
+            return false;
+        }
+        cliArguments.push_back("--reflect=" + value.str());
+        return true;
     } else if (name == "clang-arg") {
         option = "--clang-arg";
     } else if (name == "check" || name == "compiled" ||

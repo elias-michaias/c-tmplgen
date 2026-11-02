@@ -34,6 +34,7 @@ cp -R "$ROOT/test/tmpl/." "$SUBTYPE/tmpl/"
 cp "$ROOT/test/lib/physics.h" "$SUBTYPE/test/lib/physics.h"
 cp "$ROOT/test/lib/physics.h" "$SUBTYPE/lib/physics.h"
 cp "$ROOT/test/negative/unmatched_structural_rows.c.in" "$SUBTYPE/main.c"
+cp "$ROOT/test/negative/structural_rows_types.h" "$SUBTYPE/structural_rows_types.h"
 printf '\n===== unmatched_structural_rows.c.in =====\n'
 if ! (CDPATH= cd -- "$SUBTYPE" && "$BUILD/tmplgen" \
     --source-root "$SUBTYPE" --template-dir "$SUBTYPE/tmpl" \

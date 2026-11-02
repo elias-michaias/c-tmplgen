@@ -81,7 +81,10 @@ int main(void)
 ```
 
 For a walkthrough of your own templates and build integration, start with
-[Usage](doc/usage.md).
+[Usage](doc/usage.md). Headers that declare types used as template arguments
+need an `#ifndef`/`#define` include guard, and the generated header goes after
+them; see [Include generated headers after your
+types](doc/usage.md#include-generated-headers-after-your-types).
 
 ## Highlights
 
@@ -91,6 +94,7 @@ For a walkthrough of your own templates and build integration, start with
 | **Concrete C output** | Emit real specialized structs and functions that ordinary C tools can inspect. |
 | **Compile-time dispatch** | Select observed specializations through `_Generic` or GNU builtins, with no runtime type lookup. |
 | **Expressive constraints** | Require structural fields with `<:` or assert compile-time properties with satisfaction annotations and `@where`. |
+| **Reflection** | `--reflect=project` adds type ids, layout tables, `typetag_of`/`enumtag_of`/`any_of`, and compiler-verified layouts for every project type ([Reflection](doc/usage.md#reflection)). |
 | **Two output modes** | Use convenient header-only output, or move implementations into `.gen.c` files with `--compiled`. |
 | **Incremental analysis** | Reuse validated whole-project and per-source facts; check generated files with `--check`. |
 | **Optional plugin adapters** | Invoke the shared generator core from Clang and plugin-enabled clangd. |
