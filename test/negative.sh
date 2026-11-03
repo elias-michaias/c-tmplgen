@@ -107,4 +107,26 @@ else
     printf '%s\n' 'Expected compile failure for type_variable_mismatch.c.in (diagnostics above).'
 fi
 
+VALUEARG="$BUILD/value-argument"
+mkdir -p "$VALUEARG/tmpl" "$VALUEARG/gen" "$VALUEARG/test/cases"
+cp -R "$ROOT/test/tmpl/." "$VALUEARG/tmpl/"
+cp "$ROOT/test/cases/test_types.h" "$VALUEARG/test/cases/test_types.h"
+cp "$ROOT/test/negative/value_argument.c.in" "$VALUEARG/main.c"
+printf '\n===== value_argument.c.in =====\n'
+if "$BUILD/tmplgen" --source-root "$VALUEARG" \
+    --template-dir "$VALUEARG/tmpl" --output "$VALUEARG/gen/all.gen.h" \
+    --clang-arg=-std=c11 >"$BUILD/value-argument.log" 2>&1; then
+    cat "$BUILD/value-argument.log" >&2
+    printf '%s\n' 'ERROR: value_argument.c.in unexpectedly generated' >&2
+    failed=1
+elif ! grep -Fq "Array() requires a single-token value argument for 'N'" \
+        "$BUILD/value-argument.log"; then
+    cat "$BUILD/value-argument.log" >&2
+    printf '%s\n' 'non-constant value argument was not diagnosed clearly' >&2
+    failed=1
+else
+    cat "$BUILD/value-argument.log" >&2
+    printf '%s\n' 'Expected tmplgen failure for value_argument.c.in (diagnostics above).'
+fi
+
 exit "$failed"

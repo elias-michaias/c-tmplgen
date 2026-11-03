@@ -90,6 +90,18 @@ fi
 "$BUILD/triple-dispatch"
 
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/value_generic.c -o "$BUILD/value-generic"
+"$BUILD/value-generic"
+if ! grep -q '^} Array_int_4;$' test/gen/array.gen.h ||
+   ! grep -q '^} Array_int_2;$' test/gen/array.gen.h ||
+   ! grep -q '^static inline size_t array_capacity_int_4(Array_int_4 \* v) {$' test/gen/array.gen.h ||
+   ! grep -q '^static inline int array_pair_sum_int(Array_int_2 \* v) {$' test/gen/array.gen.h ||
+   grep -q 'type_1_1\|Array_int_1_1' test/gen/array.gen.h; then
+    printf '%s\n' 'value template arguments were not folded to their instance' >&2
+    exit 1
+fi
+
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/builtin_types.c -o "$BUILD/builtin-types"
 "$BUILD/builtin-types"
 

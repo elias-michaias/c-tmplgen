@@ -1,0 +1,11 @@
+#include "test/cases/test_types.h"
+#include "gen/all.gen.h"
+
+/* A value argument must be a single token at a macro use site, so that the
+ * token-pasting functor macro can form the specialization name. */
+int main(void)
+{
+    Array(int, 2 + 2) values = {{0}, 0};
+    (void)values;
+    return 0;
+}

@@ -8,7 +8,7 @@ the generated files. For dependencies and build-system details, see
 
 A template is a `.tmpl.h` file containing ordinary C. Put a `// @template`
 annotation immediately before each dependent top-level declaration. The
-annotation lists the type variables that declaration may use:
+annotation lists the template variables that declaration may use:
 
 ```c
 #ifndef TMPLGEN
@@ -49,7 +49,35 @@ generator can request the corresponding concrete type and function. A template
 may have any number of variables, for example `// @template T, E`; each
 declaration can list only the variables it actually depends on. Applications
 such as `Result(T, E)` preserve the relationship between the constructor's
-parameters and a function's input and return types.
+parameters and a function's input and return types. A parameter may be written
+with an explicit `typename` specifier (`// @template typename T`); it means
+exactly the same thing as the bare form.
+
+### Value parameters
+
+A template variable may also be a compile-time integer. Write the value's C
+type before its name in the annotation:
+
+```c
+// @template T, size_t N
+// @where N > 0
+typedef struct {
+    T data[N];
+    size_t length;
+} Array;
+```
+
+Value arguments are integer constant expressions. The generator folds constant
+expressions, so `Array(T, 1 + 1)` and `Array(T, 2)` request the same
+specialization, named `Array_int_2`. Negative values use an `n` prefix
+(`-1` becomes `n1`), and non-constant expressions keep a normalized spelling.
+`@where` constraints may reference value parameters; the condition is checked
+with the concrete value substituted.
+
+At a macro use site the value argument must be a single token: an identifier or
+a decimal integer literal without a leading zero. This keeps the token-pasting
+functor macro able to form the specialization name. Multi-token expressions are
+folded when they appear inside a generic signature or body, not at a call site.
 
 ## Infer specializations from source
 

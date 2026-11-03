@@ -253,6 +253,7 @@ static size_t g_unsaved_source_length;
 static void die(const char *fmt, ...);
 static void report_error(const char *path, size_t line, const char *fmt, ...);
 static int str_eq(const char *a, const char *b);
+static int is_ident_start(char c);
 static int is_ident_char(char c);
 static int valid_identifier(const char *s);
 static char *copy_string(const char *s);
@@ -428,6 +429,317 @@ static char *type_suffix(const char *c_type)
     return name.p;
 }
 
+/* ---- value parameters: integer constant argument handling ---------- */
+
+typedef struct {
+    const char *p;
+    int failed;
+    int unknown;
+} IntegerConstant;
+
+typedef struct {
+    const char *text;
+    int level;
+} IntegerOperator;
+
+static const IntegerOperator g_integer_operators[] = {
+    { "||", 0 }, { "&&", 1 }, { "|", 2 }, { "^", 3 }, { "&", 4 },
+    { "==", 5 }, { "!=", 5 }, { "<=", 6 }, { ">=", 6 },
+    { "<", 6 }, { ">", 6 }, { "<<", 7 }, { ">>", 7 },
+    { "+", 8 }, { "-", 8 }, { "*", 9 }, { "/", 9 }, { "%", 9 }
+};
+
+static void integer_constant_skip(IntegerConstant *state)
+{
+    while (isspace((unsigned char)*state->p)) ++state->p;
+}
+
+static int integer_constant_starts_unary(const char *p)
+{
+    return is_ident_start(*p) || (*p >= '0' && *p <= '9') ||
+           *p == '(' || *p == '+' || *p == '-' || *p == '~' || *p == '!';
+}
+
+static void integer_constant_skip_balanced(IntegerConstant *state)
+{
+    size_t depth = 0U;
+    if (*state->p != '(') return;
+    do {
+        if (*state->p == '(') ++depth;
+        else if (*state->p == ')') {
+            if (depth != 0U) --depth;
+        } else if (*state->p == '\0') {
+            state->failed = 1;
+            return;
+        }
+        ++state->p;
+    } while (depth != 0U);
+}
+
+static const IntegerOperator *integer_constant_operator(const char *p)
+{
+    const IntegerOperator *best = NULL;
+    size_t i;
+    for (i = 0U; i < sizeof(g_integer_operators) / sizeof(g_integer_operators[0]);
+         ++i) {
+        size_t length = strlen(g_integer_operators[i].text);
+        if (strncmp(p, g_integer_operators[i].text, length) != 0) continue;
+        if (best == NULL || length > strlen(best->text)) {
+            best = &g_integer_operators[i];
+        }
+    }
+    return best;
+}
+
+static long long integer_constant_expression(IntegerConstant *state);
+static long long integer_constant_unary(IntegerConstant *state);
+
+static long long integer_constant_primary(IntegerConstant *state)
+{
+    long long value = 0;
+    integer_constant_skip(state);
+    if (*state->p == '(') {
+        const char *q = state->p + 1;
+        int saw_identifier = 0;
+        int type_only = 1;
+        for (;;) {
+            while (isspace((unsigned char)*q)) ++q;
+            if (is_ident_start(*q)) {
+                while (is_ident_char(*q)) ++q;
+                saw_identifier = 1;
+            } else if (*q == '*') {
+                ++q;
+            } else {
+                break;
+            }
+        }
+        while (isspace((unsigned char)*q)) ++q;
+        if (type_only && saw_identifier && *q == ')') {
+            const char *after = q + 1;
+            while (isspace((unsigned char)*after)) ++after;
+            if (integer_constant_starts_unary(after)) {
+                state->p = q + 1;
+                state->unknown = 1;
+                return integer_constant_unary(state);
+            }
+        }
+        ++state->p;
+        value = integer_constant_expression(state);
+        integer_constant_skip(state);
+        if (*state->p != ')') {
+            state->failed = 1;
+            return 0;
+        }
+        ++state->p;
+        return value;
+    }
+    if (*state->p == '\'' || *state->p == '"') {
+        char quote = *state->p++;
+        while (*state->p != '\0' && *state->p != quote) {
+            if (*state->p == '\\' && state->p[1] != '\0') ++state->p;
+            ++state->p;
+        }
+        if (*state->p == quote) ++state->p;
+        state->unknown = 1;
+        return 0;
+    }
+    if (*state->p >= '0' && *state->p <= '9') {
+        char *end = NULL;
+        unsigned long long parsed = strtoull(state->p, &end, 0);
+        if (end == state->p) {
+            state->failed = 1;
+            return 0;
+        }
+        state->p = end;
+        while (*state->p == 'u' || *state->p == 'U' ||
+               *state->p == 'l' || *state->p == 'L') ++state->p;
+        return (long long)parsed;
+    }
+    if (is_ident_start(*state->p)) {
+        const char *start = state->p;
+        size_t length;
+        while (is_ident_char(*state->p)) ++state->p;
+        length = (size_t)(state->p - start);
+        if ((length == 6U && strncmp(start, "sizeof", 6U) == 0) ||
+            (length == 8U && strncmp(start, "_Alignof", 8U) == 0) ||
+            (length == 8U && strncmp(start, "alignof", 8U) == 0)) {
+            integer_constant_skip(state);
+            if (*state->p == '(') integer_constant_skip_balanced(state);
+            else (void)integer_constant_unary(state);
+            state->unknown = 1;
+            return 0;
+        }
+        state->unknown = 1;
+        integer_constant_skip(state);
+        if (*state->p == '(') integer_constant_skip_balanced(state);
+        return 0;
+    }
+    state->failed = 1;
+    return 0;
+}
+
+static long long integer_constant_unary(IntegerConstant *state)
+{
+    integer_constant_skip(state);
+    if (*state->p == '+') {
+        ++state->p;
+        return integer_constant_unary(state);
+    }
+    if (*state->p == '-') {
+        ++state->p;
+        return -integer_constant_unary(state);
+    }
+    if (*state->p == '~') {
+        ++state->p;
+        return ~integer_constant_unary(state);
+    }
+    if (*state->p == '!') {
+        ++state->p;
+        return !integer_constant_unary(state);
+    }
+    return integer_constant_primary(state);
+}
+
+static long long integer_constant_apply(long long left, const char *op,
+                                        long long right, IntegerConstant *state)
+{
+    if (str_eq(op, "||")) return (left || right) ? 1 : 0;
+    if (str_eq(op, "&&")) return (left && right) ? 1 : 0;
+    if (str_eq(op, "|")) return left | right;
+    if (str_eq(op, "^")) return left ^ right;
+    if (str_eq(op, "&")) return left & right;
+    if (str_eq(op, "==")) return left == right;
+    if (str_eq(op, "!=")) return left != right;
+    if (str_eq(op, "<")) return left < right;
+    if (str_eq(op, "<=")) return left <= right;
+    if (str_eq(op, ">")) return left > right;
+    if (str_eq(op, ">=")) return left >= right;
+    if (str_eq(op, "<<")) return (right >= 0 && right < 64) ? left << right : 0;
+    if (str_eq(op, ">>")) return (right >= 0 && right < 64) ? left >> right : 0;
+    if (str_eq(op, "+")) return left + right;
+    if (str_eq(op, "-")) return left - right;
+    if (str_eq(op, "*")) return left * right;
+    if (str_eq(op, "/")) {
+        if (right == 0) {
+            state->failed = 1;
+            return 0;
+        }
+        return left / right;
+    }
+    if (str_eq(op, "%")) {
+        if (right == 0) {
+            state->failed = 1;
+            return 0;
+        }
+        return left % right;
+    }
+    state->failed = 1;
+    return 0;
+}
+
+static long long integer_constant_binary(IntegerConstant *state, int level)
+{
+    long long left;
+    if (level > 9) return integer_constant_unary(state);
+    left = integer_constant_binary(state, level + 1);
+    for (;;) {
+        const IntegerOperator *op;
+        integer_constant_skip(state);
+        op = integer_constant_operator(state->p);
+        if (op == NULL || op->level != level) break;
+        state->p += strlen(op->text);
+        {
+            long long right =
+                integer_constant_binary(state, level + 1);
+            if (!state->failed && !state->unknown) {
+                left = integer_constant_apply(left, op->text, right, state);
+            } else {
+                left = 0;
+            }
+        }
+    }
+    return left;
+}
+
+static long long integer_constant_expression(IntegerConstant *state)
+{
+    long long condition = integer_constant_binary(state, 0);
+    integer_constant_skip(state);
+    if (*state->p == '?') {
+        long long when_true;
+        long long when_false;
+        ++state->p;
+        when_true = integer_constant_expression(state);
+        integer_constant_skip(state);
+        if (*state->p != ':') {
+            state->failed = 1;
+            return 0;
+        }
+        ++state->p;
+        when_false = integer_constant_expression(state);
+        if (state->unknown) return 0;
+        return condition ? when_true : when_false;
+    }
+    return condition;
+}
+
+static char *canonical_value_argument(const char *text)
+{
+    IntegerConstant state;
+    long long value;
+    size_t i;
+    for (i = 0U; text[i] != '\0'; ++i) {
+        if (text[i] == '"' || text[i] == ';' || text[i] == '{' ||
+            text[i] == '}') return NULL;
+    }
+    state.p = text;
+    state.failed = 0;
+    state.unknown = 0;
+    value = integer_constant_expression(&state);
+    integer_constant_skip(&state);
+    if (!state.failed && *state.p == '\0' && !state.unknown) {
+        Buf out;
+        char digits[32];
+        size_t count = 0U;
+        unsigned long long magnitude;
+        buf_init(&out);
+        if (value < 0) {
+            buf_putc(&out, '-');
+            value = -value;
+        }
+        magnitude = (unsigned long long)value;
+        do {
+            digits[count++] = (char)('0' + (magnitude % 10ULL));
+            magnitude /= 10ULL;
+        } while (magnitude != 0ULL);
+        while (count != 0U) buf_putc(&out, digits[--count]);
+        return out.p != NULL ? out.p : copy_string("0");
+    }
+    return normalize_spaces(text);
+}
+
+static char *argument_suffix(const char *spelling)
+{
+    const char *digits = spelling;
+    int negative = 0;
+    size_t i;
+    if (*digits == '-') {
+        negative = 1;
+        ++digits;
+    } else if (*digits == '+') {
+        ++digits;
+    }
+    for (i = 0U; digits[i] >= '0' && digits[i] <= '9'; ++i) {}
+    if (i != 0U && digits[i] == '\0') {
+        Buf suffix;
+        buf_init(&suffix);
+        if (negative) buf_putc(&suffix, 'n');
+        buf_puts(&suffix, digits);
+        return suffix.p != NULL ? suffix.p : copy_string("value");
+    }
+    return type_suffix(spelling);
+}
+
 static char *instance_key(const size_t *parameter_indices,
                           const char *const *spellings, size_t count)
 {
@@ -451,7 +763,7 @@ static char *instance_suffix(const char *const *spellings, size_t count)
     size_t i;
     buf_init(&suffix);
     for (i = 0U; i < count; ++i) {
-        char *part = type_suffix(spellings[i]);
+        char *part = argument_suffix(spellings[i]);
         if (i != 0U) buf_putc(&suffix, '_');
         buf_puts(&suffix, part);
         free(part);
@@ -1980,7 +2292,13 @@ typedef struct {
 } TemplateConstraint;
 
 typedef struct {
+    int is_value;
+    char *value_type;
+} TemplateParameterKind;
+
+typedef struct {
     char **parameter_names;
+    TemplateParameterKind *parameter_kinds;
     size_t parameter_count, parameter_cap;
     TemplateConstraint *constraints;
     size_t constraint_count, constraint_cap;
@@ -2030,6 +2348,7 @@ typedef struct {
     TemplateAnnotation *annotations;
     size_t annotation_count, annotation_cap, next_annotation;
     char **parameter_names;
+    TemplateParameterKind *parameter_kinds;
     size_t parameter_count, parameter_cap;
     TemplateFunction *functions;
     size_t function_count, function_cap;
@@ -2259,10 +2578,20 @@ static void template_constraint_add_expression(TemplateConstraint **constraints,
     }
 }
 
+static void template_parameter_kinds_free(TemplateParameterKind *kinds,
+                                          size_t count)
+{
+    size_t i;
+    if (kinds == NULL) return;
+    for (i = 0U; i < count; ++i) free(kinds[i].value_type);
+    free(kinds);
+}
+
 static void template_info_free(TemplateInfo *ti)
 {
     size_t i;
     list_free(ti->parameter_names, ti->parameter_count);
+    template_parameter_kinds_free(ti->parameter_kinds, ti->parameter_count);
     for (i = 0U; i < ti->function_count; ++i) {
         size_t j;
         free(ti->functions[i].name);
@@ -2306,6 +2635,8 @@ static void template_info_free(TemplateInfo *ti)
         size_t j;
         list_free(ti->annotations[i].parameter_names,
                   ti->annotations[i].parameter_count);
+        template_parameter_kinds_free(ti->annotations[i].parameter_kinds,
+                                      ti->annotations[i].parameter_count);
         for (j = 0U; j < ti->annotations[i].constraint_count; ++j) {
             template_constraint_free(&ti->annotations[i].constraints[j]);
         }
@@ -2325,6 +2656,12 @@ static int template_parameter_index(const TemplateInfo *ti, const char *name)
         if (str_eq(ti->parameter_names[i], name)) return (int)i;
     }
     return -1;
+}
+
+static int template_parameter_is_value(const TemplateInfo *ti, size_t index)
+{
+    return ti != NULL && ti->parameter_kinds != NULL &&
+           index < ti->parameter_count && ti->parameter_kinds[index].is_value;
 }
 
 static void copy_template_constraints(TemplateConstraint **target,
@@ -3277,9 +3614,15 @@ static int analyze_template(TemplateInfo *ti)
         buf_putc(&contents, '\n');
     }
     for (parameter_index = 0U; parameter_index < ti->parameter_count; ++parameter_index) {
-        buf_puts(&contents, "typedef int ");
-        buf_puts(&contents, ti->parameter_names[parameter_index]);
-        buf_puts(&contents, ";\n");
+        if (template_parameter_is_value(ti, parameter_index)) {
+            buf_puts(&contents, "enum { ");
+            buf_puts(&contents, ti->parameter_names[parameter_index]);
+            buf_puts(&contents, " = 0 };\n");
+        } else {
+            buf_puts(&contents, "typedef int ");
+            buf_puts(&contents, ti->parameter_names[parameter_index]);
+            buf_puts(&contents, ";\n");
+        }
     }
     emit_template_analysis_functors(&contents, ti);
     emit_line_directive(&contents, 1UL, path);
@@ -3452,12 +3795,17 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
     if (str_eq(command, "template")) {
         int expect_name = 1;
         char **names = NULL;
+        TemplateParameterKind *kinds = NULL;
+        size_t kind_count = 0U, kind_cap = 0U;
         size_t name_count = 0U, name_cap = 0U;
         TemplateConstraint *constraints = NULL;
         size_t constraint_count = 0U, constraint_cap = 0U;
         while (*p != '\0') {
             const char *name_start;
             char *name;
+            TemplateParameterKind kind;
+            kind.is_value = 0;
+            kind.value_type = NULL;
             while (*p != '\0' && isspace((unsigned char)*p)) ++p;
             if (*p == '\0') break;
             if (*p == ',') {
@@ -3480,21 +3828,88 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                 free(command);
                 return -1;
             }
-            ++p;
-            while (is_ident_char(*p)) ++p;
+            {
+                const char *first_start = p;
+                size_t first_length;
+                ++p;
+                while (is_ident_char(*p)) ++p;
+                first_length = (size_t)(p - first_start);
+                if (first_length == 8U &&
+                    strncmp(first_start, "typename", 8U) == 0) {
+                    /* `typename` before a parameter name is an explicit
+                     * type parameter specifier; a parameter actually named
+                     * `typename` (not followed by another identifier) is
+                     * still accepted. */
+                    const char *q = p;
+                    while (*q != '\0' && isspace((unsigned char)*q)) ++q;
+                    if (is_ident_start(*q)) {
+                        p = q;
+                        name_start = p;
+                        ++p;
+                        while (is_ident_char(*p)) ++p;
+                    }
+                } else {
+                    const char *q = p;
+                    while (*q != '\0' && isspace((unsigned char)*q)) ++q;
+                    if (is_ident_start(*q)) {
+                        /* A type spelling before the name declares a value
+                         * parameter: `size_t N`, `unsigned long N`. */
+                        const char *type_end = p;
+                        const char *cursor = q;
+                        const char *word_start;
+                        for (;;) {
+                            const char *r;
+                            word_start = cursor;
+                            ++cursor;
+                            while (is_ident_char(*cursor)) ++cursor;
+                            r = cursor;
+                            while (*r != '\0' && isspace((unsigned char)*r)) ++r;
+                            if (!is_ident_start(*r)) break;
+                            type_end = cursor;
+                            cursor = r;
+                        }
+                        kind.is_value = 1;
+                        kind.value_type = copy_range(first_start,
+                                                     (size_t)(type_end - first_start));
+                        name_start = word_start;
+                        p = cursor;
+                    }
+                }
+            }
             name = copy_range(name_start, (size_t)(p - name_start));
             if (list_contains(names, name_count, name)) {
                 report_error(ti->path, line_number, "duplicate @template parameter '%s'", name);
                 free(name);
+                free(kind.value_type);
                 list_free(names, name_count);
                 template_constraint_array_free(constraints, constraint_count);
                 free(command);
                 return -1;
             }
             list_add(&names, &name_count, &name_cap, name);
+            if (kind_count == kind_cap) {
+                size_t new_cap = kind_cap == 0U ? 4U : kind_cap * 2U;
+                TemplateParameterKind *next = (TemplateParameterKind *)realloc(
+                    kinds, new_cap * sizeof(*kinds));
+                if (next == NULL) die("out of memory");
+                kinds = next;
+                kind_cap = new_cap;
+            }
+            kinds[kind_count++] = kind;
             expect_name = 0;
             while (*p != '\0' && isspace((unsigned char)*p)) ++p;
             if (*p == '<') {
+                if (kind.is_value) {
+                    report_error(ti->path, line_number,
+                                 "value parameter '%s' cannot have a structural constraint",
+                                 name);
+                    free(name);
+                    list_free(names, name_count);
+                    template_parameter_kinds_free(kinds, kind_count);
+                    template_constraint_array_free(constraints, constraint_count);
+                    free(command);
+                    return -1;
+                }
                 if (p[1] != ':') {
                     report_error(ti->path, line_number,
                                  "expected '<:' before the structural constraint");
@@ -3532,6 +3947,17 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                 }
                 while (*p != '\0' && isspace((unsigned char)*p)) ++p;
             } else if (*p == '|') {
+                if (kind.is_value) {
+                    report_error(ti->path, line_number,
+                                 "value parameter '%s' cannot have a constraint expression",
+                                 name);
+                    free(name);
+                    list_free(names, name_count);
+                    template_parameter_kinds_free(kinds, kind_count);
+                    template_constraint_array_free(constraints, constraint_count);
+                    free(command);
+                    return -1;
+                }
                 if (p[1] != '=') {
                     report_error(ti->path, line_number,
                                  "expected '|=' before the constraint expression");
@@ -3645,17 +4071,55 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
             TemplateAnnotation *annotation = append_template_annotation(
                 ti, line_number);
             annotation->parameter_names = names;
+            annotation->parameter_kinds = kinds;
             annotation->parameter_count = name_count;
             annotation->parameter_cap = name_cap;
             annotation->constraints = constraints;
             annotation->constraint_count = constraint_count;
             annotation->constraint_cap = constraint_cap;
             for (i = 0U; i < name_count; ++i) {
-                if (!list_contains(ti->parameter_names, ti->parameter_count,
-                                   names[i])) {
-                    list_add(&ti->parameter_names, &ti->parameter_count,
-                             &ti->parameter_cap, names[i]);
+                int existing = -1;
+                size_t j;
+                for (j = 0U; j < ti->parameter_count; ++j) {
+                    if (str_eq(ti->parameter_names[j], names[i])) {
+                        existing = (int)j;
+                        break;
+                    }
                 }
+                if (existing >= 0) {
+                    if (ti->parameter_kinds[existing].is_value !=
+                        kinds[i].is_value ||
+                        !str_eq(ti->parameter_kinds[existing].value_type != NULL ?
+                                ti->parameter_kinds[existing].value_type : "",
+                                kinds[i].value_type != NULL ?
+                                kinds[i].value_type : "")) {
+                        report_error(ti->path, line_number,
+                                     "@template parameter '%s' is declared with conflicting kinds",
+                                     names[i]);
+                        return -1;
+                    }
+                    continue;
+                }
+                if (ti->parameter_count == ti->parameter_cap) {
+                    size_t new_cap = ti->parameter_cap == 0U ? 4U :
+                                     ti->parameter_cap * 2U;
+                    char **next_names = (char **)realloc(ti->parameter_names,
+                        new_cap * sizeof(*ti->parameter_names));
+                    TemplateParameterKind *next_kinds =
+                        (TemplateParameterKind *)realloc(ti->parameter_kinds,
+                        new_cap * sizeof(*ti->parameter_kinds));
+                    if (next_names == NULL || next_kinds == NULL) {
+                        die("out of memory");
+                    }
+                    ti->parameter_names = next_names;
+                    ti->parameter_kinds = next_kinds;
+                    ti->parameter_cap = new_cap;
+                }
+                ti->parameter_names[ti->parameter_count] = copy_string(names[i]);
+                ti->parameter_kinds[ti->parameter_count].is_value = kinds[i].is_value;
+                ti->parameter_kinds[ti->parameter_count].value_type =
+                    kinds[i].value_type != NULL ? copy_string(kinds[i].value_type) : NULL;
+                ++ti->parameter_count;
             }
         }
     } else if (str_eq(command, "where")) {
@@ -3796,8 +4260,22 @@ static void merge_template_annotations(TemplateInfo *ti, size_t target_index,
     for (i = 0U; i < source->parameter_count; ++i) {
         if (!list_contains(target->parameter_names, target->parameter_count,
                            source->parameter_names[i])) {
+            TemplateParameterKind kind;
+            kind.is_value = source->parameter_kinds != NULL ?
+                            source->parameter_kinds[i].is_value : 0;
+            kind.value_type = source->parameter_kinds != NULL &&
+                              source->parameter_kinds[i].value_type != NULL ?
+                              copy_string(source->parameter_kinds[i].value_type) : NULL;
             list_add(&target->parameter_names, &target->parameter_count,
                      &target->parameter_cap, source->parameter_names[i]);
+            {
+                size_t new_cap = target->parameter_cap;
+                TemplateParameterKind *next = (TemplateParameterKind *)realloc(
+                    target->parameter_kinds, new_cap * sizeof(*target->parameter_kinds));
+                if (next == NULL) die("out of memory");
+                target->parameter_kinds = next;
+                target->parameter_kinds[target->parameter_count - 1U] = kind;
+            }
         }
     }
     for (i = 0U; i < source->constraint_count; ++i) {
@@ -3815,6 +4293,7 @@ static void merge_template_annotations(TemplateInfo *ti, size_t target_index,
         }
     }
     list_free(source->parameter_names, source->parameter_count);
+    template_parameter_kinds_free(source->parameter_kinds, source->parameter_count);
     template_constraint_array_free(source->constraints, source->constraint_count);
     memset(source, 0, sizeof(*source));
     --ti->annotation_count;
@@ -4299,8 +4778,23 @@ static char *application_suffix(const TemplateInfo *ti,
             instance_parameter_position(instance, (size_t)parameter) : -1;
         spellings[i] = instance_argument >= 0 ?
             instance->arguments[instance_argument].c_type : argument;
-        if (instance_argument >= 0) free(argument);
-        else owned[i] = argument;
+        if (instance_argument >= 0) {
+            free(argument);
+        } else {
+            int constructor_parameter = valid_identifier(
+                constructor->parameter_names[i]) ?
+                template_parameter_index(ti, constructor->parameter_names[i]) : -1;
+            if (constructor_parameter >= 0 &&
+                template_parameter_is_value(ti, (size_t)constructor_parameter)) {
+                char *value = canonical_value_argument(argument);
+                if (value != NULL) {
+                    free(argument);
+                    argument = value;
+                    spellings[i] = argument;
+                }
+            }
+            owned[i] = argument;
+        }
     }
     suffix = instance_suffix(spellings, argument_count);
     for (i = 0U; i < argument_count; ++i) {
@@ -7871,7 +8365,8 @@ static const TemplateFunction *find_template_function(const TemplateInfo *ti,
 }
 
 static int macro_type_arguments(CXTranslationUnit tu, CXCursor cursor,
-                                char ***arguments, size_t *argument_count)
+                                char ***arguments, size_t **token_counts,
+                                size_t *argument_count)
 {
     CXToken *tokens = NULL;
     unsigned count = 0U;
@@ -7879,7 +8374,8 @@ static int macro_type_arguments(CXTranslationUnit tu, CXCursor cursor,
     unsigned open = 0U;
     unsigned start;
     size_t parens = 0U, brackets = 0U, braces = 0U;
-    size_t capacity = 0U;
+    size_t capacity = 0U, count_capacity = 0U;
+    size_t *counts = NULL;
     int found_open = 0;
     int okay = 1;
     clang_tokenize(tu, clang_getCursorExtent(cursor), &tokens, &count);
@@ -7915,20 +8411,32 @@ static int macro_type_arguments(CXTranslationUnit tu, CXCursor cursor,
         free(text);
         if (!boundary) continue;
         if (start == i && closing && *argument_count == 0U) break;
-        if (start >= i || i - start != 1U) {
+        if (start >= i) {
             okay = 0;
             break;
         }
         {
-            char *argument = copy_cx_string(clang_getTokenSpelling(tu, tokens[start]));
-            enum CXTokenKind kind = clang_getTokenKind(tokens[start]);
-            if (kind != CXToken_Identifier &&
-                !(kind == CXToken_Keyword && builtin_type_argument(argument))) {
-                free(argument);
-                okay = 0;
-                break;
+            Buf joined;
+            unsigned k;
+            char *argument;
+            buf_init(&joined);
+            for (k = start; k < i; ++k) {
+                char *piece = copy_cx_string(
+                    clang_getTokenSpelling(tu, tokens[k]));
+                if (k != start) buf_putc(&joined, ' ');
+                buf_puts(&joined, piece);
+                free(piece);
             }
+            argument = joined.p != NULL ? joined.p : copy_string("");
             list_add(arguments, argument_count, &capacity, argument);
+            if (*argument_count > count_capacity) {
+                size_t new_cap = count_capacity == 0U ? 4U : count_capacity * 2U;
+                size_t *next = (size_t *)realloc(counts, new_cap * sizeof(*counts));
+                if (next == NULL) die("out of memory");
+                counts = next;
+                count_capacity = new_cap;
+            }
+            counts[*argument_count - 1U] = (size_t)(i - start);
             free(argument);
         }
         if (closing) break;
@@ -7936,6 +8444,13 @@ static int macro_type_arguments(CXTranslationUnit tu, CXCursor cursor,
     }
     if (*argument_count == 0U) okay = 0;
     clang_disposeTokens(tu, tokens, count);
+    if (!okay) {
+        list_free(*arguments, *argument_count);
+        *argument_count = 0U;
+        free(counts);
+        counts = NULL;
+    }
+    *token_counts = counts;
     return okay;
 }
 
@@ -8683,12 +9198,16 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                                   &type_template_index, &constructor)) {
             char **arguments = NULL;
             char **canonical_arguments = NULL;
+            size_t *argument_tokens = NULL;
+            const TemplateInfo *type_ti = &context->infos[type_template_index];
             size_t argument_count = 0U;
             size_t j;
-            if (!macro_type_arguments(context->tu, cursor, &arguments, &argument_count) ||
+            int argument_error = 0;
+            if (!macro_type_arguments(context->tu, cursor, &arguments,
+                                      &argument_tokens, &argument_count) ||
                 argument_count != constructor->parameter_count) {
                 report_error(path, line,
-                             "%s() requires %lu single-token type arguments",
+                             "%s() requires %lu type or value arguments",
                              name, (unsigned long)constructor->parameter_count);
                 context->failed = 1;
             } else {
@@ -8696,20 +9215,66 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                                                       sizeof(*canonical_arguments));
                 if (canonical_arguments == NULL) die("out of memory");
                 for (j = 0U; j < argument_count; ++j) {
-                    const char *canonical = find_alias_canonical(arguments[j]);
+                    int parameter = template_parameter_index(type_ti,
+                        constructor->parameter_names[j]);
+                    const char *canonical;
+                    if (parameter < 0) die("invalid template constructor parameter map");
+                    if (template_parameter_is_value(type_ti, (size_t)parameter)) {
+                        char *value;
+                        size_t digit = 0U;
+                        int decimal = 1;
+                        while (arguments[j][digit] >= '0' &&
+                               arguments[j][digit] <= '9') ++digit;
+                        if (digit == 0U || arguments[j][digit] != '\0' ||
+                            (digit > 1U && arguments[j][0] == '0')) {
+                            decimal = 0;
+                        }
+                        if (argument_tokens[j] != 1U ||
+                            (!valid_identifier(arguments[j]) && !decimal)) {
+                            report_error(path, line,
+                                "%s() requires a single-token value argument for '%s'",
+                                name, constructor->parameter_names[j]);
+                            context->failed = 1;
+                            argument_error = 1;
+                            break;
+                        }
+                        value = canonical_value_argument(arguments[j]);
+                        if (value == NULL) {
+                            report_error(path, line,
+                                "%s() value argument for '%s' must be an integer constant expression",
+                                name, constructor->parameter_names[j]);
+                            context->failed = 1;
+                            argument_error = 1;
+                            break;
+                        }
+                        free(arguments[j]);
+                        arguments[j] = copy_string(value);
+                        canonical_arguments[j] = value;
+                        continue;
+                    }
+                    if (argument_tokens[j] != 1U ||
+                        !(valid_identifier(arguments[j]) ||
+                          builtin_type_argument(arguments[j]))) {
+                        report_error(path, line,
+                            "%s() requires a single-token type argument for '%s'",
+                            name, constructor->parameter_names[j]);
+                        context->failed = 1;
+                        argument_error = 1;
+                        break;
+                    }
+                    canonical = find_alias_canonical(arguments[j]);
                     canonical_arguments[j] = copy_string(canonical != NULL ?
                                                          canonical : arguments[j]);
                     add_alias(arguments[j], canonical_arguments[j]);
                 }
-                {
+                if (!argument_error) {
                     size_t *parameter_indices =
                         (size_t *)malloc(argument_count * sizeof(*parameter_indices));
                     GenInstance *instance;
                     if (parameter_indices == NULL) die("out of memory");
                     for (j = 0U; j < argument_count; ++j) {
                         int parameter = template_parameter_index(
-                            &context->infos[type_template_index],
-                            constructor->parameter_names[j]);
+                            type_ti, constructor->parameter_names[j]);
                         if (parameter < 0) die("invalid template constructor parameter map");
                         parameter_indices[j] = (size_t)parameter;
                     }
@@ -8729,6 +9294,7 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                 for (j = 0U; j < argument_count; ++j) free(canonical_arguments[j]);
                 free(canonical_arguments);
             }
+            free(argument_tokens);
             list_free(arguments, argument_count);
         } else if (context->uses != NULL) {
             size_t template_index;
@@ -9511,7 +10077,9 @@ static void request_type_application(const TemplateInfo *ti,
             for (cleanup_index = 0U; cleanup_index < i; ++cleanup_index) {
                 if (owned[cleanup_index]) {
                     free((char *)spellings[cleanup_index]);
-                    free((char *)canonicals[cleanup_index]);
+                    if (canonicals[cleanup_index] != spellings[cleanup_index]) {
+                        free((char *)canonicals[cleanup_index]);
+                    }
                 }
             }
             free(indices);
@@ -9533,6 +10101,35 @@ static void request_type_application(const TemplateInfo *ti,
             alias = valid_identifier(spellings[i]) ?
                 find_alias_canonical(spellings[i]) : NULL;
             canonicals[i] = copy_string(alias != NULL ? alias : spellings[i]);
+            free(argument);
+            argument = NULL;
+        }
+        if (template_parameter_is_value(constructor_ti, (size_t)parameter)) {
+            char *value = canonical_value_argument(spellings[i]);
+            if (value == NULL) {
+                size_t cleanup_index;
+                report_error(instance->origin_path, instance->origin_line,
+                    "value argument '%s' for '%s' must be an integer constant expression",
+                    spellings[i], constructor->parameter_names[i]);
+                free(argument);
+                for (cleanup_index = 0U; cleanup_index < i; ++cleanup_index) {
+                    if (owned[cleanup_index]) {
+                        free((char *)spellings[cleanup_index]);
+                        if (canonicals[cleanup_index] != spellings[cleanup_index]) {
+                            free((char *)canonicals[cleanup_index]);
+                        }
+                    }
+                }
+                free(indices);
+                free(spellings);
+                free(canonicals);
+                free(owned);
+                return;
+            }
+            if (owned[i]) free((char *)spellings[i]);
+            spellings[i] = value;
+            canonicals[i] = value;
+            owned[i] = 1U;
         }
         free(argument);
     }
@@ -9546,7 +10143,9 @@ static void request_type_application(const TemplateInfo *ti,
     for (i = 0U; i < argument_count; ++i) {
         if (owned[i]) {
             free((char *)spellings[i]);
-            free((char *)canonicals[i]);
+            if (canonicals[i] != spellings[i]) {
+                free((char *)canonicals[i]);
+            }
         }
     }
     free(indices);
