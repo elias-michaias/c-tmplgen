@@ -129,4 +129,26 @@ else
     printf '%s\n' 'Expected tmplgen failure for value_argument.c.in (diagnostics above).'
 fi
 
+MIXED="$BUILD/explicit-mixed"
+mkdir -p "$MIXED/tmpl" "$MIXED/gen"
+cp -R "$ROOT/test/tmpl/." "$MIXED/tmpl/"
+cp "$ROOT/test/negative/explicit_mixed.tmpl.h" "$MIXED/tmpl/"
+printf 'int main(void) { return 0; }\n' > "$MIXED/main.c"
+printf '\n===== explicit_mixed.tmpl.h =====\n'
+if "$BUILD/tmplgen" --source-root "$MIXED" \
+    --template-dir "$MIXED/tmpl" --output "$MIXED/gen/all.gen.h" \
+    --clang-arg=-std=c11 >"$BUILD/explicit-mixed.log" 2>&1; then
+    cat "$BUILD/explicit-mixed.log" >&2
+    printf '%s\n' 'ERROR: explicit_mixed.tmpl.h unexpectedly generated' >&2
+    failed=1
+elif ! grep -Fq "mixes explicit type parameters with inferred parameter 'U'" \
+        "$BUILD/explicit-mixed.log"; then
+    cat "$BUILD/explicit-mixed.log" >&2
+    printf '%s\n' 'mixed explicit and inferred parameters were not diagnosed clearly' >&2
+    failed=1
+else
+    cat "$BUILD/explicit-mixed.log" >&2
+    printf '%s\n' 'Expected tmplgen failure for explicit_mixed.tmpl.h (diagnostics above).'
+fi
+
 exit "$failed"

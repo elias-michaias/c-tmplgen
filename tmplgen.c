@@ -2280,6 +2280,8 @@ typedef struct {
     char **type_parameters;
     size_t type_parameter_count, type_parameter_cap;
     TemplateApplication application;
+    int explicit_type;
+    char *explicit_parameter;
 } TemplateArgument;
 
 typedef struct {
@@ -2382,6 +2384,9 @@ static const StructuralSchema *find_structural_schema(const char *name,
                                                        int *ambiguous);
 static const TemplateFunction *find_template_function(const TemplateInfo *ti,
                                                        const char *name);
+static void request_instance_types(const TemplateInfo *ti,
+                                   const TemplateFunction *function,
+                                   const GenInstance *instance);
 static void register_structural_schema(CXCursor cursor, SourceFacts *facts);
 static char *specialize_function_calls(const char *fragment,
                                        const TemplateInfo *ti,
@@ -2442,6 +2447,7 @@ static void emit_preamble(Buf *out, const char *guard,
                           const TemplateInfo *infos, size_t count,
                           const char *current_stem, StringSet *includes);
 static void emit_type_functors(Buf *out, const TemplateInfo *ti);
+static void emit_explicit_function_macros(Buf *out, const TemplateInfo *ti);
 
 static int template_requires_constraint(const TemplateInfo *ti, const char *name)
 {
@@ -2587,6 +2593,23 @@ static void template_parameter_kinds_free(TemplateParameterKind *kinds,
     free(kinds);
 }
 
+static size_t function_explicit_count(const TemplateFunction *function)
+{
+    size_t count = 0U;
+    while (count < function->parameter_count &&
+           function->parameters[count].explicit_type) ++count;
+    return count;
+}
+
+static int function_has_explicit_parameters(const TemplateFunction *function)
+{
+    size_t i;
+    for (i = 0U; i < function->parameter_count; ++i) {
+        if (function->parameters[i].explicit_type) return 1;
+    }
+    return 0;
+}
+
 static void template_info_free(TemplateInfo *ti)
 {
     size_t i;
@@ -2604,6 +2627,7 @@ static void template_info_free(TemplateInfo *ti)
         for (j = 0U; j < ti->functions[i].parameter_count; ++j) {
             free(ti->functions[i].parameters[j].type);
             free(ti->functions[i].parameters[j].name);
+            free(ti->functions[i].parameters[j].explicit_parameter);
             list_free(ti->functions[i].parameters[j].type_parameters,
                       ti->functions[i].parameters[j].type_parameter_count);
             template_application_free(&ti->functions[i].parameters[j].application);
@@ -3414,6 +3438,43 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
             TemplateArgument *argument = &function.parameters[i];
             argument->type = copy_cx_string(clang_getTypeSpelling(argument_type));
             argument->name = copy_cx_string(clang_getCursorSpelling(argument_cursor));
+            {
+                unsigned parameter_start = 0U, parameter_end = 0U, parameter_line = 0U;
+                size_t cursor_offset;
+                cursor_expansion_offsets(argument_cursor, &parameter_start,
+                                         &parameter_end, &parameter_line);
+                (void)parameter_line;
+                (void)parameter_end;
+                if (parameter_start >= analysis->offset_bias) {
+                    parameter_start -= analysis->offset_bias;
+                }
+                cursor_offset = (size_t)parameter_start;
+                if (cursor_offset <= ti->body.len) {
+                    /* `typename` expands to nothing in the analysis TU, so the
+                     * parameter cursor starts at the type variable itself.
+                     * Look backwards for the specifier instead. */
+                    size_t before = cursor_offset;
+                    size_t word_end;
+                    while (before > 0U &&
+                           isspace((unsigned char)ti->body.p[before - 1U])) --before;
+                    word_end = before;
+                    while (before > 0U && is_ident_char(ti->body.p[before - 1U])) {
+                        --before;
+                    }
+                    if (word_end - before == 8U &&
+                        strncmp(ti->body.p + before, "typename", 8U) == 0) {
+                        size_t name_start = cursor_offset;
+                        size_t name_end = name_start;
+                        while (name_end < ti->body.len &&
+                               is_ident_char(ti->body.p[name_end])) ++name_end;
+                        if (name_end > name_start) {
+                            argument->explicit_type = 1;
+                            argument->explicit_parameter = copy_range(
+                                ti->body.p + name_start, name_end - name_start);
+                        }
+                    }
+                }
+            }
             if (cursor_find_type_application(argument_cursor, ti,
                                              analysis->offset_bias,
                                              NULL, &argument->application)) {
@@ -3502,6 +3563,7 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 size_t constructor_index;
                 TemplateArgument *argument = &function.parameters[argument_index];
                 int contributes = 0;
+                if (argument->explicit_type) continue;
                 for (constructor_index = 0U;
                      constructor_index < argument->type_parameter_count;
                      ++constructor_index) {
@@ -3539,6 +3601,61 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 }
             }
             list_free(covered_parameters, covered_count);
+            if (function_has_explicit_parameters(&function)) {
+                size_t explicit_count = function_explicit_count(&function);
+                size_t parameter_index;
+                int valid = 1;
+                for (parameter_index = 0U;
+                     parameter_index < function.parameter_count; ++parameter_index) {
+                    const TemplateArgument *argument =
+                        &function.parameters[parameter_index];
+                    size_t other;
+                    if (!argument->explicit_type) continue;
+                    if (parameter_index >= explicit_count) {
+                        report_error(ti->path, function.start_line,
+                            "explicit type parameter '%s' of '%s' must precede ordinary parameters",
+                            argument->explicit_parameter, function.name);
+                        valid = 0;
+                    }
+                    if (template_parameter_index(ti,
+                            argument->explicit_parameter) < 0) {
+                        report_error(ti->path, function.start_line,
+                            "explicit type parameter '%s' of '%s' is not a template variable",
+                            argument->explicit_parameter, function.name);
+                        valid = 0;
+                    }
+                    for (other = 0U; other < parameter_index; ++other) {
+                        if (function.parameters[other].explicit_type &&
+                            str_eq(function.parameters[other].explicit_parameter,
+                                   argument->explicit_parameter)) {
+                            report_error(ti->path, function.start_line,
+                                "duplicate explicit type parameter '%s' of '%s'",
+                                argument->explicit_parameter, function.name);
+                            valid = 0;
+                        }
+                    }
+                }
+                for (parameter_index = 0U;
+                     parameter_index < all_parameter_count; ++parameter_index) {
+                    size_t argument_index;
+                    int found = 0;
+                    for (argument_index = 0U; argument_index < explicit_count;
+                         ++argument_index) {
+                        if (str_eq(function.parameters[argument_index].explicit_parameter,
+                                   all_parameters[parameter_index])) {
+                            found = 1;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        report_error(ti->path, function.start_line,
+                            "function '%s' mixes explicit type parameters with inferred parameter '%s'",
+                            function.name, all_parameters[parameter_index]);
+                        valid = 0;
+                    }
+                }
+                if (!valid) analysis->failed = 1;
+            }
             function.type_parameters = all_parameters;
             function.type_parameter_count = all_parameter_count;
             function.type_parameter_cap = all_parameter_cap;
@@ -3624,6 +3741,9 @@ static int analyze_template(TemplateInfo *ti)
             buf_puts(&contents, ";\n");
         }
     }
+    /* `typename T` in a parameter list marks an explicit type pseudo-argument;
+     * the macro makes the template parse as an unnamed T parameter. */
+    buf_puts(&contents, "#define typename\n");
     emit_template_analysis_functors(&contents, ti);
     emit_line_directive(&contents, 1UL, path);
     analysis.offset_bias = (unsigned)contents.len;
@@ -4835,6 +4955,39 @@ static void rewrite(const char *src, const TemplateInfo *ti,
             char *ident;
             while (is_ident_char(src[i])) ++i;
             ident = copy_range(src + start, i - start);
+            if (str_eq(ident, "typename")) {
+                /* Explicit type pseudo-arguments disappear from the emitted
+                 * specialization, together with their separating comma. */
+                size_t next = i;
+                while (isspace((unsigned char)src[next])) ++next;
+                if (is_ident_start(src[next])) {
+                    size_t name_start = next;
+                    char *parameter_name;
+                    while (is_ident_char(src[next])) ++next;
+                    parameter_name = copy_range(src + name_start, next - name_start);
+                    if (template_parameter_index(ti, parameter_name) >= 0) {
+                        size_t emitted = out->len;
+                        while (isspace((unsigned char)src[next])) ++next;
+                        if (src[next] == ',') {
+                            ++next;
+                            while (isspace((unsigned char)src[next])) ++next;
+                        } else if (src[next] == ')') {
+                            while (emitted > 0U &&
+                                   isspace((unsigned char)out->p[emitted - 1U])) {
+                                --emitted;
+                            }
+                            if (emitted > 0U && out->p[emitted - 1U] == '(') {
+                                buf_puts(out, "void");
+                            }
+                        }
+                        i = next;
+                        free(parameter_name);
+                        free(ident);
+                        continue;
+                    }
+                    free(parameter_name);
+                }
+            }
             {
                 int parameter = template_parameter_index(ti, ident);
                 int argument = parameter >= 0 ?
@@ -5835,12 +5988,18 @@ static void emit_function_signature(Buf *out, const TemplateInfo *ti,
     buf_putc(out, ' ');
     buf_puts(out, name);
     buf_putc(out, '(');
-    if (function->parameter_count == 0U) {
-        buf_puts(out, "void");
-    }
+    {
+        size_t emitted_parameters = 0U;
     for (i = 0U; i < function->parameter_count; ++i) {
         Buf parameter_type;
-        if (i != 0U) buf_puts(out, ", ");
+        if (function->parameters[i].explicit_type) {
+            if (!documentation) continue;
+            if (emitted_parameters++ != 0U) buf_puts(out, ", ");
+            buf_puts(out, "typename ");
+            buf_puts(out, function->parameters[i].explicit_parameter);
+            continue;
+        }
+        if (emitted_parameters++ != 0U) buf_puts(out, ", ");
         buf_init(&parameter_type);
         if (instance != NULL) {
             rewrite_c_type(function->parameters[i].type, ti, instance,
@@ -5856,6 +6015,8 @@ static void emit_function_signature(Buf *out, const TemplateInfo *ti,
             buf_puts(out, function->parameters[i].name);
         }
         buf_free(&parameter_type);
+    }
+        if (emitted_parameters == 0U) buf_puts(out, "void");
     }
     buf_putc(out, ')');
     if (!documentation) buf_puts(out, ";\n");
@@ -7501,6 +7662,7 @@ static void emit_template_module(Buf *out, size_t template_index,
     emit_module_part(out, template_index, ti, stem, output_path, implementation, "");
     buf_puts(out, "#ifndef TMPLGEN_AGGREGATING\n");
     emit_type_functors(out, ti);
+    emit_explicit_function_macros(out, ti);
     if (template_dispatch_count(ti) != 0U &&
         g_dispatch_backend != GEN_DISPATCH_NONE) {
         emit_arg_helpers(out, highest_function_argument(ti, 1U));
@@ -7559,6 +7721,7 @@ static void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
     buf_puts(out, "#ifndef " GEN_GUARD "\n#define " GEN_GUARD "\n");
     for (i = 0U; i < template_count; ++i) {
         emit_type_functors(out, &infos[i]);
+        emit_explicit_function_macros(out, &infos[i]);
     }
     if (g_dispatch_backend != GEN_DISPATCH_NONE) {
         for (i = 0U; i < template_count; ++i) {
@@ -8364,6 +8527,68 @@ static const TemplateFunction *find_template_function(const TemplateInfo *ti,
     return NULL;
 }
 
+static const TemplateFunction *explicit_function_template(
+    const TemplateInfo *infos, size_t count, const char *name,
+    size_t *template_index)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) {
+        const TemplateFunction *function = find_template_function(&infos[i], name);
+        if (function != NULL && function_has_explicit_parameters(function)) {
+            *template_index = i;
+            return function;
+        }
+    }
+    return NULL;
+}
+
+static int function_explicit_index(const TemplateFunction *function,
+                                   const char *parameter)
+{
+    size_t i;
+    for (i = 0U; i < function->parameter_count; ++i) {
+        if (function->parameters[i].explicit_type &&
+            str_eq(function->parameters[i].explicit_parameter, parameter)) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static void emit_explicit_function_macros(Buf *out, const TemplateInfo *ti)
+{
+    size_t i;
+    for (i = 0U; i < ti->function_count; ++i) {
+        const TemplateFunction *function = &ti->functions[i];
+        size_t explicit_count = function_explicit_count(function);
+        size_t ordinary_count;
+        size_t k;
+        if (explicit_count == 0U) continue;
+        ordinary_count = function->parameter_count - explicit_count;
+        emit_line_directive(out, (unsigned long)function->start_line, ti->path);
+        buf_puts(out, "#undef ");
+        buf_puts(out, function->name);
+        buf_puts(out, "\n#define ");
+        buf_puts(out, function->name);
+        buf_putc(out, '(');
+        for (k = 0U; k < explicit_count; ++k) {
+            if (k != 0U) buf_puts(out, ", ");
+            buf_puts(out, "type");
+            buf_put_uint(out, (unsigned long)k);
+        }
+        buf_puts(out, ordinary_count != 0U ? ", ...) " : ") ");
+        buf_puts(out, function->name);
+        for (k = 0U; k < function->type_parameter_count; ++k) {
+            int explicit_index = function_explicit_index(function,
+                function->type_parameters[k]);
+            if (explicit_index < 0) break;
+            buf_puts(out, k == 0U ? "_##type" : "##_##type");
+            buf_put_uint(out, (unsigned long)explicit_index);
+        }
+        buf_puts(out, ordinary_count != 0U ? "(__VA_ARGS__)\n" : "()\n");
+    }
+}
+
 static int macro_type_arguments(CXTranslationUnit tu, CXCursor cursor,
                                 char ***arguments, size_t **token_counts,
                                 size_t *argument_count)
@@ -8797,7 +9022,26 @@ static void source_facts_apply(SourceFacts *facts)
             add_alias(fact->spellings[argument_index],
                       fact->canonicals[argument_index]);
         }
-        (void)add_type_use(fact->functor, instance->name);
+        {
+            size_t constructor_template_index = 0U;
+            const TemplateType *constructor = NULL;
+            if (find_type_constructor(g_all_template_infos, g_all_template_info_count,
+                                      fact->functor, &constructor_template_index,
+                                      &constructor)) {
+                (void)add_type_use(fact->functor, instance->name);
+            } else if (fact->template_index < g_all_template_info_count) {
+                /* Explicit type pseudo-argument calls are stored in the same
+                 * fact form, but request a function, not a type use. */
+                const TemplateInfo *ti = &g_all_template_infos[fact->template_index];
+                const TemplateFunction *function = find_template_function(
+                    ti, fact->functor);
+                if (function != NULL && function_has_explicit_parameters(function)) {
+                    request_instance_types(ti, function, instance);
+                    (void)add_generic_use(fact->functor, instance->name, 0,
+                                          NULL, NULL, NULL, 0U);
+                }
+            }
+        }
     }
     for (i = 0U; i < facts->schema_count; ++i) {
         const StructuralSchema *source = &facts->schemas[i];
@@ -9297,6 +9541,90 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
             free(argument_tokens);
             list_free(arguments, argument_count);
         } else if (context->uses != NULL) {
+            size_t function_template_index = 0U;
+            const TemplateFunction *explicit_function = context->pass == 1 ?
+                explicit_function_template(context->infos, context->template_count,
+                                           name, &function_template_index) : NULL;
+            if (explicit_function != NULL) {
+                const TemplateInfo *function_ti =
+                    &context->infos[function_template_index];
+                size_t explicit_count = function_explicit_count(explicit_function);
+                size_t type_count = explicit_function->type_parameter_count;
+                char **arguments = NULL;
+                size_t *argument_tokens = NULL;
+                size_t argument_count = 0U;
+                char **canonical_arguments = NULL;
+                const char **spellings = NULL;
+                size_t *parameter_indices = NULL;
+                size_t j;
+                int argument_error = 0;
+                if (!macro_type_arguments(context->tu, cursor, &arguments,
+                                          &argument_tokens, &argument_count) ||
+                    argument_count < explicit_count) {
+                    report_error(path, line,
+                                 "%s() requires at least %lu type arguments",
+                                 name, (unsigned long)explicit_count);
+                    context->failed = 1;
+                } else {
+                    canonical_arguments = (char **)calloc(type_count,
+                        sizeof(*canonical_arguments));
+                    spellings = (const char **)calloc(type_count, sizeof(*spellings));
+                    parameter_indices = (size_t *)malloc(type_count *
+                        sizeof(*parameter_indices));
+                    if (canonical_arguments == NULL || spellings == NULL ||
+                        parameter_indices == NULL) die("out of memory");
+                    for (j = 0U; j < type_count; ++j) {
+                        int explicit_index = function_explicit_index(
+                            explicit_function, explicit_function->type_parameters[j]);
+                        const char *argument;
+                        const char *canonical;
+                        int parameter;
+                        if (explicit_index < 0) die("invalid explicit type parameter map");
+                        argument = arguments[(size_t)explicit_index];
+                        if (argument_tokens[explicit_index] != 1U ||
+                            !(valid_identifier(argument) ||
+                              builtin_type_argument(argument))) {
+                            report_error(path, line,
+                                "%s() requires a single-token type argument for '%s'",
+                                name, explicit_function->type_parameters[j]);
+                            context->failed = 1;
+                            argument_error = 1;
+                            break;
+                        }
+                        canonical = find_alias_canonical(argument);
+                        spellings[j] = argument;
+                        canonical_arguments[j] = copy_string(canonical != NULL ?
+                                                             canonical : argument);
+                        add_alias(argument, canonical_arguments[j]);
+                        parameter = template_parameter_index(function_ti,
+                            explicit_function->type_parameters[j]);
+                        if (parameter < 0) die("invalid explicit template parameter map");
+                        parameter_indices[j] = (size_t)parameter;
+                    }
+                    if (!argument_error) {
+                        GenInstance *instance = add_instance(function_template_index,
+                            parameter_indices, spellings,
+                            (const char *const *)canonical_arguments, type_count);
+                        set_instance_origin(instance, path, line);
+                        request_instance_types(function_ti, explicit_function, instance);
+                        (void)add_generic_use(name, instance->name, 0,
+                                              NULL, NULL, NULL, 0U);
+                        set_generic_use_origin(name, instance->name, path, line);
+                        source_facts_add_constructor(context->facts,
+                            function_template_index, name, parameter_indices,
+                            spellings, (const char *const *)canonical_arguments,
+                            type_count);
+                    }
+                }
+                if (canonical_arguments != NULL) {
+                    for (j = 0U; j < type_count; ++j) free(canonical_arguments[j]);
+                }
+                free(canonical_arguments);
+                free(spellings);
+                free(parameter_indices);
+                free(argument_tokens);
+                list_free(arguments, argument_count);
+            } else {
             size_t template_index;
             if (generic_function_template(context->infos, context->template_count,
                                           name, &template_index)) {
@@ -9327,6 +9655,7 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                         free(argument_path);
                     }
                 }
+            }
             }
         }
         free(name);
@@ -9680,7 +10009,8 @@ static void emit_bootstrap_function_prototypes(Buf *out,
         for (j = 0U; j < infos[i].function_count; ++j) {
             const TemplateFunction *function = &infos[i].functions[j];
             size_t k;
-            if (function->dispatch_count == 0U ||
+            if ((!function_has_explicit_parameters(function) &&
+                 function->dispatch_count == 0U) ||
                 function->type_parameter_count == 0U) continue;
             for (k = 0U; k < g_instance_count; ++k) {
                 const GenInstance *instance = &g_instances[k];
@@ -9705,10 +10035,12 @@ static void emit_bootstrap_function_prototypes(Buf *out,
                 buf_putc(out, ' ');
                 buf_puts(out, symbol);
                 buf_putc(out, '(');
-                if (function->parameter_count == 0U) buf_puts(out, "void");
+                {
+                    size_t emitted_parameters = 0U;
                 for (p = 0U; p < function->parameter_count; ++p) {
                     Buf argument_type;
-                    if (p != 0U) buf_puts(out, ", ");
+                    if (function->parameters[p].explicit_type) continue;
+                    if (emitted_parameters++ != 0U) buf_puts(out, ", ");
                     buf_init(&argument_type);
                     if (function->parameters[p].application.constructor != NULL) {
                         rewrite_c_type(function->parameters[p].type, &infos[i], instance,
@@ -9720,6 +10052,8 @@ static void emit_bootstrap_function_prototypes(Buf *out,
                     }
                     buf_puts(out, argument_type.p != NULL ? argument_type.p : "int");
                     buf_free(&argument_type);
+                }
+                    if (emitted_parameters == 0U) buf_puts(out, "void");
                 }
                 buf_puts(out, ");\n");
                 free(symbol);
@@ -9907,6 +10241,9 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
         }
     }
     if (second_pass) {
+        for (i = 0U; i < template_count; ++i) {
+            emit_explicit_function_macros(out, &infos[i]);
+        }
         emit_bootstrap_function_prototypes(out, infos, template_count, "");
         emit_bootstrap_function_macros(out, infos, template_count, NULL);
     } else {
@@ -9915,6 +10252,18 @@ static void emit_bootstrap_header(Buf *out, const TemplateInfo *infos,
             for (j = 0U; j < infos[i].function_count; ++j) {
                 const TemplateFunction *function = &infos[i].functions[j];
                 size_t k;
+                if (function_has_explicit_parameters(function)) {
+                    buf_puts(out, "#undef ");
+                    buf_puts(out, function->name);
+                    buf_puts(out, "\n#define ");
+                    buf_puts(out, function->name);
+                    if (str_eq(function->return_type, "void")) {
+                        buf_puts(out, "(...) ((void)0)\n");
+                    } else {
+                        buf_puts(out, "(type0, ...) ((type0){0})\n");
+                    }
+                    continue;
+                }
                 if (function->dispatch_count == 0U ||
                     function->type_parameter_count == 0U) continue;
                 buf_puts(out, "#undef ");

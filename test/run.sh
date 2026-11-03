@@ -102,6 +102,19 @@ if ! grep -q '^} Array_int_4;$' test/gen/array.gen.h ||
 fi
 
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/explicit_type.c -o "$BUILD/explicit-type"
+"$BUILD/explicit-type"
+if ! grep -q '^#define zero_value(type0) zero_value_##type0()$' test/gen/convert.gen.h ||
+   ! grep -q '^#define read_as(type0, ...) read_as_##type0(__VA_ARGS__)$' test/gen/convert.gen.h ||
+   ! grep -q '^static inline TestInt zero_value_TestInt(void);$' test/gen/convert.gen.h ||
+   ! grep -q '^static inline TestInt zero_value_TestInt(void)$' test/gen/convert.gen.h ||
+   ! grep -q '^static inline Dog read_as_Dog(const void \*data)$' test/gen/convert.gen.h ||
+   grep -q 'typename' test/gen/convert.gen.h; then
+    printf '%s\n' 'explicit type pseudo-arguments were not specialized correctly' >&2
+    exit 1
+fi
+
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/builtin_types.c -o "$BUILD/builtin-types"
 "$BUILD/builtin-types"
 

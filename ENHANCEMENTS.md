@@ -1,6 +1,6 @@
 # Template system enhancements (design sketch)
 
-Status: parts 1 and 2 implemented; parts 3 and 4 planned. This document
+Status: parts 1–3 implemented; part 4 planned. This document
 sketches a targeted expansion of the template
 system in four parts, in the order they should be implemented. Parts 1–3 are
 independently useful; part 4 builds on the parameter-kind machinery of part 1.
@@ -169,6 +169,10 @@ Point p = read_as(Point, buffer);
   from the emitted specialization and consumed left-to-right by the dispatch
   macro. Restricting them to leading positions is acceptable for v1 if that
   simplifies the macro.
+
+As implemented, explicit parameters must be leading and every template
+variable of the function must be explicit; mixing explicit and inferred
+variables is rejected with a diagnostic.
 
 ## Part 4: higher-kinded templates (constructor parameters)
 

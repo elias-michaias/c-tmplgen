@@ -79,6 +79,40 @@ a decimal integer literal without a leading zero. This keeps the token-pasting
 functor macro able to form the specialization name. Multi-token expressions are
 folded when they appear inside a generic signature or body, not at a call site.
 
+### Explicit type pseudo-arguments
+
+A type variable that occurs only in the return type cannot be inferred from
+ordinary arguments. Demand it from the caller by writing it as a
+pseudo-parameter with the `typename` specifier:
+
+```c
+// @template T
+static inline T read_as(typename T, const void *data)
+{
+    T value;
+    memcpy(&value, data, sizeof value);
+    return value;
+}
+```
+
+The pseudo-parameter is not a value parameter: it disappears from the emitted
+specialization, and the generated call macro pastes the supplied type token:
+
+```c
+Point p = read_as(Point, buffer);
+/* #define read_as(type0, ...) read_as_##type0(__VA_ARGS__) */
+```
+
+Add `#define typename` to the template's `#ifndef TMPLGEN` fallback block so
+editors parse the pseudo-parameter as an unnamed parameter of the fallback
+typedef.
+
+In this version, explicit pseudo-parameters must come before ordinary
+parameters, every template variable of the function must be explicit, and the
+type argument at a call site must be a single token (an identifier or a builtin
+type keyword). Functions that mix explicit and inferred type variables are
+rejected; call the suffixed specialization directly in that case.
+
 ## Infer specializations from source
 
 The generator parses `.c` and `.h` files under `--source-root`. It matches
