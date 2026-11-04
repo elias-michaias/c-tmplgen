@@ -1883,10 +1883,17 @@ static size_t source_parse_worker_count(size_t source_count)
 #endif
 }
 
+typedef struct ParseBatch ParseBatch;
+
 #if GEN_PARALLEL_PARSE
 typedef struct {
-    const CXIndex *indices;
+    ParseBatch *batch;
     size_t worker;
+} ParseWorker;
+#endif
+
+struct ParseBatch {
+    const CXIndex *indices;
     size_t worker_count;
     const Buf *bootstrap;
     const SourceList *files;
@@ -1895,96 +1902,136 @@ typedef struct {
     CXTranslationUnit *tus;
     enum CXErrorCode *results;
     unsigned char *done;
-} ParseWorker;
+#if GEN_PARALLEL_PARSE
+    pthread_mutex_t mutex;
+    pthread_cond_t cond;
+    pthread_t *threads;
+    ParseWorker *workers;
+    size_t launched;
+    int threaded;
+#endif
+};
 
+#if GEN_PARALLEL_PARSE
 static void *parse_worker_main(void *data)
 {
     ParseWorker *worker = (ParseWorker *)data;
+    ParseBatch *batch = worker->batch;
     size_t position;
-    CXIndex index = worker->indices[worker->worker % worker->worker_count];
-    for (position = worker->worker; position < worker->parse_count;
-         position += worker->worker_count) {
-        size_t source_index = worker->parse_order[position];
-        SourceFile *source = &worker->files->items[source_index];
-        (void)parse_source_translation_unit(index, source, worker->bootstrap,
-                                            &worker->tus[source_index],
-                                            &worker->results[source_index]);
-        worker->done[source_index] = 1U;
+    CXIndex index = batch->indices[worker->worker % batch->worker_count];
+    for (position = worker->worker; position < batch->parse_count;
+         position += batch->worker_count) {
+        size_t source_index = batch->parse_order[position];
+        SourceFile *source = &batch->files->items[source_index];
+        (void)parse_source_translation_unit(index, source, batch->bootstrap,
+                                            &batch->tus[source_index],
+                                            &batch->results[source_index]);
+        (void)pthread_mutex_lock(&batch->mutex);
+        batch->done[source_index] = 1U;
+        (void)pthread_cond_broadcast(&batch->cond);
+        (void)pthread_mutex_unlock(&batch->mutex);
     }
     return NULL;
 }
 #endif
 
-static void parse_source_batch(const CXIndex *indices, size_t worker_count,
-                               const Buf *bootstrap, const SourceList *files,
-                               const size_t *parse_order, size_t parse_count,
-                               CXTranslationUnit *tus,
-                               enum CXErrorCode *results)
+static void parse_batch_start(ParseBatch *batch, const CXIndex *indices,
+                              size_t worker_count, const Buf *bootstrap,
+                              const SourceList *files, const size_t *parse_order,
+                              size_t parse_count, CXTranslationUnit *tus,
+                              enum CXErrorCode *results)
 {
-    size_t count = parse_count;
     size_t i;
+    memset(batch, 0, sizeof(*batch));
+    batch->indices = indices;
+    batch->worker_count = worker_count;
+    batch->bootstrap = bootstrap;
+    batch->files = files;
+    batch->parse_order = parse_order;
+    batch->parse_count = parse_count;
+    batch->tus = tus;
+    batch->results = results;
+    batch->done = (unsigned char *)calloc(files->count, 1U);
+    if (batch->done == NULL && files->count != 0U) die("out of memory");
 #if GEN_PARALLEL_PARSE
-    unsigned char *done = (unsigned char *)calloc(files->count, 1U);
-    pthread_t *threads = NULL;
-    ParseWorker *workers = NULL;
-    size_t launched = 0U;
-    size_t actual = worker_count;
-    if (done == NULL && files->count != 0U) die("out of memory");
-    if (count < actual) actual = count;
-    if (actual > 1U) {
-        threads = (pthread_t *)calloc(actual, sizeof(*threads));
-        workers = (ParseWorker *)calloc(actual, sizeof(*workers));
-        if (threads == NULL || workers == NULL) die("out of memory");
-        for (i = 1U; i < actual; ++i) {
-            workers[i].indices = indices;
-            workers[i].worker = i;
-            workers[i].worker_count = actual;
-            workers[i].bootstrap = bootstrap;
-            workers[i].files = files;
-            workers[i].parse_order = parse_order;
-            workers[i].parse_count = parse_count;
-            workers[i].tus = tus;
-            workers[i].results = results;
-            workers[i].done = done;
-            if (pthread_create(&threads[launched], NULL, parse_worker_main,
-                               &workers[i]) != 0) break;
-            ++launched;
+    {
+        size_t actual = worker_count;
+        if (actual > parse_count) actual = parse_count;
+        if (actual > 1U) {
+            batch->threads = (pthread_t *)calloc(actual, sizeof(*batch->threads));
+            batch->workers = (ParseWorker *)calloc(actual, sizeof(*batch->workers));
+            if (batch->threads == NULL || batch->workers == NULL) die("out of memory");
+            (void)pthread_mutex_init(&batch->mutex, NULL);
+            (void)pthread_cond_init(&batch->cond, NULL);
+            for (i = 0U; i < actual; ++i) {
+                batch->workers[i].batch = batch;
+                batch->workers[i].worker = i;
+                if (pthread_create(&batch->threads[batch->launched], NULL,
+                                   parse_worker_main, &batch->workers[i]) != 0) {
+                    break;
+                }
+                ++batch->launched;
+            }
+            if (batch->launched == actual) {
+                batch->threaded = 1;
+                return;
+            }
+            for (i = 0U; i < batch->launched; ++i) {
+                (void)pthread_join(batch->threads[i], NULL);
+            }
+            (void)pthread_cond_destroy(&batch->cond);
+            (void)pthread_mutex_destroy(&batch->mutex);
+            free(batch->workers);
+            free(batch->threads);
+            batch->workers = NULL;
+            batch->threads = NULL;
+            batch->launched = 0U;
         }
-        if (actual > 1U && launched == 0U) actual = 1U;
-        workers[0].indices = indices;
-        workers[0].worker = 0U;
-        workers[0].worker_count = actual;
-        workers[0].bootstrap = bootstrap;
-        workers[0].files = files;
-        workers[0].parse_order = parse_order;
-        workers[0].parse_count = parse_count;
-        workers[0].tus = tus;
-        workers[0].results = results;
-        workers[0].done = done;
-        (void)parse_worker_main(&workers[0]);
-        for (i = 0U; i < launched; ++i) (void)pthread_join(threads[i], NULL);
-    }
-    for (i = 0U; i < count; ++i) {
-        size_t source_index = parse_order[i];
-        if (done[source_index]) continue;
-        (void)parse_source_translation_unit(indices[0],
-            &files->items[source_index], bootstrap, &tus[source_index],
-            &results[source_index]);
-        done[source_index] = 1U;
-    }
-    free(workers);
-    free(threads);
-    free(done);
-#else
-    (void)indices;
-    (void)worker_count;
-    for (i = 0U; i < count; ++i) {
-        size_t source_index = parse_order[i];
-        (void)parse_source_translation_unit(indices[0],
-            &files->items[source_index], bootstrap, &tus[source_index],
-            &results[source_index]);
     }
 #endif
+    for (i = 0U; i < parse_count; ++i) {
+        size_t source_index = parse_order[i];
+        if (batch->done[source_index]) continue;
+        (void)parse_source_translation_unit(indices[0],
+            &files->items[source_index], bootstrap, &tus[source_index],
+            &results[source_index]);
+        batch->done[source_index] = 1U;
+    }
+}
+
+static void parse_batch_wait(ParseBatch *batch, size_t source_index)
+{
+#if GEN_PARALLEL_PARSE
+    if (!batch->threaded) return;
+    (void)pthread_mutex_lock(&batch->mutex);
+    while (!batch->done[source_index]) {
+        (void)pthread_cond_wait(&batch->cond, &batch->mutex);
+    }
+    (void)pthread_mutex_unlock(&batch->mutex);
+#else
+    (void)batch;
+    (void)source_index;
+#endif
+}
+
+static void parse_batch_finish(ParseBatch *batch)
+{
+#if GEN_PARALLEL_PARSE
+    size_t i;
+    if (batch->threaded) {
+        for (i = 0U; i < batch->launched; ++i) {
+            (void)pthread_join(batch->threads[i], NULL);
+        }
+        (void)pthread_cond_destroy(&batch->cond);
+        (void)pthread_mutex_destroy(&batch->mutex);
+    }
+    free(batch->workers);
+    free(batch->threads);
+#else
+    (void)batch;
+#endif
+    free(batch->done);
+    memset(batch, 0, sizeof(*batch));
 }
 
 int discover_source_usages(const TemplateInfo *infos, size_t template_count,
@@ -2001,6 +2048,7 @@ int discover_source_usages(const TemplateInfo *infos, size_t template_count,
     size_t *parse_order;
     CXTranslationUnit *tus;
     enum CXErrorCode *parse_results;
+    ParseBatch batch;
     int success = 1;
     if (!scan_source_directory(files, g_source_root)) return 0;
     /* The directory scan follows readdir order, which is filesystem
@@ -2060,13 +2108,14 @@ int discover_source_usages(const TemplateInfo *infos, size_t template_count,
                 parse_results[i] = CXError_Failure;
             }
         }
-        parse_source_batch(indices, worker_count, &bootstrap, files,
-                           parse_order, parse_count, tus, parse_results);
+        parse_batch_start(&batch, indices, worker_count, &bootstrap, files,
+                          parse_order, parse_count, tus, parse_results);
         for (i = batch_start; i < batch_end; ++i) {
             SourceFile *source = &files->items[i];
             SourceFacts *facts = &source->facts;
             int pass1_ok = 1;
             if (need_parse[i]) {
+                parse_batch_wait(&batch, i);
                 if (tus[i] == NULL) {
                     report_error(source->path, 0U,
                         "libclang failed to parse this source file (%d)",
@@ -2089,6 +2138,7 @@ int discover_source_usages(const TemplateInfo *infos, size_t template_count,
             source_facts_apply(facts);
             (void)process_clang_uses(&facts->pass1_uses, infos, template_count, 0);
         }
+        parse_batch_finish(&batch);
         batch_start = batch_end;
     }
     buf_free(&bootstrap);
@@ -2128,13 +2178,14 @@ int discover_source_usages(const TemplateInfo *infos, size_t template_count,
                     parse_results[i] = CXError_Failure;
                 }
             }
-            parse_source_batch(indices, worker_count, &bootstrap, files,
-                               parse_order, parse_count, tus, parse_results);
+            parse_batch_start(&batch, indices, worker_count, &bootstrap, files,
+                              parse_order, parse_count, tus, parse_results);
             for (i = batch_start; i < batch_end; ++i) {
                 SourceFile *source = &files->items[i];
                 SourceFacts *facts = &source->facts;
                 int pass2_ok = 1;
                 if (need_parse[i]) {
+                    parse_batch_wait(&batch, i);
                     if (tus[i] == NULL) {
                         report_error(source->path, 0U,
                             "libclang failed to parse this source file (%d)",
@@ -2162,6 +2213,7 @@ int discover_source_usages(const TemplateInfo *infos, size_t template_count,
                     /* Inference warnings do not stop source discovery. */
                 }
             }
+            parse_batch_finish(&batch);
             batch_start = batch_end;
         }
         expand_dependencies_to_fixpoint(infos, template_count, 1);
