@@ -121,6 +121,43 @@ static int directory_exists(const char *path)
 #endif
 }
 
+/* The generator binary or plugin library cannot change while a process is
+ * running. Hashing it once avoids re-reading the whole host binary for every
+ * source file and every cache lookup. */
+static int executable_identity(unsigned long long *hash1,
+                               unsigned long long *hash2)
+{
+    static int initialized = 0;
+    static int cached = 0;
+    static char *cached_path = NULL;
+    static unsigned long long cached_hash1 = 0ULL;
+    static unsigned long long cached_hash2 = 0ULL;
+    if (!initialized || (g_executable_path != NULL &&
+                         (cached_path == NULL ||
+                          !str_eq(cached_path, g_executable_path)))) {
+        initialized = 1;
+        free(cached_path);
+        cached_path = g_executable_path != NULL
+            ? copy_string(g_executable_path) : NULL;
+        cached = cached_path != NULL &&
+            cache_file_hash(cached_path, &cached_hash1, &cached_hash2);
+    }
+    if (!cached) return 0;
+    *hash1 = cached_hash1;
+    *hash2 = cached_hash2;
+    return 1;
+}
+
+static const char *clang_version_identity(void)
+{
+    static char *cached = NULL;
+    if (cached == NULL) {
+        CXString version = clang_getClangVersion();
+        cached = copy_cx_string(version);
+    }
+    return cached != NULL ? cached : "";
+}
+
 int compute_input_signature(unsigned long long *signature)
 {
     SourceList files;
@@ -129,8 +166,6 @@ int compute_input_signature(unsigned long long *signature)
     char *working_directory = absolute_path(".");
     unsigned long long hash = 14695981039346656037ULL;
     char config[128];
-    CXString clang_version;
-    char *clang_version_text;
     unsigned long long executable_hash1, executable_hash2;
     size_t i;
 
@@ -173,7 +208,7 @@ int compute_input_signature(unsigned long long *signature)
     signature_mix(&hash, __DATE__, strlen(__DATE__));
     signature_mix(&hash, __TIME__, strlen(__TIME__));
     if (g_executable_path != NULL &&
-        cache_file_hash(g_executable_path, &executable_hash1, &executable_hash2)) {
+        executable_identity(&executable_hash1, &executable_hash2)) {
         signature_mix(&hash, g_executable_path, strlen(g_executable_path));
         (void)snprintf(config, sizeof(config), "%016llx:%016llx",
                        executable_hash1, executable_hash2);
@@ -202,10 +237,10 @@ int compute_input_signature(unsigned long long *signature)
             if (value != NULL) signature_mix(&hash, value, strlen(value));
         }
     }
-    clang_version = clang_getClangVersion();
-    clang_version_text = copy_cx_string(clang_version);
-    signature_mix(&hash, clang_version_text, strlen(clang_version_text));
-    free(clang_version_text);
+    {
+        const char *clang_version_text = clang_version_identity();
+        signature_mix(&hash, clang_version_text, strlen(clang_version_text));
+    }
     for (i = 0U; i < files.count; ++i) {
         signature_mix(&hash, files.items[i].path, strlen(files.items[i].path));
         signature_mix(&hash, files.items[i].text.p, files.items[i].text.len);
@@ -446,8 +481,6 @@ unsigned long long source_facts_key(const SourceFile *source,
 {
     unsigned long long hash = 14695981039346656037ULL;
     unsigned long long binary_hash1, binary_hash2;
-    CXString clang_version;
-    char *clang_version_text;
     char *working_directory = absolute_path(".");
     char config[128];
     size_t i;
@@ -490,12 +523,12 @@ unsigned long long source_facts_key(const SourceFile *source,
             if (value != NULL) signature_mix(&hash, value, strlen(value));
         }
     }
-    clang_version = clang_getClangVersion();
-    clang_version_text = copy_cx_string(clang_version);
-    signature_mix(&hash, clang_version_text, strlen(clang_version_text));
-    free(clang_version_text);
+    {
+        const char *clang_version_text = clang_version_identity();
+        signature_mix(&hash, clang_version_text, strlen(clang_version_text));
+    }
     if (g_executable_path != NULL &&
-        cache_file_hash(g_executable_path, &binary_hash1, &binary_hash2)) {
+        executable_identity(&binary_hash1, &binary_hash2)) {
         signature_mix(&hash, g_executable_path, strlen(g_executable_path));
         (void)snprintf(config, sizeof(config), "%016llx:%016llx",
                        binary_hash1, binary_hash2);

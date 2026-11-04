@@ -3,8 +3,13 @@
 
 #include "tmplgen_plugin_api.h"
 
+#include "clang/Basic/LangOptions.h"
+#include "clang/Basic/LangStandard.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Basic/TargetOptions.h"
 #include "clang/Frontend/CompilerInstance.h"
+#include "clang/Lex/HeaderSearchOptions.h"
+#include "clang/Lex/PreprocessorOptions.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Error.h"
@@ -29,6 +34,33 @@ inline std::string absolutePath(llvm::StringRef path,
         if (base.empty() && llvm::sys::fs::current_path(base)) base = ".";
         llvm::sys::path::append(base, result);
         result = base;
+    }
+    llvm::sys::path::remove_dots(result, true);
+    return result.str().str();
+}
+
+inline std::string compilerWorkingDirectory(
+    const clang::CompilerInstance &compiler)
+{
+    llvm::SmallString<256> result(compiler.getFileSystemOpts().WorkingDir);
+    if (result.empty() && compiler.hasSourceManager()) {
+        // clangd roots its VFS at the compile command's directory. Prefer that
+        // over the server process directory when resolving relative flags.
+        if (auto current = compiler.getSourceManager()
+                               .getFileManager()
+                               .getVirtualFileSystem()
+                               .getCurrentWorkingDirectory()) {
+            result = *current;
+        }
+    }
+    if (result.empty()) {
+        if (llvm::sys::fs::current_path(result)) result = ".";
+    } else if (llvm::sys::path::is_relative(result)) {
+        llvm::SmallString<256> current;
+        if (!llvm::sys::fs::current_path(current)) {
+            llvm::sys::path::append(current, result);
+            result = current;
+        }
     }
     llvm::sys::path::remove_dots(result, true);
     return result.str().str();
@@ -85,6 +117,82 @@ inline void appendEnvironmentOptions(std::vector<std::string> &options)
         if (value[0] != '\0' && std::string(value) != "0") {
             options.emplace_back("emit-line");
         }
+    }
+}
+
+inline void appendClangArg(std::vector<std::string> &options,
+                           llvm::StringRef argument)
+{
+    if (!argument.empty()) {
+        options.emplace_back("clang-arg=" + argument.str());
+    }
+}
+
+inline llvm::StringRef includeDirectoryFlag(clang::frontend::IncludeDirGroup group)
+{
+    using clang::frontend::IncludeDirGroup;
+    switch (group) {
+    case IncludeDirGroup::Quoted: return "-iquote";
+    case IncludeDirGroup::Angled: return "-I";
+    case IncludeDirGroup::System:
+    case IncludeDirGroup::ExternCSystem:
+    case IncludeDirGroup::CSystem:
+    case IncludeDirGroup::CXXSystem:
+    case IncludeDirGroup::ObjCSystem:
+    case IncludeDirGroup::ObjCXXSystem:
+        return "-isystem";
+    case IncludeDirGroup::After: return "-idirafter";
+    }
+    return "-I";
+}
+
+// Forward the compiler options that affect how project sources are understood.
+// Without this, plugin users must duplicate include paths, defines, the target,
+// and the language standard by hand; a mismatch also changes generated output.
+inline void appendCompilerOptions(const clang::CompilerInstance &compiler,
+                                  llvm::StringRef workingDirectory,
+                                  std::vector<std::string> &options)
+{
+    const clang::LangOptions &language = compiler.getLangOpts();
+    if (language.LangStd != clang::LangStandard::lang_unspecified) {
+        const char *name = clang::LangStandard::getLangStandardForKind(
+            language.LangStd).getName();
+        if (name != nullptr && name[0] != '\0') {
+            appendClangArg(options, std::string("-std=") + name);
+        }
+    }
+
+    const clang::TargetOptions &target = compiler.getTargetOpts();
+    if (!target.Triple.empty()) {
+        appendClangArg(options, "--target=" + target.Triple);
+    }
+
+    const clang::HeaderSearchOptions &search =
+        compiler.getHeaderSearchOpts();
+    if (!search.ResourceDir.empty()) {
+        appendClangArg(options,
+                       "-resource-dir=" +
+                           absolutePath(search.ResourceDir, workingDirectory));
+    }
+    if (!search.Sysroot.empty() && search.Sysroot != "/") {
+        appendClangArg(options,
+                       "--sysroot=" +
+                           absolutePath(search.Sysroot, workingDirectory));
+    }
+    for (const clang::HeaderSearchOptions::Entry &entry :
+         search.UserEntries) {
+        if (entry.Path.empty()) continue;
+        llvm::StringRef flag = entry.IsFramework
+            ? (llvm::StringRef("-iframework"))
+            : includeDirectoryFlag(entry.Group);
+        std::string path = absolutePath(entry.Path, workingDirectory);
+        appendClangArg(options, (flag + path).str());
+    }
+
+    const clang::PreprocessorOptions &preprocessor =
+        compiler.getPreprocessorOpts();
+    for (const auto &macro : preprocessor.Macros) {
+        appendClangArg(options, (macro.second ? "-U" : "-D") + macro.first);
     }
 }
 
@@ -162,8 +270,8 @@ inline bool appendOption(llvm::StringRef argument,
 inline llvm::StringRef optionValue(const std::vector<std::string> &arguments,
                                    llvm::StringRef option)
 {
-    for (size_t i = 1U; i + 1U < arguments.size(); ++i) {
-        if (arguments[i] == option) return arguments[i + 1U];
+    for (size_t i = arguments.size(); i > 1U; --i) {
+        if (arguments[i - 2U] == option) return arguments[i - 1U];
     }
     return {};
 }
@@ -211,35 +319,15 @@ enum class MainFileText {
 
 inline int runTmplgen(const clang::CompilerInstance &compiler,
                       const std::vector<std::string> &pluginArguments,
-                      bool useEnvironment = false,
                       MainFileText mainFileText = MainFileText::CompilerBuffer,
                       llvm::StringRef mainFileContents = {})
 {
-    llvm::SmallString<256> absoluteWorkingDirectory(
-        compiler.getFileSystemOpts().WorkingDir);
-    if (absoluteWorkingDirectory.empty()) {
-        if (llvm::sys::fs::current_path(absoluteWorkingDirectory)) {
-            absoluteWorkingDirectory = ".";
-        }
-    } else if (llvm::sys::path::is_relative(absoluteWorkingDirectory)) {
-        llvm::SmallString<256> currentDirectory;
-        if (!llvm::sys::fs::current_path(currentDirectory)) {
-            llvm::sys::path::append(currentDirectory, absoluteWorkingDirectory);
-            absoluteWorkingDirectory = currentDirectory;
-        }
-    }
-    llvm::sys::path::remove_dots(absoluteWorkingDirectory, true);
-    std::string workingDirectoryStorage = absoluteWorkingDirectory.str().str();
+    std::string workingDirectoryStorage = compilerWorkingDirectory(compiler);
     llvm::StringRef workingDirectory = workingDirectoryStorage;
 
     std::vector<std::string> options;
-    llvm::StringRef resourceDirectory =
-        compiler.getHeaderSearchOpts().ResourceDir;
-    if (!resourceDirectory.empty()) {
-        options.emplace_back("clang-arg=-resource-dir=" +
-                             resourceDirectory.str());
-    }
-    if (useEnvironment) appendEnvironmentOptions(options);
+    appendCompilerOptions(compiler, workingDirectory, options);
+    appendEnvironmentOptions(options);
     options.insert(options.end(), pluginArguments.begin(), pluginArguments.end());
 
     std::vector<std::string> arguments;

@@ -361,184 +361,91 @@ bool isSkippableDeclarationLine(llvm::StringRef Line)
         Text.starts_with("#");
 }
 
-size_t findHeaderEnd(llvm::StringRef Code, size_t Start)
+// Invokes OnCode for each character outside comments, strings, and character
+// literals. Returning true stops the scan and returns the current offset.
+template <typename OnCode>
+size_t scanCode(llvm::StringRef Code, size_t Start, OnCode Callback)
 {
-    bool InLineComment = false;
-    bool InBlockComment = false;
-    bool InString = false;
-    bool InCharacter = false;
+    enum class State { Code, Line, Block, String, Character } Current =
+        State::Code;
     bool Escaped = false;
     for (size_t I = Start; I < Code.size(); ++I) {
         char Character = Code[I];
-        if (InLineComment) {
-            if (Character == '\n') InLineComment = false;
+        switch (Current) {
+        case State::Line:
+            if (Character == '\n') Current = State::Code;
             continue;
-        }
-        if (InBlockComment) {
+        case State::Block:
             if (Character == '*' && I + 1U < Code.size() &&
                 Code[I + 1U] == '/') {
-                InBlockComment = false;
+                Current = State::Code;
                 ++I;
             }
             continue;
-        }
-        if (InString || InCharacter) {
+        case State::String:
+        case State::Character:
             if (Escaped) {
                 Escaped = false;
             } else if (Character == '\\') {
                 Escaped = true;
-            } else if ((InString && Character == '"') ||
-                       (InCharacter && Character == '\'')) {
-                InString = false;
-                InCharacter = false;
+            } else if ((Current == State::String && Character == '"') ||
+                       (Current == State::Character && Character == '\'')) {
+                Current = State::Code;
             }
             continue;
+        case State::Code:
+            break;
         }
         if (Character == '/' && I + 1U < Code.size()) {
             if (Code[I + 1U] == '/') {
-                InLineComment = true;
+                Current = State::Line;
                 ++I;
                 continue;
             }
             if (Code[I + 1U] == '*') {
-                InBlockComment = true;
+                Current = State::Block;
                 ++I;
                 continue;
             }
         }
         if (Character == '"') {
-            InString = true;
+            Current = State::String;
             continue;
         }
         if (Character == '\'') {
-            InCharacter = true;
+            Current = State::Character;
             continue;
         }
-        if (Character == ';' || Character == '{') return I;
+        if (Callback(I, Character)) return I;
     }
     return Code.size();
+}
+
+size_t findHeaderEnd(llvm::StringRef Code, size_t Start)
+{
+    return scanCode(Code, Start, [](size_t, char Character) {
+        return Character == ';' || Character == '{';
+    });
 }
 
 size_t matchingBrace(llvm::StringRef Code, size_t Open)
 {
-    bool InLineComment = false;
-    bool InBlockComment = false;
-    bool InString = false;
-    bool InCharacter = false;
-    bool Escaped = false;
     int Depth = 0;
-    for (size_t I = Open; I < Code.size(); ++I) {
-        char Character = Code[I];
-        if (InLineComment) {
-            if (Character == '\n') InLineComment = false;
-            continue;
-        }
-        if (InBlockComment) {
-            if (Character == '*' && I + 1U < Code.size() &&
-                Code[I + 1U] == '/') {
-                InBlockComment = false;
-                ++I;
-            }
-            continue;
-        }
-        if (InString || InCharacter) {
-            if (Escaped) {
-                Escaped = false;
-            } else if (Character == '\\') {
-                Escaped = true;
-            } else if ((InString && Character == '"') ||
-                       (InCharacter && Character == '\'')) {
-                InString = false;
-                InCharacter = false;
-            }
-            continue;
-        }
-        if (Character == '/' && I + 1U < Code.size()) {
-            if (Code[I + 1U] == '/') {
-                InLineComment = true;
-                ++I;
-                continue;
-            }
-            if (Code[I + 1U] == '*') {
-                InBlockComment = true;
-                ++I;
-                continue;
-            }
-        }
-        if (Character == '"') {
-            InString = true;
-            continue;
-        }
-        if (Character == '\'') {
-            InCharacter = true;
-            continue;
-        }
+    return scanCode(Code, Open, [&](size_t, char Character) {
         if (Character == '{') {
             ++Depth;
-        } else if (Character == '}') {
-            --Depth;
-            if (Depth == 0) return I;
+        } else if (Character == '}' && --Depth == 0) {
+            return true;
         }
-    }
-    return Code.size();
+        return false;
+    });
 }
 
 size_t findSemicolon(llvm::StringRef Code, size_t Start)
 {
-    bool InLineComment = false;
-    bool InBlockComment = false;
-    bool InString = false;
-    bool InCharacter = false;
-    bool Escaped = false;
-    for (size_t I = Start; I < Code.size(); ++I) {
-        char Character = Code[I];
-        if (InLineComment) {
-            if (Character == '\n') InLineComment = false;
-            continue;
-        }
-        if (InBlockComment) {
-            if (Character == '*' && I + 1U < Code.size() &&
-                Code[I + 1U] == '/') {
-                InBlockComment = false;
-                ++I;
-            }
-            continue;
-        }
-        if (InString || InCharacter) {
-            if (Escaped) {
-                Escaped = false;
-            } else if (Character == '\\') {
-                Escaped = true;
-            } else if ((InString && Character == '"') ||
-                       (InCharacter && Character == '\'')) {
-                InString = false;
-                InCharacter = false;
-            }
-            continue;
-        }
-        if (Character == '/' && I + 1U < Code.size()) {
-            if (Code[I + 1U] == '/') {
-                InLineComment = true;
-                ++I;
-                continue;
-            }
-            if (Code[I + 1U] == '*') {
-                InBlockComment = true;
-                ++I;
-                continue;
-            }
-        }
-        if (Character == '"') {
-            InString = true;
-            continue;
-        }
-        if (Character == '\'') {
-            InCharacter = true;
-            continue;
-        }
-        if (Character == ';') return I;
-    }
-    return Code.size();
+    return scanCode(Code, Start, [](size_t, char Character) {
+        return Character == ';';
+    });
 }
 
 bool isTypeDeclarationHeader(llvm::StringRef Header)
@@ -837,18 +744,25 @@ bool namesTypeDeclaration(llvm::StringRef Code, llvm::StringRef Name,
     return true;
 }
 
+// Use the SourceManager buffer so unsaved editor contents win over disk.
+std::optional<llvm::MemoryBufferRef> sourceBuffer(
+    SourceManager &SourceMgr, llvm::StringRef Path)
+{
+    auto File = SourceMgr.getFileManager().getOptionalFileRef(Path);
+    if (!File) return std::nullopt;
+    return SourceMgr.getMemoryBufferForFileOrNone(*File);
+}
+
 std::optional<Location> fallbackTemplateTypeLocation(
-    const LocatedSymbol &Symbol, const Location &Definition,
+    ParsedAST &AST, const LocatedSymbol &Symbol, const Location &Definition,
     llvm::StringRef MainPath)
 {
     llvm::StringRef Path = Definition.uri.file();
-    if (!Path.ends_with(".tmpl.h") && !Path.ends_with(".tmpl.c")) {
-        return std::nullopt;
-    }
-    auto Buffer = llvm::MemoryBuffer::getFile(Path);
+    if (!isTemplateSourcePath(Path)) return std::nullopt;
+    auto Buffer = sourceBuffer(AST.getSourceManager(), Path);
     if (!Buffer) return std::nullopt;
     llvm::SmallVector<llvm::StringRef, 256> Lines;
-    (*Buffer)->getBuffer().split(Lines, '\n');
+    Buffer->getBuffer().split(Lines, '\n');
     size_t TargetLine = Definition.range.start.line;
     if (TargetLine >= Lines.size()) return std::nullopt;
 
@@ -2014,14 +1928,15 @@ std::vector<Location> constraintDefinitionLocations(
 }
 
 std::optional<Location> templateFunctionLocation(
-    const LocatedSymbol &Symbol, const Location &GeneratedLocation,
-    llvm::StringRef MainPath)
+    ParsedAST &AST, const LocatedSymbol &Symbol,
+    const Location &GeneratedLocation, llvm::StringRef MainPath)
 {
-    auto GeneratedBuffer = llvm::MemoryBuffer::getFile(
-        GeneratedLocation.uri.file());
+    SourceManager &SourceMgr = AST.getSourceManager();
+    auto GeneratedBuffer =
+        sourceBuffer(SourceMgr, GeneratedLocation.uri.file());
     if (!GeneratedBuffer) return std::nullopt;
     llvm::SmallVector<llvm::StringRef, 256> Lines;
-    (*GeneratedBuffer)->getBuffer().split(Lines, '\n');
+    GeneratedBuffer->getBuffer().split(Lines, '\n');
     size_t TargetLine = GeneratedLocation.range.start.line;
     if (TargetLine >= Lines.size()) return std::nullopt;
 
@@ -2057,10 +1972,10 @@ std::optional<Location> templateFunctionLocation(
     }
     if (!TemplatePath || TemplateLine == 0U) return std::nullopt;
 
-    auto TemplateBuffer = llvm::MemoryBuffer::getFile(*TemplatePath);
+    auto TemplateBuffer = sourceBuffer(SourceMgr, *TemplatePath);
     if (!TemplateBuffer) return std::nullopt;
     llvm::SmallVector<llvm::StringRef, 256> TemplateLines;
-    (*TemplateBuffer)->getBuffer().split(TemplateLines, '\n');
+    TemplateBuffer->getBuffer().split(TemplateLines, '\n');
     if (TemplateLine > TemplateLines.size()) return std::nullopt;
     llvm::StringRef Head = TemplateLines[TemplateLine - 1U];
     size_t NameStart = Head.find(Symbol.Name);
@@ -2250,16 +2165,17 @@ void addParameterTokens(std::vector<SemanticHighlight> &Tokens,
     }
 }
 
+const llvm::StringRef AnnotationOperators[] = {
+    "->", "++", "--", "<<", ">>", "<=", ">=", "==", "!=", "&&",
+    "||", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "+",
+    "-",  "*",  "/",  "%",  "<",  ">",  "=",  "!",  "&",  "|",
+    "^",  "~",  "?"};
+
 void addExpressionTokens(std::vector<SemanticHighlight> &Tokens,
                          ParsedAST &AST, size_t LineNumber,
                          llvm::StringRef Line, size_t Begin, size_t End,
                          unsigned KeywordTokenType)
 {
-    static const llvm::StringRef Operators[] = {
-        "->", "++", "--", "<<", ">>", "<=", ">=", "==", "!=", "&&",
-        "||", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "+",
-        "-",  "*",  "/",  "%",  "<",  ">",  "=",  "!",  "&",  "|",
-        "^",  "~",  "?"};
     unsigned OperatorToken =
         static_cast<unsigned>(HighlightingKind::Operator);
     End = std::min(End, Line.size());
@@ -2274,7 +2190,7 @@ void addExpressionTokens(std::vector<SemanticHighlight> &Tokens,
             continue;
         }
         bool MatchedOperator = false;
-        for (llvm::StringRef Operator : Operators) {
+        for (llvm::StringRef Operator : AnnotationOperators) {
             if (I + Operator.size() > End) continue;
             if (Line.substr(I, Operator.size()) != Operator) continue;
             addAnnotationToken(Tokens, LineNumber, Line, I,
@@ -2328,11 +2244,6 @@ void addMetaInitializerTokens(std::vector<SemanticHighlight> &Tokens,
                               llvm::StringRef Line, size_t Begin, size_t End,
                               unsigned KeywordTokenType)
 {
-    static const llvm::StringRef Operators[] = {
-        "->", "++", "--", "<<", ">>", "<=", ">=", "==", "!=", "&&",
-        "||", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "+",
-        "-",  "*",  "/",  "%",  "<",  ">",  "=",  "!",  "&",  "|",
-        "^",  "~",  "?"};
     unsigned OperatorToken =
         static_cast<unsigned>(HighlightingKind::Operator);
     unsigned FieldToken = static_cast<unsigned>(HighlightingKind::Field);
@@ -2387,7 +2298,7 @@ void addMetaInitializerTokens(std::vector<SemanticHighlight> &Tokens,
             continue;
         }
         bool MatchedOperator = false;
-        for (llvm::StringRef Operator : Operators) {
+        for (llvm::StringRef Operator : AnnotationOperators) {
             if (I + Operator.size() > End) continue;
             if (Line.substr(I, Operator.size()) != Operator) continue;
             addAnnotationToken(Tokens, LineNumber, Line, I,
@@ -2710,13 +2621,12 @@ public:
             std::lock_guard<std::mutex> lock(GeneratorMutex);
             using tmplgen_plugin_support::MainFileText;
             int result = !preambleBuild
-                ? tmplgen_plugin_support::runTmplgen(compiler, {}, true)
+                ? tmplgen_plugin_support::runTmplgen(compiler, {})
                 : lastContents
                 ? tmplgen_plugin_support::runTmplgen(
-                      compiler, {}, true, MainFileText::Override,
-                      *lastContents)
+                      compiler, {}, MainFileText::Override, *lastContents)
                 : tmplgen_plugin_support::runTmplgen(
-                      compiler, {}, true, MainFileText::Disk);
+                      compiler, {}, MainFileText::Disk);
             if (result != 0) {
                 unsigned diagnostic =
                     compiler.getDiagnostics().getCustomDiagID(
@@ -3071,12 +2981,12 @@ private:
                         Symbol.Definition.value_or(Symbol.PreferredDeclaration);
                     if (std::optional<Location> Template =
                             templateFunctionLocation(
-                                Symbol, Definition,
+                                In->AST, Symbol, Definition,
                                 Params.textDocument.uri.file())) {
                         Definition = std::move(*Template);
                     } else if (std::optional<Location> Type =
                                    fallbackTemplateTypeLocation(
-                                       Symbol, Definition,
+                                       In->AST, Symbol, Definition,
                                        Params.textDocument.uri.file())) {
                         Definition = std::move(*Type);
                     }

@@ -49,20 +49,29 @@ supported keys are `source-root`, `template-dir`, `output`, `line-path-base`,
 searches upward from the compilation command’s working directory for a project
 template directory. It recognizes both the normal `tmpl/` layout and this
 repository’s `test/tmpl/` fixture layout; if no templates are found, it does
-nothing. Explicit plugin arguments override the discovered paths. Template
+nothing. Explicit plugin arguments override environment variables and discovered
+paths. Template
 `#line` paths are written relative to the project root (as if the standalone
 tool ran there with a relative `--template-dir`) unless `line-path-base` says
 otherwise; this is skipped when only `template-dir` is configured, because the
 root would be a guess.
 
+Both adapters automatically forward the active compiler invocation’s language
+standard, target triple, sysroot, resource directory, include search paths, and
+command-line macro definitions/undefinitions to the generator’s libclang parse.
+Use `clang-arg` (Clang) or `TMPLGEN_CLANG_ARGS` (either adapter) only for extra
+options that are not represented in that invocation, such as project-specific
+feature flags. Relative include paths are anchored at the compile command’s
+working directory, matching Clang’s lookup. This keeps template analysis aligned
+with the translation unit without duplicating the build system’s flags by hand.
+
 The plugin invokes the same project-wide source scan as the standalone tool.
-It runs before the main translation unit is parsed, so generated headers can be
-created or refreshed for that compilation. It does not replace dependency
-tracking in the build system: changing a template still needs to trigger a
-compile command or a standalone generation step. Plugin invocations targeting
-the same aggregate output are serialized, including concurrent Clang processes.
-Pass appropriate `clang-arg` options so libclang sees the project’s language
-standard, include paths, and feature defines.
+It runs after Clang loads the main file but before parsing it, so the current
+in-memory main-file buffer is used and generated headers are ready for that
+compilation. It does not replace dependency tracking in the build system:
+changing a template still needs to trigger a compile command or a standalone
+generation step. Plugin invocations targeting the same aggregate output are
+serialized, including concurrent Clang processes.
 
 ## Build the clangd plugin
 
@@ -110,10 +119,12 @@ searches upward from the compile command’s working directory for `tmpl/` or
 file is analyzed from clangd’s current buffer contents, including unsaved edits;
 other project files and templates are read from disk. clangd must support
 dynamic plugins, and the module must be built against the exact LLVM/Clang
-version used by that clangd binary.
+version used by that clangd binary. `clangd --check` does not pass feature
+modules through to AST parsing, so it does not exercise generation or the
+adapter’s editor features; test those through an editor or an LSP session.
 
-Configure the clangd module with environment variables when its defaults do not
-match the workspace:
+Configure either adapter with environment variables when its defaults do not
+match the workspace. Explicit Clang plugin arguments take precedence:
 
 | Variable | Purpose |
 | --- | --- |
