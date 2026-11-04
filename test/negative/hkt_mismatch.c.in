@@ -1,0 +1,10 @@
+#include "test/cases/test_types.h"
+#include "gen/all.gen.h"
+
+/* Array has a value parameter, so it cannot bind template(typename) F. */
+int main(void)
+{
+    Boxed(Array) boxed = {0};
+    (void)boxed;
+    return 0;
+}

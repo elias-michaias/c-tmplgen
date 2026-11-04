@@ -226,7 +226,10 @@ bool parseTemplateAnnotationLine(llvm::StringRef Line,
         } else if (Satisfaction != llvm::StringRef::npos) {
             Left = Part.take_front(Satisfaction);
         }
-        llvm::StringRef Parameter = firstIdentifier(Left);
+        // The parameter name is the trailing identifier: `T`, `typename T`,
+        // `size_t N`, and `template(typename, size_t) G` all end in it.
+        llvm::StringRef Parameter;
+        if (auto Last = lastIdentifier(Left)) Parameter = Last->first;
         if (Parameter.empty()) continue;
         std::string ParameterName = Parameter.str();
         if (std::find(Out.Data.Parameters.begin(), Out.Data.Parameters.end(),
@@ -2210,21 +2213,40 @@ unsigned classifyAnnotationIdentifier(ParsedAST &AST, llvm::StringRef Name,
 }
 
 void addParameterTokens(std::vector<SemanticHighlight> &Tokens,
-                        size_t LineNumber, llvm::StringRef Line,
-                        size_t Begin, size_t End)
+                        ParsedAST &AST, size_t LineNumber,
+                        llvm::StringRef Line, size_t Begin, size_t End,
+                        unsigned KeywordTokenType)
 {
     unsigned ParameterToken =
         static_cast<unsigned>(HighlightingKind::TemplateParameter);
     End = std::min(End, Line.size());
-    for (size_t I = Begin; I < End;) {
-        if (!isIdentifierChar(Line[I])) {
-            ++I;
-            continue;
+    // Each comma-separated parameter ends in its name. Preceding words are
+    // the `typename`/`template` specifiers or a value parameter's type.
+    for (llvm::StringRef Part : splitTopLevel(Line.slice(Begin, End), ',')) {
+        size_t PartStart = static_cast<size_t>(Part.data() - Line.data());
+        std::optional<std::pair<llvm::StringRef, size_t>> Last =
+            lastIdentifier(Part);
+        for (size_t I = 0; I < Part.size();) {
+            if (!isIdentifierChar(Part[I])) {
+                ++I;
+                continue;
+            }
+            size_t Start = I++;
+            while (I < Part.size() && isIdentifierChar(Part[I])) ++I;
+            llvm::StringRef Word = Part.slice(Start, I);
+            size_t LineStart = PartStart + Start;
+            if (Word == "typename" || Word == "template") {
+                addAnnotationToken(Tokens, LineNumber, Line, LineStart,
+                                   PartStart + I, KeywordTokenType);
+            } else if (Last && Last->second == Start) {
+                addAnnotationToken(Tokens, LineNumber, Line, LineStart,
+                                   PartStart + I, ParameterToken);
+            } else {
+                addAnnotationToken(
+                    Tokens, LineNumber, Line, LineStart, PartStart + I,
+                    classifyAnnotationIdentifier(AST, Word, KeywordTokenType));
+            }
         }
-        size_t Start = I++;
-        while (I < End && isIdentifierChar(Line[I])) ++I;
-        addAnnotationToken(Tokens, LineNumber, Line, Start, I,
-                           ParameterToken);
     }
 }
 
@@ -2403,12 +2425,12 @@ void highlightAnnotationLine(std::vector<SemanticHighlight> &Tokens,
             std::optional<ConstraintOperator> Operator =
                 findConstraintOperator(Line, Position);
             if (!Operator) {
-                addParameterTokens(Tokens, LineNumber, Line, Position,
-                                   Line.size());
+                addParameterTokens(Tokens, AST, LineNumber, Line, Position,
+                                   Line.size(), KeywordTokenType);
                 break;
             }
-            addParameterTokens(Tokens, LineNumber, Line, Position,
-                               Operator->Start);
+            addParameterTokens(Tokens, AST, LineNumber, Line, Position,
+                               Operator->Start, KeywordTokenType);
             addAnnotationToken(
                 Tokens, LineNumber, Line, Operator->Start, Operator->End,
                 static_cast<unsigned>(HighlightingKind::Operator));

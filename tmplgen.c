@@ -2293,9 +2293,12 @@ typedef struct {
     size_t line;
 } TemplateConstraint;
 
-typedef struct {
+typedef struct TemplateParameterKind {
     int is_value;
     char *value_type;
+    int is_constructor;
+    struct TemplateParameterKind *signature;
+    size_t signature_count;
 } TemplateParameterKind;
 
 typedef struct {
@@ -2387,6 +2390,9 @@ static const TemplateFunction *find_template_function(const TemplateInfo *ti,
 static void request_instance_types(const TemplateInfo *ti,
                                    const TemplateFunction *function,
                                    const GenInstance *instance);
+static int find_type_constructor(const TemplateInfo *infos, size_t count,
+                                 const char *name, size_t *template_index,
+                                 const TemplateType **constructor);
 static void register_structural_schema(CXCursor cursor, SourceFacts *facts);
 static char *specialize_function_calls(const char *fragment,
                                        const TemplateInfo *ti,
@@ -2584,12 +2590,59 @@ static void template_constraint_add_expression(TemplateConstraint **constraints,
     }
 }
 
+static void template_parameter_kind_clear(TemplateParameterKind *kind)
+{
+    size_t i;
+    free(kind->value_type);
+    for (i = 0U; i < kind->signature_count; ++i) {
+        template_parameter_kind_clear(&kind->signature[i]);
+    }
+    free(kind->signature);
+    memset(kind, 0, sizeof(*kind));
+}
+
+static void template_parameter_kind_copy(TemplateParameterKind *target,
+                                         const TemplateParameterKind *source)
+{
+    size_t i;
+    memset(target, 0, sizeof(*target));
+    target->is_value = source->is_value;
+    target->is_constructor = source->is_constructor;
+    target->value_type = source->value_type != NULL ?
+                         copy_string(source->value_type) : NULL;
+    target->signature_count = source->signature_count;
+    if (source->signature_count != 0U) {
+        target->signature = (TemplateParameterKind *)calloc(
+            source->signature_count, sizeof(*target->signature));
+        if (target->signature == NULL) die("out of memory");
+        for (i = 0U; i < source->signature_count; ++i) {
+            template_parameter_kind_copy(&target->signature[i], &source->signature[i]);
+        }
+    }
+}
+
+static int template_parameter_kind_equal(const TemplateParameterKind *left,
+                                         const TemplateParameterKind *right)
+{
+    size_t i;
+    if (left->is_value != right->is_value ||
+        left->is_constructor != right->is_constructor ||
+        !str_eq(left->value_type != NULL ? left->value_type : "",
+                right->value_type != NULL ? right->value_type : "") ||
+        left->signature_count != right->signature_count) return 0;
+    for (i = 0U; i < left->signature_count; ++i) {
+        if (!template_parameter_kind_equal(&left->signature[i],
+                                           &right->signature[i])) return 0;
+    }
+    return 1;
+}
+
 static void template_parameter_kinds_free(TemplateParameterKind *kinds,
                                           size_t count)
 {
     size_t i;
     if (kinds == NULL) return;
-    for (i = 0U; i < count; ++i) free(kinds[i].value_type);
+    for (i = 0U; i < count; ++i) template_parameter_kind_clear(&kinds[i]);
     free(kinds);
 }
 
@@ -2609,6 +2662,7 @@ static int function_has_explicit_parameters(const TemplateFunction *function)
     }
     return 0;
 }
+
 
 static void template_info_free(TemplateInfo *ti)
 {
@@ -2686,6 +2740,24 @@ static int template_parameter_is_value(const TemplateInfo *ti, size_t index)
 {
     return ti != NULL && ti->parameter_kinds != NULL &&
            index < ti->parameter_count && ti->parameter_kinds[index].is_value;
+}
+
+static int template_parameter_is_constructor(const TemplateInfo *ti, size_t index)
+{
+    return ti != NULL && ti->parameter_kinds != NULL &&
+           index < ti->parameter_count && ti->parameter_kinds[index].is_constructor;
+}
+
+static int function_has_constructor_parameters(const TemplateInfo *ti,
+                                               const TemplateFunction *function)
+{
+    size_t i;
+    for (i = 0U; i < function->type_parameter_count; ++i) {
+        int parameter = template_parameter_index(ti, function->type_parameters[i]);
+        if (parameter >= 0 &&
+            template_parameter_is_constructor(ti, (size_t)parameter)) return 1;
+    }
+    return 0;
 }
 
 static void copy_template_constraints(TemplateConstraint **target,
@@ -3042,8 +3114,12 @@ static int cursor_find_type_application(CXCursor cursor, const TemplateInfo *ti,
         }
         constructor = find_template_type(ti, name);
         if (constructor == NULL) {
-            free(name);
-            continue;
+            int parameter = template_parameter_index(ti, name);
+            if (parameter < 0 ||
+                !template_parameter_is_constructor(ti, (size_t)parameter)) {
+                free(name);
+                continue;
+            }
         }
         open = i;
         while (open < (size_t)end && isspace((unsigned char)ti->body.p[open])) ++open;
@@ -3735,6 +3811,16 @@ static int analyze_template(TemplateInfo *ti)
             buf_puts(&contents, "enum { ");
             buf_puts(&contents, ti->parameter_names[parameter_index]);
             buf_puts(&contents, " = 0 };\n");
+        } else if (template_parameter_is_constructor(ti, parameter_index)) {
+            /* A constructor parameter stands in for a one-argument type
+             * constructor: F(int) collapses to the typedef name F. */
+            buf_puts(&contents, "typedef int ");
+            buf_puts(&contents, ti->parameter_names[parameter_index]);
+            buf_puts(&contents, ";\n#define ");
+            buf_puts(&contents, ti->parameter_names[parameter_index]);
+            buf_puts(&contents, "(...) ");
+            buf_puts(&contents, ti->parameter_names[parameter_index]);
+            buf_putc(&contents, '\n');
         } else {
             buf_puts(&contents, "typedef int ");
             buf_puts(&contents, ti->parameter_names[parameter_index]);
@@ -3890,6 +3976,75 @@ static TemplateAnnotation *append_template_annotation(TemplateInfo *ti,
     return next;
 }
 
+static int scalar_type_word(const char *word, size_t length)
+{
+    static const char *const keywords[] = {
+        "char", "short", "int", "long", "signed", "unsigned", "float",
+        "double", "_Bool", "bool"
+    };
+    size_t i;
+    for (i = 0U; i < sizeof(keywords) / sizeof(keywords[0]); ++i) {
+        if (strlen(keywords[i]) == length &&
+            memcmp(keywords[i], word, length) == 0) return 1;
+    }
+    return length > 2U && word[length - 2U] == '_' && word[length - 1U] == 't';
+}
+
+/* One entry in a constructor parameter signature: `typename` (or a bare
+ * identifier) is a type parameter, anything else is a value parameter whose
+ * scalar type spelling precedes an optional documentation name. */
+static int parse_constructor_signature_parameter(const char *text,
+                                                 TemplateParameterKind *kind)
+{
+    char *normalized = normalize_spaces(text);
+    char *cursor = normalized;
+    char *words[8];
+    size_t word_count = 0U;
+    memset(kind, 0, sizeof(*kind));
+    while (cursor != NULL && *cursor != '\0') {
+        char *start = cursor;
+        while (*cursor != '\0' && !isspace((unsigned char)*cursor)) ++cursor;
+        if (*cursor != '\0') *cursor++ = '\0';
+        while (*cursor != '\0' && isspace((unsigned char)*cursor)) ++cursor;
+        if (word_count == sizeof(words) / sizeof(words[0])) {
+            free(normalized);
+            return 0;
+        }
+        words[word_count++] = start;
+    }
+    if (word_count == 0U) {
+        free(normalized);
+        return 0;
+    }
+    if (str_eq(words[0], "typename")) {
+        free(normalized);
+        return 1;
+    }
+    if (word_count == 1U && !scalar_type_word(words[0], strlen(words[0]))) {
+        /* A bare identifier names a type parameter, like `typename Item`. */
+        free(normalized);
+        return 1;
+    }
+    {
+        size_t type_words = word_count;
+        Buf type;
+        size_t i;
+        if (word_count > 1U &&
+            !scalar_type_word(words[word_count - 1U], strlen(words[word_count - 1U]))) {
+            type_words = word_count - 1U;
+        }
+        kind->is_value = 1;
+        buf_init(&type);
+        for (i = 0U; i < type_words; ++i) {
+            if (i != 0U) buf_putc(&type, ' ');
+            buf_puts(&type, words[i]);
+        }
+        kind->value_type = type.p;
+    }
+    free(normalized);
+    return 1;
+}
+
 static int parse_directive(TemplateInfo *ti, const char *line_text,
                            size_t line_number)
 {
@@ -3924,8 +4079,7 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
             const char *name_start;
             char *name;
             TemplateParameterKind kind;
-            kind.is_value = 0;
-            kind.value_type = NULL;
+            memset(&kind, 0, sizeof(kind));
             while (*p != '\0' && isspace((unsigned char)*p)) ++p;
             if (*p == '\0') break;
             if (*p == ',') {
@@ -3955,6 +4109,65 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                 while (is_ident_char(*p)) ++p;
                 first_length = (size_t)(p - first_start);
                 if (first_length == 8U &&
+                    strncmp(first_start, "template", 8U) == 0) {
+                    const char *q = p;
+                    while (*q != '\0' && isspace((unsigned char)*q)) ++q;
+                    if (*q == '(') {
+                        char **signature_arguments = NULL;
+                        size_t signature_count = 0U, signature_end = 0U;
+                        size_t signature_index;
+                        int parsed = parse_text_type_arguments(q, 0U,
+                            &signature_arguments, &signature_count, &signature_end);
+                        int valid = parsed || signature_end != 0U;
+                        if (!valid) {
+                            report_error(ti->path, line_number,
+                                         "malformed constructor parameter signature");
+                        }
+                        kind.is_constructor = 1;
+                        kind.signature_count = signature_count;
+                        if (valid && signature_count != 0U) {
+                            kind.signature = (TemplateParameterKind *)calloc(
+                                signature_count, sizeof(*kind.signature));
+                            if (kind.signature == NULL) die("out of memory");
+                            for (signature_index = 0U;
+                                 signature_index < signature_count;
+                                 ++signature_index) {
+                                if (!parse_constructor_signature_parameter(
+                                        signature_arguments[signature_index],
+                                        &kind.signature[signature_index])) {
+                                    report_error(ti->path, line_number,
+                                        "invalid constructor signature parameter '%s'",
+                                        signature_arguments[signature_index]);
+                                    valid = 0;
+                                    break;
+                                }
+                            }
+                        }
+                        list_free(signature_arguments, signature_count);
+                        if (!valid) {
+                            template_parameter_kind_clear(&kind);
+                            list_free(names, name_count);
+                            template_parameter_kinds_free(kinds, kind_count);
+                            template_constraint_array_free(constraints, constraint_count);
+                            free(command);
+                            return -1;
+                        }
+                        p = q + signature_end;
+                        while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+                        name_start = p;
+                        if (!is_ident_start(*p)) {
+                            report_error(ti->path, line_number,
+                                "expected a constructor parameter name after 'template(...)'");
+                            template_parameter_kind_clear(&kind);
+                            list_free(names, name_count);
+                            template_parameter_kinds_free(kinds, kind_count);
+                            template_constraint_array_free(constraints, constraint_count);
+                            free(command);
+                            return -1;
+                        }
+                        while (is_ident_char(*p)) ++p;
+                    }
+                } else if (first_length == 8U &&
                     strncmp(first_start, "typename", 8U) == 0) {
                     /* `typename` before a parameter name is an explicit
                      * type parameter specifier; a parameter actually named
@@ -4019,10 +4232,10 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
             expect_name = 0;
             while (*p != '\0' && isspace((unsigned char)*p)) ++p;
             if (*p == '<') {
-                if (kind.is_value) {
+                if (kind.is_value || kind.is_constructor) {
                     report_error(ti->path, line_number,
-                                 "value parameter '%s' cannot have a structural constraint",
-                                 name);
+                                 "%s parameter '%s' cannot have a structural constraint",
+                                 kind.is_value ? "value" : "constructor", name);
                     free(name);
                     list_free(names, name_count);
                     template_parameter_kinds_free(kinds, kind_count);
@@ -4067,10 +4280,10 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                 }
                 while (*p != '\0' && isspace((unsigned char)*p)) ++p;
             } else if (*p == '|') {
-                if (kind.is_value) {
+                if (kind.is_value || kind.is_constructor) {
                     report_error(ti->path, line_number,
-                                 "value parameter '%s' cannot have a constraint expression",
-                                 name);
+                                 "%s parameter '%s' cannot have a constraint expression",
+                                 kind.is_value ? "value" : "constructor", name);
                     free(name);
                     list_free(names, name_count);
                     template_parameter_kinds_free(kinds, kind_count);
@@ -4207,12 +4420,8 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                     }
                 }
                 if (existing >= 0) {
-                    if (ti->parameter_kinds[existing].is_value !=
-                        kinds[i].is_value ||
-                        !str_eq(ti->parameter_kinds[existing].value_type != NULL ?
-                                ti->parameter_kinds[existing].value_type : "",
-                                kinds[i].value_type != NULL ?
-                                kinds[i].value_type : "")) {
+                    if (!template_parameter_kind_equal(&ti->parameter_kinds[existing],
+                                                       &kinds[i])) {
                         report_error(ti->path, line_number,
                                      "@template parameter '%s' is declared with conflicting kinds",
                                      names[i]);
@@ -4236,9 +4445,8 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                     ti->parameter_cap = new_cap;
                 }
                 ti->parameter_names[ti->parameter_count] = copy_string(names[i]);
-                ti->parameter_kinds[ti->parameter_count].is_value = kinds[i].is_value;
-                ti->parameter_kinds[ti->parameter_count].value_type =
-                    kinds[i].value_type != NULL ? copy_string(kinds[i].value_type) : NULL;
+                template_parameter_kind_copy(&ti->parameter_kinds[ti->parameter_count],
+                                             &kinds[i]);
                 ++ti->parameter_count;
             }
         }
@@ -4381,11 +4589,10 @@ static void merge_template_annotations(TemplateInfo *ti, size_t target_index,
         if (!list_contains(target->parameter_names, target->parameter_count,
                            source->parameter_names[i])) {
             TemplateParameterKind kind;
-            kind.is_value = source->parameter_kinds != NULL ?
-                            source->parameter_kinds[i].is_value : 0;
-            kind.value_type = source->parameter_kinds != NULL &&
-                              source->parameter_kinds[i].value_type != NULL ?
-                              copy_string(source->parameter_kinds[i].value_type) : NULL;
+            memset(&kind, 0, sizeof(kind));
+            if (source->parameter_kinds != NULL) {
+                template_parameter_kind_copy(&kind, &source->parameter_kinds[i]);
+            }
             list_add(&target->parameter_names, &target->parameter_count,
                      &target->parameter_cap, source->parameter_names[i]);
             {
@@ -4875,7 +5082,92 @@ static char *expand_short_constraint_call(const char *expression,
     return expanded.p != NULL ? expanded.p : copy_string("");
 }
 
+static const TemplateType *find_template_constructor_any(
+    const TemplateInfo *infos, size_t count, const char *name,
+    size_t *template_index)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) {
+        const TemplateType *found = find_template_type(&infos[i], name);
+        if (found != NULL) {
+            *template_index = i;
+            return found;
+        }
+    }
+    return NULL;
+}
+
+static int value_type_spelling_equal(const char *left, const char *right)
+{
+    char *normalized_left = normalize_spaces(left != NULL ? left : "");
+    char *normalized_right = normalize_spaces(right != NULL ? right : "");
+    int equal = str_eq(normalized_left, normalized_right);
+    free(normalized_left);
+    free(normalized_right);
+    return equal;
+}
+
+static int constructor_signature_matches(const TemplateParameterKind *expected,
+                                         const TemplateInfo *candidate_ti,
+                                         const TemplateType *candidate)
+{
+    size_t i;
+    if (!expected->is_constructor ||
+        expected->signature_count != candidate->parameter_count) return 0;
+    for (i = 0U; i < candidate->parameter_count; ++i) {
+        int parameter = template_parameter_index(candidate_ti,
+            candidate->parameter_names[i]);
+        const TemplateParameterKind *actual = parameter >= 0 &&
+            candidate_ti->parameter_kinds != NULL ?
+            &candidate_ti->parameter_kinds[parameter] : NULL;
+        const TemplateParameterKind *want = &expected->signature[i];
+        if (actual == NULL) return 0;
+        if (want->is_constructor || actual->is_constructor) {
+            if (!template_parameter_kind_equal(want, actual)) return 0;
+        } else if (want->is_value != actual->is_value) {
+            return 0;
+        } else if (want->is_value &&
+                   !value_type_spelling_equal(want->value_type, actual->value_type)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Resolve an application constructor. Usually it names a template type in the
+ * same file; `F` may instead be a constructor parameter bound by `instance`
+ * to a constructor declared in any template. */
+static const TemplateType *resolve_application_constructor(
+    const TemplateInfo *ti, const GenInstance *instance,
+    const TemplateApplication *application, const TemplateInfo **constructor_ti)
+{
+    const TemplateType *constructor = find_template_type(ti, application->constructor);
+    if (constructor != NULL) {
+        *constructor_ti = ti;
+        return constructor;
+    }
+    if (instance != NULL) {
+        int parameter = template_parameter_index(ti, application->constructor);
+        if (parameter >= 0 &&
+            template_parameter_is_constructor(ti, (size_t)parameter)) {
+            int argument = instance_parameter_position(instance, (size_t)parameter);
+            if (argument >= 0) {
+                size_t template_index = 0U;
+                const TemplateType *bound = find_template_constructor_any(
+                    g_all_template_infos, g_all_template_info_count,
+                    instance->arguments[argument].c_type, &template_index);
+                if (bound != NULL) {
+                    *constructor_ti = &g_all_template_infos[template_index];
+                    return bound;
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
 static char *application_suffix(const TemplateInfo *ti,
+                                const TemplateInfo *constructor_ti,
                                 const GenInstance *instance,
                                 const TemplateType *constructor,
                                 char **application_arguments,
@@ -4903,9 +5195,11 @@ static char *application_suffix(const TemplateInfo *ti,
         } else {
             int constructor_parameter = valid_identifier(
                 constructor->parameter_names[i]) ?
-                template_parameter_index(ti, constructor->parameter_names[i]) : -1;
+                template_parameter_index(constructor_ti,
+                                         constructor->parameter_names[i]) : -1;
             if (constructor_parameter >= 0 &&
-                template_parameter_is_value(ti, (size_t)constructor_parameter)) {
+                template_parameter_is_value(constructor_ti,
+                                            (size_t)constructor_parameter)) {
                 char *value = canonical_value_argument(argument);
                 if (value != NULL) {
                     free(argument);
@@ -4996,7 +5290,46 @@ static void rewrite(const char *src, const TemplateInfo *ti,
                                                   find_template_type(ti, ident) : NULL;
                 const TemplateFunction *function = parameter < 0 && constructor == NULL ?
                                                    find_template_function(ti, ident) : NULL;
-                if (parameter >= 0 && argument >= 0) {
+                if (parameter >= 0 && argument >= 0 &&
+                    template_parameter_is_constructor(ti, (size_t)parameter)) {
+                    size_t open = i;
+                    char **application_arguments = NULL;
+                    size_t application_count = 0U, application_end = 0U;
+                    int emitted = 0;
+                    while (isspace((unsigned char)src[open])) ++open;
+                    if (src[open] == '(' &&
+                        parse_text_type_arguments(src, open,
+                            &application_arguments, &application_count,
+                            &application_end)) {
+                        TemplateApplication application;
+                        const TemplateInfo *bound_ti = ti;
+                        const TemplateType *bound;
+                        memset(&application, 0, sizeof(application));
+                        application.constructor = ident;
+                        bound = resolve_application_constructor(ti, instance,
+                            &application, &bound_ti);
+                        if (bound != NULL) {
+                            char *suffix = application_suffix(ti, bound_ti, instance,
+                                bound, application_arguments, application_count);
+                            if (suffix != NULL) {
+                                if (bound->is_struct_tag) buf_puts(out, "struct ");
+                                else if (bound->is_union_tag) buf_puts(out, "union ");
+                                buf_puts(out, instance->arguments[argument].c_type);
+                                buf_putc(out, '_');
+                                buf_puts(out, suffix);
+                                free(suffix);
+                                i = application_end;
+                                emitted = 1;
+                            }
+                        }
+                        list_free(application_arguments, application_count);
+                    }
+                    if (emitted) {
+                        free(ident);
+                        continue;
+                    }
+                    buf_puts(out, instance->arguments[argument].c_type);
+                } else if (parameter >= 0 && argument >= 0) {
                     buf_puts(out, instance->arguments[argument].c_type);
                 } else if (constructor != NULL) {
                     size_t open = i;
@@ -5007,7 +5340,7 @@ static void rewrite(const char *src, const TemplateInfo *ti,
                         parse_text_type_arguments(src, open,
                             &application_arguments, &application_count,
                             &application_end)) {
-                        char *suffix = application_suffix(ti, instance, constructor,
+                        char *suffix = application_suffix(ti, ti, instance, constructor,
                             application_arguments, application_count);
                         if (suffix != NULL) {
                             if (constructor->is_struct_tag) buf_puts(out, "struct ");
@@ -5067,11 +5400,12 @@ static void rewrite_c_type(const char *type, const TemplateInfo *ti,
                            const TemplateApplication *application, Buf *out)
 {
     size_t i = 0U;
+    const TemplateInfo *applied_ti = ti;
     const TemplateType *applied_constructor = application != NULL &&
         application->constructor != NULL ?
-        find_template_type(ti, application->constructor) : NULL;
+        resolve_application_constructor(ti, instance, application, &applied_ti) : NULL;
     char *applied_suffix = applied_constructor != NULL ?
-        application_suffix(ti, instance, applied_constructor,
+        application_suffix(ti, applied_ti, instance, applied_constructor,
                            application->arguments, application->argument_count) : NULL;
     while (type[i] != '\0') {
         if (is_ident_start(type[i])) {
@@ -5081,7 +5415,15 @@ static void rewrite_c_type(const char *type, const TemplateInfo *ti,
             ident = copy_range(type + start, i - start);
             if (applied_suffix != NULL &&
                 str_eq(ident, application->constructor)) {
-                buf_puts(out, ident);
+                int parameter = template_parameter_index(ti, ident);
+                int argument = parameter >= 0 ?
+                    instance_parameter_position(instance, (size_t)parameter) : -1;
+                if (parameter >= 0 && argument >= 0 &&
+                    template_parameter_is_constructor(ti, (size_t)parameter)) {
+                    buf_puts(out, instance->arguments[argument].c_type);
+                } else {
+                    buf_puts(out, ident);
+                }
                 buf_putc(out, '_');
                 buf_puts(out, applied_suffix);
             } else {
@@ -9463,6 +9805,26 @@ static enum CXChildVisitResult collect_clang_source_cursor(CXCursor cursor,
                         constructor->parameter_names[j]);
                     const char *canonical;
                     if (parameter < 0) die("invalid template constructor parameter map");
+                    if (template_parameter_is_constructor(type_ti, (size_t)parameter)) {
+                        size_t bound_template_index = 0U;
+                        const TemplateType *bound = valid_identifier(arguments[j]) ?
+                            find_template_constructor_any(g_all_template_infos,
+                                g_all_template_info_count, arguments[j],
+                                &bound_template_index) : NULL;
+                        if (argument_tokens[j] != 1U || bound == NULL ||
+                            !constructor_signature_matches(
+                                &type_ti->parameter_kinds[parameter],
+                                &g_all_template_infos[bound_template_index], bound)) {
+                            report_error(path, line,
+                                "%s() argument '%s' is not a template constructor matching '%s'",
+                                name, arguments[j], constructor->parameter_names[j]);
+                            context->failed = 1;
+                            argument_error = 1;
+                            break;
+                        }
+                        canonical_arguments[j] = copy_string(arguments[j]);
+                        continue;
+                    }
                     if (template_parameter_is_value(type_ti, (size_t)parameter)) {
                         char *value;
                         size_t digit = 0U;
@@ -10138,6 +10500,19 @@ static void emit_bootstrap_function_macros(Buf *out, const TemplateInfo *infos,
                 buf_free(&gnu_expression);
                 dispatch_plan_free(&plan);
             } else if (requirement == NULL &&
+                       function_has_constructor_parameters(&infos[i], function)) {
+                /* Constructor parameters can be ambiguous in the first pass,
+                 * where every F(T) collapses to T. Always provide a second
+                 * pass macro so the exact specialization name can be matched. */
+                Buf no_match;
+                buf_init(&no_match);
+                emit_no_match_declaration(out, function->name);
+                buf_puts(&no_match, function->name);
+                buf_puts(&no_match, "__no_match_for_argument_type");
+                emit_bootstrap_function_macro(out, function->name, function,
+                                              &no_match);
+                buf_free(&no_match);
+            } else if (requirement == NULL &&
                        function_has_type_variable_mismatch(function->name)) {
                 emit_mismatch_only_macro(out, function);
             }
@@ -10453,6 +10828,34 @@ static void request_type_application(const TemplateInfo *ti,
             free(argument);
             argument = NULL;
         }
+        if (template_parameter_is_constructor(constructor_ti, (size_t)parameter)) {
+            size_t bound_template_index = 0U;
+            const TemplateType *bound = find_template_constructor_any(
+                g_all_template_infos, g_all_template_info_count,
+                spellings[i], &bound_template_index);
+            if (bound == NULL ||
+                !constructor_signature_matches(&constructor_ti->parameter_kinds[parameter],
+                    &g_all_template_infos[bound_template_index], bound)) {
+                size_t cleanup_index;
+                report_error(instance->origin_path, instance->origin_line,
+                    "'%s' is not a template constructor matching parameter '%s'",
+                    spellings[i], constructor->parameter_names[i]);
+                for (cleanup_index = 0U; cleanup_index < argument_count;
+                     ++cleanup_index) {
+                    if (owned[cleanup_index]) {
+                        free((char *)spellings[cleanup_index]);
+                        if (canonicals[cleanup_index] != spellings[cleanup_index]) {
+                            free((char *)canonicals[cleanup_index]);
+                        }
+                    }
+                }
+                free(indices);
+                free(spellings);
+                free(canonicals);
+                free(owned);
+                return;
+            }
+        }
         if (template_parameter_is_value(constructor_ti, (size_t)parameter)) {
             char *value = canonical_value_argument(spellings[i]);
             if (value == NULL) {
@@ -10531,15 +10934,26 @@ static void request_type_applications(const TemplateInfo *ti,
         while (is_ident_char(fragment[offset])) ++offset;
         name = copy_range(fragment + start, offset - start);
         open = skip_c_trivia(fragment, offset);
-        if (find_type_constructor(g_all_template_infos,
-                                  g_all_template_info_count,
-                                  name, &template_index, &constructor) &&
-            constructor != NULL && fragment[open] == '(' &&
-            parse_text_type_arguments(fragment, open, &arguments,
-                                      &argument_count, &end)) {
-            request_type_application(ti, instance, name, arguments,
-                                     argument_count);
-            list_free(arguments, argument_count);
+        {
+            const char *constructor_name = name;
+            int parameter = template_parameter_index(ti, name);
+            if (parameter >= 0 &&
+                template_parameter_is_constructor(ti, (size_t)parameter)) {
+                int argument = instance_parameter_position(instance, (size_t)parameter);
+                constructor_name = argument >= 0 ?
+                    instance->arguments[argument].c_type : NULL;
+            }
+            if (constructor_name != NULL &&
+                find_type_constructor(g_all_template_infos,
+                                      g_all_template_info_count,
+                                      constructor_name, &template_index, &constructor) &&
+                constructor != NULL && fragment[open] == '(' &&
+                parse_text_type_arguments(fragment, open, &arguments,
+                                          &argument_count, &end)) {
+                request_type_application(ti, instance, constructor_name, arguments,
+                                         argument_count);
+                list_free(arguments, argument_count);
+            }
         }
         free(name);
     }
@@ -10747,6 +11161,14 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
             const TemplateArgument *parameter = &function->parameters[use->argument_index];
             size_t k;
             for (k = 0U; k < binding_count; ++k) {
+                int parameter_kind = template_parameter_index(ti,
+                    function->type_parameters[k]);
+                if (parameter_kind >= 0 &&
+                    template_parameter_is_constructor(ti, (size_t)parameter_kind)) {
+                    /* Constructor parameters bind from the application, not
+                     * from the stand-in spelling of the parameter type. */
+                    continue;
+                }
                 if (identifier_line_in_code(parameter->type,
                                             function->type_parameters[k]) != 0U) {
                     char *spelling = NULL;
@@ -10883,6 +11305,186 @@ static int process_clang_use_group(ClangUseList *uses, size_t first,
                     }
                 }
                 free(constructor_indices);
+            }
+            if (parameter->application.constructor != NULL) {
+                int constructor_parameter = template_parameter_index(ti,
+                    parameter->application.constructor);
+                if (constructor_parameter >= 0 &&
+                    template_parameter_is_constructor(ti, (size_t)constructor_parameter)) {
+                    size_t use_index;
+                    int exact_application = 0;
+                    /* A constructor parameter decomposes the observed type:
+                     * G(T, N) matched against Array_int_4 binds G = Array,
+                     * T = int, N = 4. */
+                    for (use_index = 0U; use_index < g_type_use_count; ++use_index) {
+                        size_t candidate_template_index = 0U;
+                        const TemplateType *candidate_constructor =
+                            find_template_constructor_any(infos, template_count,
+                                g_type_uses[use_index].functor,
+                                &candidate_template_index);
+                        GenInstance *candidate;
+                        char *actual_normalized;
+                        Buf expected;
+                        char *expected_normalized;
+                        size_t *candidate_indices;
+                        size_t j2;
+                        if (candidate_constructor == NULL) continue;
+                        if (!constructor_signature_matches(
+                                &ti->parameter_kinds[constructor_parameter],
+                                &infos[candidate_template_index],
+                                candidate_constructor)) continue;
+                        candidate_indices = (size_t *)malloc(
+                            candidate_constructor->parameter_count *
+                            sizeof(*candidate_indices));
+                        if (candidate_indices == NULL) die("out of memory");
+                        for (j2 = 0U; j2 < candidate_constructor->parameter_count; ++j2) {
+                            int mapped = template_parameter_index(
+                                &infos[candidate_template_index],
+                                candidate_constructor->parameter_names[j2]);
+                            if (mapped < 0) die("invalid constructor parameter map");
+                            candidate_indices[j2] = (size_t)mapped;
+                        }
+                        candidate = find_instance(candidate_template_index,
+                            g_type_uses[use_index].type_name, candidate_indices,
+                            candidate_constructor->parameter_count);
+                        free(candidate_indices);
+                        if (candidate == NULL) continue;
+                        buf_init(&expected);
+                        buf_puts(&expected, g_type_uses[use_index].functor);
+                        buf_putc(&expected, '_');
+                        buf_puts(&expected, candidate->name);
+                        buf_puts(&expected, parameter->type +
+                            strlen(parameter->application.constructor));
+                        expected_normalized = normalize_spaces(
+                            expected.p != NULL ? expected.p : "");
+                        actual_normalized = normalize_spaces(use->type_spelling);
+                        buf_free(&expected);
+                        if (str_eq(actual_normalized, expected_normalized)) {
+                            exact_application = 1;
+                        }
+                        free(actual_normalized);
+                        free(expected_normalized);
+                        if (exact_application) break;
+                    }
+                    for (use_index = 0U; use_index < g_type_use_count; ++use_index) {
+                        const char *functor = g_type_uses[use_index].functor;
+                        size_t candidate_template_index = 0U;
+                        const TemplateType *candidate_constructor =
+                            find_template_constructor_any(infos, template_count,
+                                functor, &candidate_template_index);
+                        const TemplateInfo *candidate_ti;
+                        size_t *candidate_indices;
+                        GenInstance *candidate;
+                        size_t argument_index;
+                        size_t binding_index;
+                        int arguments_match = 1;
+                        int application_match = 0;
+                        if (candidate_constructor == NULL) continue;
+                        candidate_ti = &infos[candidate_template_index];
+                        if (!constructor_signature_matches(
+                                &ti->parameter_kinds[constructor_parameter],
+                                candidate_ti, candidate_constructor)) continue;
+                        candidate_indices = (size_t *)malloc(
+                            candidate_constructor->parameter_count *
+                            sizeof(*candidate_indices));
+                        if (candidate_indices == NULL) die("out of memory");
+                        for (j = 0U; j < candidate_constructor->parameter_count; ++j) {
+                            int mapped = template_parameter_index(candidate_ti,
+                                candidate_constructor->parameter_names[j]);
+                            if (mapped < 0) die("invalid constructor parameter map");
+                            candidate_indices[j] = (size_t)mapped;
+                        }
+                        candidate = find_instance(candidate_template_index,
+                            g_type_uses[use_index].type_name, candidate_indices,
+                            candidate_constructor->parameter_count);
+                        free(candidate_indices);
+                        if (candidate == NULL) continue;
+                        {
+                            Buf expected;
+                            char *actual_normalized = normalize_spaces(use->type_spelling);
+                            char *expected_normalized;
+                            buf_init(&expected);
+                            buf_puts(&expected, functor);
+                            buf_putc(&expected, '_');
+                            buf_puts(&expected, candidate->name);
+                            buf_puts(&expected, parameter->type +
+                                strlen(parameter->application.constructor));
+                            expected_normalized = normalize_spaces(
+                                expected.p != NULL ? expected.p : "");
+                            buf_free(&expected);
+                            if (str_eq(actual_normalized, expected_normalized)) {
+                                application_match = 1;
+                            }
+                            free(actual_normalized);
+                            free(expected_normalized);
+                        }
+                        if (application_match == 0) {
+                            application_match = application_candidate_matches(
+                                ti, parameter, candidate, use->type_spelling,
+                                use->canonical_spelling != NULL ?
+                                use->canonical_spelling : use->type_spelling);
+                        }
+                        if (application_match == 0 ||
+                            (application_match == 2 && exact_application)) continue;
+                        for (argument_index = 0U;
+                             argument_index < parameter->application.argument_count &&
+                             argument_index < candidate->argument_count;
+                             ++argument_index) {
+                            char *argument = normalize_spaces(
+                                parameter->application.arguments[argument_index]);
+                            int is_variable = 0;
+                            if (valid_identifier(argument)) {
+                                for (binding_index = 0U; binding_index < binding_count;
+                                     ++binding_index) {
+                                    if (str_eq(function->type_parameters[binding_index],
+                                               argument)) {
+                                        is_variable = 1;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (!is_variable) {
+                                char *value = canonical_value_argument(argument);
+                                const char *expected_argument = value != NULL ?
+                                    value : argument;
+                                if (!str_eq(expected_argument,
+                                        candidate->arguments[argument_index].c_type)) {
+                                    arguments_match = 0;
+                                }
+                                free(value);
+                            }
+                            free(argument);
+                            if (!arguments_match) break;
+                        }
+                        if (!arguments_match) continue;
+                        for (binding_index = 0U; binding_index < binding_count;
+                             ++binding_index) {
+                            if (str_eq(function->type_parameters[binding_index],
+                                       parameter->application.constructor)) {
+                                if (!assign_template_argument(ti, binding_index,
+                                        functor, functor, spellings, canonicals,
+                                        assigned)) okay = 0;
+                                break;
+                            }
+                        }
+                        assign_application_parameters(ti, function,
+                            &parameter->application, candidate, spellings,
+                            canonicals, assigned, application_match == 1, use, &okay);
+                        if (application_match == 2) {
+                            size_t dispatch_index;
+                            for (dispatch_index = 0U;
+                                 dispatch_index < function->dispatch_count;
+                                 ++dispatch_index) {
+                                if (function->dispatch_indices[dispatch_index] ==
+                                    use->argument_index) {
+                                    dispatch_types[dispatch_index] = NULL;
+                                    dispatch_canonicals[dispatch_index] = NULL;
+                                    dispatch_pending[dispatch_index] = 1U;
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -11346,6 +11948,9 @@ static void expand_type_dependencies(const TemplateInfo *infos,
         instance_copy = *instance;
         fragment = copy_range(ti->body.p + constructor->start_offset,
                               (size_t)(constructor->end_offset - constructor->start_offset));
+        /* Applications in the body request their own specializations,
+         * including applications of bound constructor parameters. */
+        request_type_applications(ti, &instance_copy, fragment);
         for (j = 0U; j < ti->constructor_count; ++j) {
             const TemplateType *dependency = &ti->constructors[j];
             GenInstance *dependency_instance;

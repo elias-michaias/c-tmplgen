@@ -112,11 +112,14 @@ typedef enum TMPLGEN_SYM(TypeTag) {
     TMPLGEN_SYM(TYPETAG_double),
     TMPLGEN_SYM(TYPETAG_long_double),
     /* project types */
+    TMPLGEN_SYM(TYPETAG_Array_TestInt_2),
+    TMPLGEN_SYM(TYPETAG_Array_TestInt_4),
     TMPLGEN_SYM(TYPETAG_Array_int_2),
     TMPLGEN_SYM(TYPETAG_Array_int_4),
     TMPLGEN_SYM(TYPETAG_Box_Tag),
     TMPLGEN_SYM(TYPETAG_Box_TestInt),
     TMPLGEN_SYM(TYPETAG_Box_double),
+    TMPLGEN_SYM(TYPETAG_Boxed_Option),
     TMPLGEN_SYM(TYPETAG_Dog),
     TMPLGEN_SYM(TYPETAG_ErrorCode),
     TMPLGEN_SYM(TYPETAG_FieldInfo),
@@ -136,24 +139,27 @@ typedef enum TMPLGEN_SYM(TypeTag) {
     TMPLGEN_SYM(TYPETAG_Pair_Tag_double),
     TMPLGEN_SYM(TYPETAG_Pair_double_Tag),
     TMPLGEN_SYM(TYPETAG_PhysicsBody),
+    TMPLGEN_SYM(TYPETAG_Plain),
+    TMPLGEN_SYM(TYPETAG_PlainBox_Plain),
     TMPLGEN_SYM(TYPETAG_Point),
-    TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode),
-    TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int),
     TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode),
     TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError),
     TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError),
     TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode),
+    TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode),
+    TMPLGEN_SYM(TYPETAG_ResultPayload_int_int),
     TMPLGEN_SYM(TYPETAG_ResultTag),
-    TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode),
-    TMPLGEN_SYM(TYPETAG_Result_Dog_int),
     TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode),
     TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError),
     TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError),
     TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode),
+    TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode),
+    TMPLGEN_SYM(TYPETAG_Result_int_int),
     TMPLGEN_SYM(TYPETAG_Role),
     TMPLGEN_SYM(TYPETAG_Status),
     TMPLGEN_SYM(TYPETAG_Triple_Tag_InferredError_InferredLong),
     TMPLGEN_SYM(TYPETAG_Triple_TestInt_ErrorCode_Tag),
+    TMPLGEN_SYM(TYPETAG_Triple_TestInt_TestInt_TestInt),
     TMPLGEN_SYM(TYPETAG_Triple_double_ErrorCode_Tag),
     TMPLGEN_SYM(TYPETAG_Vec_Item),
     TMPLGEN_SYM(TYPETAG_Vec_TestInt),
@@ -167,11 +173,14 @@ typedef enum TMPLGEN_SYM(TypeTag) {
     TMPLGEN_SYM(TYPETAG_struct_WrongActor),
     TMPLGEN_SYM(TYPETAG_struct_WrongPhysics),
     TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt),
+    TMPLGEN_SYM(TYPETAG_Array_TestInt_2_ptr),
+    TMPLGEN_SYM(TYPETAG_Array_TestInt_4_ptr),
     TMPLGEN_SYM(TYPETAG_Array_int_2_ptr),
     TMPLGEN_SYM(TYPETAG_Array_int_4_ptr),
     TMPLGEN_SYM(TYPETAG_Box_Tag_ptr),
     TMPLGEN_SYM(TYPETAG_Box_TestInt_ptr),
     TMPLGEN_SYM(TYPETAG_Box_double_ptr),
+    TMPLGEN_SYM(TYPETAG_Boxed_Option_ptr),
     TMPLGEN_SYM(TYPETAG_Dog_ptr),
     TMPLGEN_SYM(TYPETAG_FieldInfo_ptr),
     TMPLGEN_SYM(TYPETAG_Hero_ptr),
@@ -188,21 +197,24 @@ typedef enum TMPLGEN_SYM(TypeTag) {
     TMPLGEN_SYM(TYPETAG_Pair_Tag_double_ptr),
     TMPLGEN_SYM(TYPETAG_Pair_double_Tag_ptr),
     TMPLGEN_SYM(TYPETAG_PhysicsBody_ptr),
+    TMPLGEN_SYM(TYPETAG_PlainBox_Plain_ptr),
+    TMPLGEN_SYM(TYPETAG_Plain_ptr),
     TMPLGEN_SYM(TYPETAG_Point_ptr),
-    TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode_ptr),
-    TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int_ptr),
     TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode_ptr),
     TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError_ptr),
     TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError_ptr),
     TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode_ptr),
-    TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode_ptr),
-    TMPLGEN_SYM(TYPETAG_Result_Dog_int_ptr),
+    TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode_ptr),
+    TMPLGEN_SYM(TYPETAG_ResultPayload_int_int_ptr),
     TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode_ptr),
     TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError_ptr),
     TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError_ptr),
     TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode_ptr),
+    TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode_ptr),
+    TMPLGEN_SYM(TYPETAG_Result_int_int_ptr),
     TMPLGEN_SYM(TYPETAG_Triple_Tag_InferredError_InferredLong_ptr),
     TMPLGEN_SYM(TYPETAG_Triple_TestInt_ErrorCode_Tag_ptr),
+    TMPLGEN_SYM(TYPETAG_Triple_TestInt_TestInt_TestInt_ptr),
     TMPLGEN_SYM(TYPETAG_Triple_double_ErrorCode_Tag_ptr),
     TMPLGEN_SYM(TYPETAG_Vec_Item_ptr),
     TMPLGEN_SYM(TYPETAG_Vec_TestInt_ptr),
@@ -253,267 +265,290 @@ static const char TMPLGEN_SYM(RuntimeTypeStrings)[] = {
     'd','o','u','b','l','e',0, /* 232: double */
     'l','o','n','g','_','d','o','u','b','l','e',0, /* 239: long_double */
     'l','o','n','g',' ','d','o','u','b','l','e',0, /* 251: long double */
-    'A','r','r','a','y','_','i','n','t','_','2',0, /* 263: Array_int_2 */
-    'A','r','r','a','y','(','i','n','t',',',' ','2',')',0, /* 275: Array(int, 2) */
-    'A','r','r','a','y','_','i','n','t','_','4',0, /* 289: Array_int_4 */
-    'A','r','r','a','y','(','i','n','t',',',' ','4',')',0, /* 301: Array(int, 4) */
-    'B','o','x','_','T','a','g',0, /* 315: Box_Tag */
-    'B','o','x','(','T','a','g',')',0, /* 323: Box(Tag) */
-    'B','o','x','_','T','e','s','t','I','n','t',0, /* 332: Box_TestInt */
-    'B','o','x','(','T','e','s','t','I','n','t',')',0, /* 344: Box(TestInt) */
-    'B','o','x','_','d','o','u','b','l','e',0, /* 357: Box_double */
-    'B','o','x','(','d','o','u','b','l','e',')',0, /* 368: Box(double) */
-    'D','o','g',0, /* 380: Dog */
-    'E','r','r','o','r','C','o','d','e',0, /* 384: ErrorCode */
-    'F','i','e','l','d','I','n','f','o',0, /* 394: FieldInfo */
-    'H','e','r','o',0, /* 404: Hero */
-    'I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 409: InferredError */
-    'I','n','v','e','n','t','o','r','y',0, /* 423: Inventory */
-    'I','t','e','m',0, /* 433: Item */
-    'N','a','m','e','d','A','c','t','o','r',0, /* 438: NamedActor */
-    'N','u','m','b','e','r',0, /* 449: Number */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t',0, /* 456: OptionPayload_TestInt */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',')',0, /* 478: OptionPayload(TestInt) */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','d','o','u','b','l','e',0, /* 501: OptionPayload_double */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','d','o','u','b','l','e',')',0, /* 522: OptionPayload(double) */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','i','n','t',0, /* 544: OptionPayload_int */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','i','n','t',')',0, /* 562: OptionPayload(int) */
-    'O','p','t','i','o','n','T','a','g',0, /* 581: OptionTag */
-    'O','p','t','i','o','n','_','T','e','s','t','I','n','t',0, /* 591: Option_TestInt */
-    'O','p','t','i','o','n','(','T','e','s','t','I','n','t',')',0, /* 606: Option(TestInt) */
-    'O','p','t','i','o','n','_','d','o','u','b','l','e',0, /* 622: Option_double */
-    'O','p','t','i','o','n','(','d','o','u','b','l','e',')',0, /* 636: Option(double) */
-    'O','p','t','i','o','n','_','i','n','t',0, /* 651: Option_int */
-    'O','p','t','i','o','n','(','i','n','t',')',0, /* 662: Option(int) */
-    'P','a','i','r','_','T','a','g','_','d','o','u','b','l','e',0, /* 674: Pair_Tag_double */
-    'P','a','i','r','(','T','a','g',',',' ','d','o','u','b','l','e',')',0, /* 690: Pair(Tag, double) */
-    'P','a','i','r','_','d','o','u','b','l','e','_','T','a','g',0, /* 708: Pair_double_Tag */
-    'P','a','i','r','(','d','o','u','b','l','e',',',' ','T','a','g',')',0, /* 724: Pair(double, Tag) */
-    'P','h','y','s','i','c','s','B','o','d','y',0, /* 742: PhysicsBody */
-    'P','o','i','n','t',0, /* 754: Point */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','D','o','g','_','E','r','r','o','r','C','o','d','e',0, /* 760: ResultPayload_Dog_ErrorCode */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','D','o','g',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 788: ResultPayload(Dog, ErrorCode) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','D','o','g','_','i','n','t',0, /* 818: ResultPayload_Dog_int */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','D','o','g',',',' ','i','n','t',')',0, /* 840: ResultPayload(Dog, int) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e',0, /* 864: ResultPayload_InferredDouble_ErrorCode */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 903: ResultPayload(InferredDouble, ErrorCode) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 944: ResultPayload_InferredLong_InferredError */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 985: ResultPayload(InferredLong, InferredError) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1028: ResultPayload_Tag_InferredError */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1060: ResultPayload(Tag, InferredError) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1094: ResultPayload_TestInt_ErrorCode */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1126: ResultPayload(TestInt, ErrorCode) */
-    'R','e','s','u','l','t','T','a','g',0, /* 1160: ResultTag */
-    'R','e','s','u','l','t','_','D','o','g','_','E','r','r','o','r','C','o','d','e',0, /* 1170: Result_Dog_ErrorCode */
-    'R','e','s','u','l','t','(','D','o','g',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1191: Result(Dog, ErrorCode) */
-    'R','e','s','u','l','t','_','D','o','g','_','i','n','t',0, /* 1214: Result_Dog_int */
-    'R','e','s','u','l','t','(','D','o','g',',',' ','i','n','t',')',0, /* 1229: Result(Dog, int) */
-    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e',0, /* 1246: Result_InferredDouble_ErrorCode */
-    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1278: Result(InferredDouble, ErrorCode) */
-    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1312: Result_InferredLong_InferredError */
-    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1346: Result(InferredLong, InferredError) */
-    'R','e','s','u','l','t','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1382: Result_Tag_InferredError */
-    'R','e','s','u','l','t','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1407: Result(Tag, InferredError) */
-    'R','e','s','u','l','t','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1434: Result_TestInt_ErrorCode */
-    'R','e','s','u','l','t','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1459: Result(TestInt, ErrorCode) */
-    'R','o','l','e',0, /* 1486: Role */
-    'S','t','a','t','u','s',0, /* 1491: Status */
-    'T','r','i','p','l','e','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','I','n','f','e','r','r','e','d','L','o','n','g',0, /* 1498: Triple_Tag_InferredError_InferredLong */
-    'T','r','i','p','l','e','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',',',' ','I','n','f','e','r','r','e','d','L','o','n','g',')',0, /* 1536: Triple(Tag, InferredError, InferredLong) */
-    'T','r','i','p','l','e','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','T','a','g',0, /* 1577: Triple_TestInt_ErrorCode_Tag */
-    'T','r','i','p','l','e','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',',',' ','T','a','g',')',0, /* 1606: Triple(TestInt, ErrorCode, Tag) */
-    'T','r','i','p','l','e','_','d','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','T','a','g',0, /* 1638: Triple_double_ErrorCode_Tag */
-    'T','r','i','p','l','e','(','d','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',',',' ','T','a','g',')',0, /* 1666: Triple(double, ErrorCode, Tag) */
-    'V','e','c','_','I','t','e','m',0, /* 1697: Vec_Item */
-    'V','e','c','(','I','t','e','m',')',0, /* 1706: Vec(Item) */
-    'V','e','c','_','T','e','s','t','I','n','t',0, /* 1716: Vec_TestInt */
-    'V','e','c','(','T','e','s','t','I','n','t',')',0, /* 1728: Vec(TestInt) */
-    'V','e','c','_','i','n','t',0, /* 1741: Vec_int */
-    'V','e','c','(','i','n','t',')',0, /* 1749: Vec(int) */
-    's','t','r','u','c','t','_','A','c','t','o','r',0, /* 1758: struct_Actor */
-    's','t','r','u','c','t',' ','A','c','t','o','r',0, /* 1771: struct Actor */
-    's','t','r','u','c','t','_','E','n','t','i','t','y',0, /* 1784: struct_Entity */
-    's','t','r','u','c','t',' ','E','n','t','i','t','y',0, /* 1798: struct Entity */
-    's','t','r','u','c','t','_','N','a','m','e','d',0, /* 1812: struct_Named */
-    's','t','r','u','c','t',' ','N','a','m','e','d',0, /* 1825: struct Named */
-    's','t','r','u','c','t','_','P','a','c','k','e','d',0, /* 1838: struct_Packed */
-    's','t','r','u','c','t',' ','P','a','c','k','e','d',0, /* 1852: struct Packed */
-    's','t','r','u','c','t','_','P','h','y','s','i','c','s',0, /* 1866: struct_Physics */
-    's','t','r','u','c','t',' ','P','h','y','s','i','c','s',0, /* 1881: struct Physics */
-    's','t','r','u','c','t','_','T','a','g','g','e','d','B','o','x','_','T','e','s','t','I','n','t',0, /* 1896: struct_TaggedBox_TestInt */
-    'T','a','g','g','e','d','B','o','x','(','T','e','s','t','I','n','t',')',0, /* 1921: TaggedBox(TestInt) */
-    's','t','r','u','c','t','_','W','r','o','n','g','A','c','t','o','r',0, /* 1940: struct_WrongActor */
-    's','t','r','u','c','t',' ','W','r','o','n','g','A','c','t','o','r',0, /* 1958: struct WrongActor */
-    's','t','r','u','c','t','_','W','r','o','n','g','P','h','y','s','i','c','s',0, /* 1976: struct_WrongPhysics */
-    's','t','r','u','c','t',' ','W','r','o','n','g','P','h','y','s','i','c','s',0, /* 1996: struct WrongPhysics */
-    'u','n','i','o','n','_','T','a','g','g','e','d','C','h','o','i','c','e','_','T','e','s','t','I','n','t',0, /* 2016: union_TaggedChoice_TestInt */
-    'T','a','g','g','e','d','C','h','o','i','c','e','(','T','e','s','t','I','n','t',')',0, /* 2043: TaggedChoice(TestInt) */
-    'A','r','r','a','y','_','i','n','t','_','2','_','p','t','r',0, /* 2065: Array_int_2_ptr */
-    'A','r','r','a','y','(','i','n','t',',',' ','2',')',' ','*',0, /* 2081: Array(int, 2) * */
-    'A','r','r','a','y','_','i','n','t','_','4','_','p','t','r',0, /* 2097: Array_int_4_ptr */
-    'A','r','r','a','y','(','i','n','t',',',' ','4',')',' ','*',0, /* 2113: Array(int, 4) * */
-    'B','o','x','_','T','a','g','_','p','t','r',0, /* 2129: Box_Tag_ptr */
-    'B','o','x','(','T','a','g',')',' ','*',0, /* 2141: Box(Tag) * */
-    'B','o','x','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 2152: Box_TestInt_ptr */
-    'B','o','x','(','T','e','s','t','I','n','t',')',' ','*',0, /* 2168: Box(TestInt) * */
-    'B','o','x','_','d','o','u','b','l','e','_','p','t','r',0, /* 2183: Box_double_ptr */
-    'B','o','x','(','d','o','u','b','l','e',')',' ','*',0, /* 2198: Box(double) * */
-    'D','o','g','_','p','t','r',0, /* 2212: Dog_ptr */
-    'D','o','g',' ','*',0, /* 2220: Dog * */
-    'F','i','e','l','d','I','n','f','o','_','p','t','r',0, /* 2226: FieldInfo_ptr */
-    'F','i','e','l','d','I','n','f','o',' ','*',0, /* 2240: FieldInfo * */
-    'H','e','r','o','_','p','t','r',0, /* 2252: Hero_ptr */
-    'H','e','r','o',' ','*',0, /* 2261: Hero * */
-    'I','n','v','e','n','t','o','r','y','_','p','t','r',0, /* 2268: Inventory_ptr */
-    'I','n','v','e','n','t','o','r','y',' ','*',0, /* 2282: Inventory * */
-    'I','t','e','m','_','p','t','r',0, /* 2294: Item_ptr */
-    'I','t','e','m',' ','*',0, /* 2303: Item * */
-    'N','a','m','e','d','A','c','t','o','r','_','p','t','r',0, /* 2310: NamedActor_ptr */
-    'N','a','m','e','d','A','c','t','o','r',' ','*',0, /* 2325: NamedActor * */
-    'N','u','m','b','e','r','_','p','t','r',0, /* 2338: Number_ptr */
-    'N','u','m','b','e','r',' ','*',0, /* 2349: Number * */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 2358: OptionPayload_TestInt_ptr */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',')',' ','*',0, /* 2384: OptionPayload(TestInt) * */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','d','o','u','b','l','e','_','p','t','r',0, /* 2409: OptionPayload_double_ptr */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','d','o','u','b','l','e',')',' ','*',0, /* 2434: OptionPayload(double) * */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','i','n','t','_','p','t','r',0, /* 2458: OptionPayload_int_ptr */
-    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','i','n','t',')',' ','*',0, /* 2480: OptionPayload(int) * */
-    'O','p','t','i','o','n','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 2501: Option_TestInt_ptr */
-    'O','p','t','i','o','n','(','T','e','s','t','I','n','t',')',' ','*',0, /* 2520: Option(TestInt) * */
-    'O','p','t','i','o','n','_','d','o','u','b','l','e','_','p','t','r',0, /* 2538: Option_double_ptr */
-    'O','p','t','i','o','n','(','d','o','u','b','l','e',')',' ','*',0, /* 2556: Option(double) * */
-    'O','p','t','i','o','n','_','i','n','t','_','p','t','r',0, /* 2573: Option_int_ptr */
-    'O','p','t','i','o','n','(','i','n','t',')',' ','*',0, /* 2588: Option(int) * */
-    'P','a','i','r','_','T','a','g','_','d','o','u','b','l','e','_','p','t','r',0, /* 2602: Pair_Tag_double_ptr */
-    'P','a','i','r','(','T','a','g',',',' ','d','o','u','b','l','e',')',' ','*',0, /* 2622: Pair(Tag, double) * */
-    'P','a','i','r','_','d','o','u','b','l','e','_','T','a','g','_','p','t','r',0, /* 2642: Pair_double_Tag_ptr */
-    'P','a','i','r','(','d','o','u','b','l','e',',',' ','T','a','g',')',' ','*',0, /* 2662: Pair(double, Tag) * */
-    'P','h','y','s','i','c','s','B','o','d','y','_','p','t','r',0, /* 2682: PhysicsBody_ptr */
-    'P','h','y','s','i','c','s','B','o','d','y',' ','*',0, /* 2698: PhysicsBody * */
-    'P','o','i','n','t','_','p','t','r',0, /* 2712: Point_ptr */
-    'P','o','i','n','t',' ','*',0, /* 2722: Point * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','D','o','g','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 2730: ResultPayload_Dog_ErrorCode_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','D','o','g',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 2762: ResultPayload(Dog, ErrorCode) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','D','o','g','_','i','n','t','_','p','t','r',0, /* 2794: ResultPayload_Dog_int_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','D','o','g',',',' ','i','n','t',')',' ','*',0, /* 2820: ResultPayload(Dog, int) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 2846: ResultPayload_InferredDouble_ErrorCode_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 2889: ResultPayload(InferredDouble, ErrorCode) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 2932: ResultPayload_InferredLong_InferredError_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 2977: ResultPayload(InferredLong, InferredError) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3022: ResultPayload_Tag_InferredError_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3058: ResultPayload(Tag, InferredError) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3094: ResultPayload_TestInt_ErrorCode_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3130: ResultPayload(TestInt, ErrorCode) * */
-    'R','e','s','u','l','t','_','D','o','g','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3166: Result_Dog_ErrorCode_ptr */
-    'R','e','s','u','l','t','(','D','o','g',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3191: Result(Dog, ErrorCode) * */
-    'R','e','s','u','l','t','_','D','o','g','_','i','n','t','_','p','t','r',0, /* 3216: Result_Dog_int_ptr */
-    'R','e','s','u','l','t','(','D','o','g',',',' ','i','n','t',')',' ','*',0, /* 3235: Result(Dog, int) * */
-    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3254: Result_InferredDouble_ErrorCode_ptr */
-    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3290: Result(InferredDouble, ErrorCode) * */
-    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3326: Result_InferredLong_InferredError_ptr */
-    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3364: Result(InferredLong, InferredError) * */
-    'R','e','s','u','l','t','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3402: Result_Tag_InferredError_ptr */
-    'R','e','s','u','l','t','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3431: Result(Tag, InferredError) * */
-    'R','e','s','u','l','t','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3460: Result_TestInt_ErrorCode_ptr */
-    'R','e','s','u','l','t','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3489: Result(TestInt, ErrorCode) * */
-    'T','r','i','p','l','e','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','I','n','f','e','r','r','e','d','L','o','n','g','_','p','t','r',0, /* 3518: Triple_Tag_InferredError_InferredLong_ptr */
-    'T','r','i','p','l','e','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',',',' ','I','n','f','e','r','r','e','d','L','o','n','g',')',' ','*',0, /* 3560: Triple(Tag, InferredError, InferredLong) * */
-    'T','r','i','p','l','e','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','T','a','g','_','p','t','r',0, /* 3603: Triple_TestInt_ErrorCode_Tag_ptr */
-    'T','r','i','p','l','e','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',',',' ','T','a','g',')',' ','*',0, /* 3636: Triple(TestInt, ErrorCode, Tag) * */
-    'T','r','i','p','l','e','_','d','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','T','a','g','_','p','t','r',0, /* 3670: Triple_double_ErrorCode_Tag_ptr */
-    'T','r','i','p','l','e','(','d','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',',',' ','T','a','g',')',' ','*',0, /* 3702: Triple(double, ErrorCode, Tag) * */
-    'V','e','c','_','I','t','e','m','_','p','t','r',0, /* 3735: Vec_Item_ptr */
-    'V','e','c','(','I','t','e','m',')',' ','*',0, /* 3748: Vec(Item) * */
-    'V','e','c','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 3760: Vec_TestInt_ptr */
-    'V','e','c','(','T','e','s','t','I','n','t',')',' ','*',0, /* 3776: Vec(TestInt) * */
-    'V','e','c','_','i','n','t','_','p','t','r',0, /* 3791: Vec_int_ptr */
-    'V','e','c','(','i','n','t',')',' ','*',0, /* 3803: Vec(int) * */
-    'c','h','a','r','_','a','r','r','1','2',0, /* 3814: char_arr12 */
-    'c','h','a','r','[','1','2',']',0, /* 3825: char[12] */
-    'c','h','a','r','_','a','r','r','1','6',0, /* 3834: char_arr16 */
-    'c','h','a','r','[','1','6',']',0, /* 3845: char[16] */
-    'c','h','a','r','_','p','t','r',0, /* 3854: char_ptr */
-    'c','h','a','r',' ','*',0, /* 3863: char * */
-    'c','o','n','s','t','_','c','h','a','r','_','p','t','r',0, /* 3870: const_char_ptr */
-    'c','o','n','s','t',' ','c','h','a','r',' ','*',0, /* 3885: const char * */
-    'i','n','t','_','a','r','r','2',0, /* 3898: int_arr2 */
-    'i','n','t','[','2',']',0, /* 3907: int[2] */
-    'i','n','t','_','a','r','r','4',0, /* 3914: int_arr4 */
-    'i','n','t','[','4',']',0, /* 3923: int[4] */
-    'i','n','t','_','p','t','r',0, /* 3930: int_ptr */
-    'i','n','t',' ','*',0, /* 3938: int * */
-    's','t','r','u','c','t','_','A','c','t','o','r','_','p','t','r',0, /* 3944: struct_Actor_ptr */
-    's','t','r','u','c','t',' ','A','c','t','o','r',' ','*',0, /* 3961: struct Actor * */
-    's','t','r','u','c','t','_','E','n','t','i','t','y','_','p','t','r',0, /* 3976: struct_Entity_ptr */
-    's','t','r','u','c','t',' ','E','n','t','i','t','y',' ','*',0, /* 3994: struct Entity * */
-    's','t','r','u','c','t','_','N','a','m','e','d','_','p','t','r',0, /* 4010: struct_Named_ptr */
-    's','t','r','u','c','t',' ','N','a','m','e','d',' ','*',0, /* 4027: struct Named * */
-    's','t','r','u','c','t','_','P','a','c','k','e','d','_','p','t','r',0, /* 4042: struct_Packed_ptr */
-    's','t','r','u','c','t',' ','P','a','c','k','e','d',' ','*',0, /* 4060: struct Packed * */
-    's','t','r','u','c','t','_','P','h','y','s','i','c','s','_','p','t','r',0, /* 4076: struct_Physics_ptr */
-    's','t','r','u','c','t',' ','P','h','y','s','i','c','s',' ','*',0, /* 4095: struct Physics * */
-    's','t','r','u','c','t','_','T','a','g','g','e','d','B','o','x','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 4112: struct_TaggedBox_TestInt_ptr */
-    'T','a','g','g','e','d','B','o','x','(','T','e','s','t','I','n','t',')',' ','*',0, /* 4141: TaggedBox(TestInt) * */
-    's','t','r','u','c','t','_','W','r','o','n','g','A','c','t','o','r','_','p','t','r',0, /* 4162: struct_WrongActor_ptr */
-    's','t','r','u','c','t',' ','W','r','o','n','g','A','c','t','o','r',' ','*',0, /* 4184: struct WrongActor * */
-    's','t','r','u','c','t','_','W','r','o','n','g','P','h','y','s','i','c','s','_','p','t','r',0, /* 4204: struct_WrongPhysics_ptr */
-    's','t','r','u','c','t',' ','W','r','o','n','g','P','h','y','s','i','c','s',' ','*',0, /* 4228: struct WrongPhysics * */
-    'u','n','i','o','n','_','T','a','g','g','e','d','C','h','o','i','c','e','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 4250: union_TaggedChoice_TestInt_ptr */
-    'T','a','g','g','e','d','C','h','o','i','c','e','(','T','e','s','t','I','n','t',')',' ','*',0, /* 4281: TaggedChoice(TestInt) * */
-    'v','o','i','d','_','p','t','r',0, /* 4305: void_ptr */
-    'v','o','i','d',' ','*',0, /* 4314: void * */
-    'k','e','y',0, /* 4321: key */
-    'c','o','d','e',0, /* 4325: code */
-    'x',0, /* 4330: x */
-    'y',0, /* 4332: y */
-    'l','a','b','e','l',0, /* 4334: label */
-    'w','e','i','g','h','t',0, /* 4340: weight */
-    'p','o','s','i','t','i','o','n',0, /* 4347: position */
-    'h','e','a','l','t','h',0, /* 4356: health */
-    'r','o','l','e',0, /* 4363: role */
-    's','t','a','t','u','s',0, /* 4368: status */
-    'n','a','m','e',0, /* 4375: name */
-    's','p','e','e','d',0, /* 4380: speed */
-    'a','l','i','v','e',0, /* 4386: alive */
-    'k','i','n','d',0, /* 4392: kind */
-    'v','a','l','u','e',0, /* 4397: value */
-    'f','l','a','g',0, /* 4403: flag */
-    'w','h','o','l','e',0, /* 4408: whole */
-    'r','e','a','l',0, /* 4414: real */
-    'd','a','t','a',0, /* 4419: data */
-    'l','e','n',0, /* 4424: len */
-    'c','a','p',0, /* 4428: cap */
-    'i','d',0, /* 4432: id */
-    'f','l','a','g','s',0, /* 4435: flags */
-    'm','a','s','s',0, /* 4441: mass */
-    's','o','m','e',0, /* 4446: some */
-    't','a','g',0, /* 4451: tag */
-    'p','a','y','l','o','a','d',0, /* 4455: payload */
-    'i','t','e','m','s',0, /* 4463: items */
-    'g','o','l','d',0, /* 4469: gold */
-    's','n','a','c','k','s',0, /* 4474: snacks */
-    'o','k',0, /* 4481: ok */
-    'e','r','r','o','r',0, /* 4484: error */
-    'f','i','r','s','t',0, /* 4490: first */
-    's','e','c','o','n','d',0, /* 4496: second */
-    't','h','i','r','d',0, /* 4503: third */
-    'R','O','L','E','_','W','A','R','R','I','O','R',0, /* 4509: ROLE_WARRIOR */
-    'R','O','L','E','_','M','A','G','E',0, /* 4522: ROLE_MAGE */
-    'R','O','L','E','_','R','O','G','U','E',0, /* 4532: ROLE_ROGUE */
-    'S','T','A','T','U','S','_','D','O','W','N',0, /* 4543: STATUS_DOWN */
-    'S','T','A','T','U','S','_','O','K',0, /* 4555: STATUS_OK */
-    'S','T','A','T','U','S','_','B','U','F','F','E','D',0, /* 4565: STATUS_BUFFED */
-    'R','E','S','U','L','T','_','O','K',0, /* 4579: RESULT_OK */
-    'R','E','S','U','L','T','_','E','R','R','O','R',0, /* 4589: RESULT_ERROR */
-    'O','P','T','I','O','N','_','N','O','N','E',0, /* 4602: OPTION_NONE */
-    'O','P','T','I','O','N','_','S','O','M','E',0, /* 4614: OPTION_SOME */
-    'E','r','r','o','r','N','o','n','e',0, /* 4626: ErrorNone */
-    'E','r','r','o','r','F','a','i','l','e','d',0, /* 4636: ErrorFailed */
-    'I','n','f','e','r','r','e','d','E','r','r','o','r','N','o','n','e',0, /* 4648: InferredErrorNone */
-    'I','n','f','e','r','r','e','d','E','r','r','o','r','F','a','i','l','e','d',0, /* 4666: InferredErrorFailed */
+    'A','r','r','a','y','_','T','e','s','t','I','n','t','_','2',0, /* 263: Array_TestInt_2 */
+    'A','r','r','a','y','(','T','e','s','t','I','n','t',',',' ','2',')',0, /* 279: Array(TestInt, 2) */
+    'A','r','r','a','y','_','T','e','s','t','I','n','t','_','4',0, /* 297: Array_TestInt_4 */
+    'A','r','r','a','y','(','T','e','s','t','I','n','t',',',' ','4',')',0, /* 313: Array(TestInt, 4) */
+    'A','r','r','a','y','_','i','n','t','_','2',0, /* 331: Array_int_2 */
+    'A','r','r','a','y','(','i','n','t',',',' ','2',')',0, /* 343: Array(int, 2) */
+    'A','r','r','a','y','_','i','n','t','_','4',0, /* 357: Array_int_4 */
+    'A','r','r','a','y','(','i','n','t',',',' ','4',')',0, /* 369: Array(int, 4) */
+    'B','o','x','_','T','a','g',0, /* 383: Box_Tag */
+    'B','o','x','(','T','a','g',')',0, /* 391: Box(Tag) */
+    'B','o','x','_','T','e','s','t','I','n','t',0, /* 400: Box_TestInt */
+    'B','o','x','(','T','e','s','t','I','n','t',')',0, /* 412: Box(TestInt) */
+    'B','o','x','_','d','o','u','b','l','e',0, /* 425: Box_double */
+    'B','o','x','(','d','o','u','b','l','e',')',0, /* 436: Box(double) */
+    'B','o','x','e','d','_','O','p','t','i','o','n',0, /* 448: Boxed_Option */
+    'B','o','x','e','d','(','O','p','t','i','o','n',')',0, /* 461: Boxed(Option) */
+    'D','o','g',0, /* 475: Dog */
+    'E','r','r','o','r','C','o','d','e',0, /* 479: ErrorCode */
+    'F','i','e','l','d','I','n','f','o',0, /* 489: FieldInfo */
+    'H','e','r','o',0, /* 499: Hero */
+    'I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 504: InferredError */
+    'I','n','v','e','n','t','o','r','y',0, /* 518: Inventory */
+    'I','t','e','m',0, /* 528: Item */
+    'N','a','m','e','d','A','c','t','o','r',0, /* 533: NamedActor */
+    'N','u','m','b','e','r',0, /* 544: Number */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t',0, /* 551: OptionPayload_TestInt */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',')',0, /* 573: OptionPayload(TestInt) */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','d','o','u','b','l','e',0, /* 596: OptionPayload_double */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','d','o','u','b','l','e',')',0, /* 617: OptionPayload(double) */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','i','n','t',0, /* 639: OptionPayload_int */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','i','n','t',')',0, /* 657: OptionPayload(int) */
+    'O','p','t','i','o','n','T','a','g',0, /* 676: OptionTag */
+    'O','p','t','i','o','n','_','T','e','s','t','I','n','t',0, /* 686: Option_TestInt */
+    'O','p','t','i','o','n','(','T','e','s','t','I','n','t',')',0, /* 701: Option(TestInt) */
+    'O','p','t','i','o','n','_','d','o','u','b','l','e',0, /* 717: Option_double */
+    'O','p','t','i','o','n','(','d','o','u','b','l','e',')',0, /* 731: Option(double) */
+    'O','p','t','i','o','n','_','i','n','t',0, /* 746: Option_int */
+    'O','p','t','i','o','n','(','i','n','t',')',0, /* 757: Option(int) */
+    'P','a','i','r','_','T','a','g','_','d','o','u','b','l','e',0, /* 769: Pair_Tag_double */
+    'P','a','i','r','(','T','a','g',',',' ','d','o','u','b','l','e',')',0, /* 785: Pair(Tag, double) */
+    'P','a','i','r','_','d','o','u','b','l','e','_','T','a','g',0, /* 803: Pair_double_Tag */
+    'P','a','i','r','(','d','o','u','b','l','e',',',' ','T','a','g',')',0, /* 819: Pair(double, Tag) */
+    'P','h','y','s','i','c','s','B','o','d','y',0, /* 837: PhysicsBody */
+    'P','l','a','i','n',0, /* 849: Plain */
+    'P','l','a','i','n','B','o','x','_','P','l','a','i','n',0, /* 855: PlainBox_Plain */
+    'P','l','a','i','n','B','o','x','(','P','l','a','i','n',')',0, /* 870: PlainBox(Plain) */
+    'P','o','i','n','t',0, /* 886: Point */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e',0, /* 892: ResultPayload_InferredDouble_ErrorCode */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 931: ResultPayload(InferredDouble, ErrorCode) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 972: ResultPayload_InferredLong_InferredError */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1013: ResultPayload(InferredLong, InferredError) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1056: ResultPayload_Tag_InferredError */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1088: ResultPayload(Tag, InferredError) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1122: ResultPayload_TestInt_ErrorCode */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1154: ResultPayload(TestInt, ErrorCode) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','i','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1188: ResultPayload_int_ErrorCode */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','i','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1216: ResultPayload(int, ErrorCode) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','i','n','t','_','i','n','t',0, /* 1246: ResultPayload_int_int */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','i','n','t',',',' ','i','n','t',')',0, /* 1268: ResultPayload(int, int) */
+    'R','e','s','u','l','t','T','a','g',0, /* 1292: ResultTag */
+    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e',0, /* 1302: Result_InferredDouble_ErrorCode */
+    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1334: Result(InferredDouble, ErrorCode) */
+    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1368: Result_InferredLong_InferredError */
+    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1402: Result(InferredLong, InferredError) */
+    'R','e','s','u','l','t','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1438: Result_Tag_InferredError */
+    'R','e','s','u','l','t','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1463: Result(Tag, InferredError) */
+    'R','e','s','u','l','t','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1490: Result_TestInt_ErrorCode */
+    'R','e','s','u','l','t','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1515: Result(TestInt, ErrorCode) */
+    'R','e','s','u','l','t','_','i','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1542: Result_int_ErrorCode */
+    'R','e','s','u','l','t','(','i','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1563: Result(int, ErrorCode) */
+    'R','e','s','u','l','t','_','i','n','t','_','i','n','t',0, /* 1586: Result_int_int */
+    'R','e','s','u','l','t','(','i','n','t',',',' ','i','n','t',')',0, /* 1601: Result(int, int) */
+    'R','o','l','e',0, /* 1618: Role */
+    'S','t','a','t','u','s',0, /* 1623: Status */
+    'T','r','i','p','l','e','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','I','n','f','e','r','r','e','d','L','o','n','g',0, /* 1630: Triple_Tag_InferredError_InferredLong */
+    'T','r','i','p','l','e','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',',',' ','I','n','f','e','r','r','e','d','L','o','n','g',')',0, /* 1668: Triple(Tag, InferredError, InferredLong) */
+    'T','r','i','p','l','e','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','T','a','g',0, /* 1709: Triple_TestInt_ErrorCode_Tag */
+    'T','r','i','p','l','e','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',',',' ','T','a','g',')',0, /* 1738: Triple(TestInt, ErrorCode, Tag) */
+    'T','r','i','p','l','e','_','T','e','s','t','I','n','t','_','T','e','s','t','I','n','t','_','T','e','s','t','I','n','t',0, /* 1770: Triple_TestInt_TestInt_TestInt */
+    'T','r','i','p','l','e','(','T','e','s','t','I','n','t',',',' ','T','e','s','t','I','n','t',',',' ','T','e','s','t','I','n','t',')',0, /* 1801: Triple(TestInt, TestInt, TestInt) */
+    'T','r','i','p','l','e','_','d','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','T','a','g',0, /* 1835: Triple_double_ErrorCode_Tag */
+    'T','r','i','p','l','e','(','d','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',',',' ','T','a','g',')',0, /* 1863: Triple(double, ErrorCode, Tag) */
+    'V','e','c','_','I','t','e','m',0, /* 1894: Vec_Item */
+    'V','e','c','(','I','t','e','m',')',0, /* 1903: Vec(Item) */
+    'V','e','c','_','T','e','s','t','I','n','t',0, /* 1913: Vec_TestInt */
+    'V','e','c','(','T','e','s','t','I','n','t',')',0, /* 1925: Vec(TestInt) */
+    'V','e','c','_','i','n','t',0, /* 1938: Vec_int */
+    'V','e','c','(','i','n','t',')',0, /* 1946: Vec(int) */
+    's','t','r','u','c','t','_','A','c','t','o','r',0, /* 1955: struct_Actor */
+    's','t','r','u','c','t',' ','A','c','t','o','r',0, /* 1968: struct Actor */
+    's','t','r','u','c','t','_','E','n','t','i','t','y',0, /* 1981: struct_Entity */
+    's','t','r','u','c','t',' ','E','n','t','i','t','y',0, /* 1995: struct Entity */
+    's','t','r','u','c','t','_','N','a','m','e','d',0, /* 2009: struct_Named */
+    's','t','r','u','c','t',' ','N','a','m','e','d',0, /* 2022: struct Named */
+    's','t','r','u','c','t','_','P','a','c','k','e','d',0, /* 2035: struct_Packed */
+    's','t','r','u','c','t',' ','P','a','c','k','e','d',0, /* 2049: struct Packed */
+    's','t','r','u','c','t','_','P','h','y','s','i','c','s',0, /* 2063: struct_Physics */
+    's','t','r','u','c','t',' ','P','h','y','s','i','c','s',0, /* 2078: struct Physics */
+    's','t','r','u','c','t','_','T','a','g','g','e','d','B','o','x','_','T','e','s','t','I','n','t',0, /* 2093: struct_TaggedBox_TestInt */
+    'T','a','g','g','e','d','B','o','x','(','T','e','s','t','I','n','t',')',0, /* 2118: TaggedBox(TestInt) */
+    's','t','r','u','c','t','_','W','r','o','n','g','A','c','t','o','r',0, /* 2137: struct_WrongActor */
+    's','t','r','u','c','t',' ','W','r','o','n','g','A','c','t','o','r',0, /* 2155: struct WrongActor */
+    's','t','r','u','c','t','_','W','r','o','n','g','P','h','y','s','i','c','s',0, /* 2173: struct_WrongPhysics */
+    's','t','r','u','c','t',' ','W','r','o','n','g','P','h','y','s','i','c','s',0, /* 2193: struct WrongPhysics */
+    'u','n','i','o','n','_','T','a','g','g','e','d','C','h','o','i','c','e','_','T','e','s','t','I','n','t',0, /* 2213: union_TaggedChoice_TestInt */
+    'T','a','g','g','e','d','C','h','o','i','c','e','(','T','e','s','t','I','n','t',')',0, /* 2240: TaggedChoice(TestInt) */
+    'A','r','r','a','y','_','T','e','s','t','I','n','t','_','2','_','p','t','r',0, /* 2262: Array_TestInt_2_ptr */
+    'A','r','r','a','y','(','T','e','s','t','I','n','t',',',' ','2',')',' ','*',0, /* 2282: Array(TestInt, 2) * */
+    'A','r','r','a','y','_','T','e','s','t','I','n','t','_','4','_','p','t','r',0, /* 2302: Array_TestInt_4_ptr */
+    'A','r','r','a','y','(','T','e','s','t','I','n','t',',',' ','4',')',' ','*',0, /* 2322: Array(TestInt, 4) * */
+    'A','r','r','a','y','_','i','n','t','_','2','_','p','t','r',0, /* 2342: Array_int_2_ptr */
+    'A','r','r','a','y','(','i','n','t',',',' ','2',')',' ','*',0, /* 2358: Array(int, 2) * */
+    'A','r','r','a','y','_','i','n','t','_','4','_','p','t','r',0, /* 2374: Array_int_4_ptr */
+    'A','r','r','a','y','(','i','n','t',',',' ','4',')',' ','*',0, /* 2390: Array(int, 4) * */
+    'B','o','x','_','T','a','g','_','p','t','r',0, /* 2406: Box_Tag_ptr */
+    'B','o','x','(','T','a','g',')',' ','*',0, /* 2418: Box(Tag) * */
+    'B','o','x','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 2429: Box_TestInt_ptr */
+    'B','o','x','(','T','e','s','t','I','n','t',')',' ','*',0, /* 2445: Box(TestInt) * */
+    'B','o','x','_','d','o','u','b','l','e','_','p','t','r',0, /* 2460: Box_double_ptr */
+    'B','o','x','(','d','o','u','b','l','e',')',' ','*',0, /* 2475: Box(double) * */
+    'B','o','x','e','d','_','O','p','t','i','o','n','_','p','t','r',0, /* 2489: Boxed_Option_ptr */
+    'B','o','x','e','d','(','O','p','t','i','o','n',')',' ','*',0, /* 2506: Boxed(Option) * */
+    'D','o','g','_','p','t','r',0, /* 2522: Dog_ptr */
+    'D','o','g',' ','*',0, /* 2530: Dog * */
+    'F','i','e','l','d','I','n','f','o','_','p','t','r',0, /* 2536: FieldInfo_ptr */
+    'F','i','e','l','d','I','n','f','o',' ','*',0, /* 2550: FieldInfo * */
+    'H','e','r','o','_','p','t','r',0, /* 2562: Hero_ptr */
+    'H','e','r','o',' ','*',0, /* 2571: Hero * */
+    'I','n','v','e','n','t','o','r','y','_','p','t','r',0, /* 2578: Inventory_ptr */
+    'I','n','v','e','n','t','o','r','y',' ','*',0, /* 2592: Inventory * */
+    'I','t','e','m','_','p','t','r',0, /* 2604: Item_ptr */
+    'I','t','e','m',' ','*',0, /* 2613: Item * */
+    'N','a','m','e','d','A','c','t','o','r','_','p','t','r',0, /* 2620: NamedActor_ptr */
+    'N','a','m','e','d','A','c','t','o','r',' ','*',0, /* 2635: NamedActor * */
+    'N','u','m','b','e','r','_','p','t','r',0, /* 2648: Number_ptr */
+    'N','u','m','b','e','r',' ','*',0, /* 2659: Number * */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 2668: OptionPayload_TestInt_ptr */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',')',' ','*',0, /* 2694: OptionPayload(TestInt) * */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','d','o','u','b','l','e','_','p','t','r',0, /* 2719: OptionPayload_double_ptr */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','d','o','u','b','l','e',')',' ','*',0, /* 2744: OptionPayload(double) * */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','_','i','n','t','_','p','t','r',0, /* 2768: OptionPayload_int_ptr */
+    'O','p','t','i','o','n','P','a','y','l','o','a','d','(','i','n','t',')',' ','*',0, /* 2790: OptionPayload(int) * */
+    'O','p','t','i','o','n','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 2811: Option_TestInt_ptr */
+    'O','p','t','i','o','n','(','T','e','s','t','I','n','t',')',' ','*',0, /* 2830: Option(TestInt) * */
+    'O','p','t','i','o','n','_','d','o','u','b','l','e','_','p','t','r',0, /* 2848: Option_double_ptr */
+    'O','p','t','i','o','n','(','d','o','u','b','l','e',')',' ','*',0, /* 2866: Option(double) * */
+    'O','p','t','i','o','n','_','i','n','t','_','p','t','r',0, /* 2883: Option_int_ptr */
+    'O','p','t','i','o','n','(','i','n','t',')',' ','*',0, /* 2898: Option(int) * */
+    'P','a','i','r','_','T','a','g','_','d','o','u','b','l','e','_','p','t','r',0, /* 2912: Pair_Tag_double_ptr */
+    'P','a','i','r','(','T','a','g',',',' ','d','o','u','b','l','e',')',' ','*',0, /* 2932: Pair(Tag, double) * */
+    'P','a','i','r','_','d','o','u','b','l','e','_','T','a','g','_','p','t','r',0, /* 2952: Pair_double_Tag_ptr */
+    'P','a','i','r','(','d','o','u','b','l','e',',',' ','T','a','g',')',' ','*',0, /* 2972: Pair(double, Tag) * */
+    'P','h','y','s','i','c','s','B','o','d','y','_','p','t','r',0, /* 2992: PhysicsBody_ptr */
+    'P','h','y','s','i','c','s','B','o','d','y',' ','*',0, /* 3008: PhysicsBody * */
+    'P','l','a','i','n','B','o','x','_','P','l','a','i','n','_','p','t','r',0, /* 3022: PlainBox_Plain_ptr */
+    'P','l','a','i','n','B','o','x','(','P','l','a','i','n',')',' ','*',0, /* 3041: PlainBox(Plain) * */
+    'P','l','a','i','n','_','p','t','r',0, /* 3059: Plain_ptr */
+    'P','l','a','i','n',' ','*',0, /* 3069: Plain * */
+    'P','o','i','n','t','_','p','t','r',0, /* 3077: Point_ptr */
+    'P','o','i','n','t',' ','*',0, /* 3087: Point * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3095: ResultPayload_InferredDouble_ErrorCode_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3138: ResultPayload(InferredDouble, ErrorCode) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3181: ResultPayload_InferredLong_InferredError_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3226: ResultPayload(InferredLong, InferredError) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3271: ResultPayload_Tag_InferredError_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3307: ResultPayload(Tag, InferredError) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3343: ResultPayload_TestInt_ErrorCode_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3379: ResultPayload(TestInt, ErrorCode) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','i','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3415: ResultPayload_int_ErrorCode_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','i','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3447: ResultPayload(int, ErrorCode) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','i','n','t','_','i','n','t','_','p','t','r',0, /* 3479: ResultPayload_int_int_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','i','n','t',',',' ','i','n','t',')',' ','*',0, /* 3505: ResultPayload(int, int) * */
+    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3531: Result_InferredDouble_ErrorCode_ptr */
+    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3567: Result(InferredDouble, ErrorCode) * */
+    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3603: Result_InferredLong_InferredError_ptr */
+    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3641: Result(InferredLong, InferredError) * */
+    'R','e','s','u','l','t','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3679: Result_Tag_InferredError_ptr */
+    'R','e','s','u','l','t','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3708: Result(Tag, InferredError) * */
+    'R','e','s','u','l','t','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3737: Result_TestInt_ErrorCode_ptr */
+    'R','e','s','u','l','t','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3766: Result(TestInt, ErrorCode) * */
+    'R','e','s','u','l','t','_','i','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3795: Result_int_ErrorCode_ptr */
+    'R','e','s','u','l','t','(','i','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3820: Result(int, ErrorCode) * */
+    'R','e','s','u','l','t','_','i','n','t','_','i','n','t','_','p','t','r',0, /* 3845: Result_int_int_ptr */
+    'R','e','s','u','l','t','(','i','n','t',',',' ','i','n','t',')',' ','*',0, /* 3864: Result(int, int) * */
+    'T','r','i','p','l','e','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','I','n','f','e','r','r','e','d','L','o','n','g','_','p','t','r',0, /* 3883: Triple_Tag_InferredError_InferredLong_ptr */
+    'T','r','i','p','l','e','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',',',' ','I','n','f','e','r','r','e','d','L','o','n','g',')',' ','*',0, /* 3925: Triple(Tag, InferredError, InferredLong) * */
+    'T','r','i','p','l','e','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','T','a','g','_','p','t','r',0, /* 3968: Triple_TestInt_ErrorCode_Tag_ptr */
+    'T','r','i','p','l','e','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',',',' ','T','a','g',')',' ','*',0, /* 4001: Triple(TestInt, ErrorCode, Tag) * */
+    'T','r','i','p','l','e','_','T','e','s','t','I','n','t','_','T','e','s','t','I','n','t','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 4035: Triple_TestInt_TestInt_TestInt_ptr */
+    'T','r','i','p','l','e','(','T','e','s','t','I','n','t',',',' ','T','e','s','t','I','n','t',',',' ','T','e','s','t','I','n','t',')',' ','*',0, /* 4070: Triple(TestInt, TestInt, TestInt) * */
+    'T','r','i','p','l','e','_','d','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','T','a','g','_','p','t','r',0, /* 4106: Triple_double_ErrorCode_Tag_ptr */
+    'T','r','i','p','l','e','(','d','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',',',' ','T','a','g',')',' ','*',0, /* 4138: Triple(double, ErrorCode, Tag) * */
+    'V','e','c','_','I','t','e','m','_','p','t','r',0, /* 4171: Vec_Item_ptr */
+    'V','e','c','(','I','t','e','m',')',' ','*',0, /* 4184: Vec(Item) * */
+    'V','e','c','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 4196: Vec_TestInt_ptr */
+    'V','e','c','(','T','e','s','t','I','n','t',')',' ','*',0, /* 4212: Vec(TestInt) * */
+    'V','e','c','_','i','n','t','_','p','t','r',0, /* 4227: Vec_int_ptr */
+    'V','e','c','(','i','n','t',')',' ','*',0, /* 4239: Vec(int) * */
+    'c','h','a','r','_','a','r','r','1','2',0, /* 4250: char_arr12 */
+    'c','h','a','r','[','1','2',']',0, /* 4261: char[12] */
+    'c','h','a','r','_','a','r','r','1','6',0, /* 4270: char_arr16 */
+    'c','h','a','r','[','1','6',']',0, /* 4281: char[16] */
+    'c','h','a','r','_','p','t','r',0, /* 4290: char_ptr */
+    'c','h','a','r',' ','*',0, /* 4299: char * */
+    'c','o','n','s','t','_','c','h','a','r','_','p','t','r',0, /* 4306: const_char_ptr */
+    'c','o','n','s','t',' ','c','h','a','r',' ','*',0, /* 4321: const char * */
+    'i','n','t','_','a','r','r','2',0, /* 4334: int_arr2 */
+    'i','n','t','[','2',']',0, /* 4343: int[2] */
+    'i','n','t','_','a','r','r','4',0, /* 4350: int_arr4 */
+    'i','n','t','[','4',']',0, /* 4359: int[4] */
+    'i','n','t','_','p','t','r',0, /* 4366: int_ptr */
+    'i','n','t',' ','*',0, /* 4374: int * */
+    's','t','r','u','c','t','_','A','c','t','o','r','_','p','t','r',0, /* 4380: struct_Actor_ptr */
+    's','t','r','u','c','t',' ','A','c','t','o','r',' ','*',0, /* 4397: struct Actor * */
+    's','t','r','u','c','t','_','E','n','t','i','t','y','_','p','t','r',0, /* 4412: struct_Entity_ptr */
+    's','t','r','u','c','t',' ','E','n','t','i','t','y',' ','*',0, /* 4430: struct Entity * */
+    's','t','r','u','c','t','_','N','a','m','e','d','_','p','t','r',0, /* 4446: struct_Named_ptr */
+    's','t','r','u','c','t',' ','N','a','m','e','d',' ','*',0, /* 4463: struct Named * */
+    's','t','r','u','c','t','_','P','a','c','k','e','d','_','p','t','r',0, /* 4478: struct_Packed_ptr */
+    's','t','r','u','c','t',' ','P','a','c','k','e','d',' ','*',0, /* 4496: struct Packed * */
+    's','t','r','u','c','t','_','P','h','y','s','i','c','s','_','p','t','r',0, /* 4512: struct_Physics_ptr */
+    's','t','r','u','c','t',' ','P','h','y','s','i','c','s',' ','*',0, /* 4531: struct Physics * */
+    's','t','r','u','c','t','_','T','a','g','g','e','d','B','o','x','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 4548: struct_TaggedBox_TestInt_ptr */
+    'T','a','g','g','e','d','B','o','x','(','T','e','s','t','I','n','t',')',' ','*',0, /* 4577: TaggedBox(TestInt) * */
+    's','t','r','u','c','t','_','W','r','o','n','g','A','c','t','o','r','_','p','t','r',0, /* 4598: struct_WrongActor_ptr */
+    's','t','r','u','c','t',' ','W','r','o','n','g','A','c','t','o','r',' ','*',0, /* 4620: struct WrongActor * */
+    's','t','r','u','c','t','_','W','r','o','n','g','P','h','y','s','i','c','s','_','p','t','r',0, /* 4640: struct_WrongPhysics_ptr */
+    's','t','r','u','c','t',' ','W','r','o','n','g','P','h','y','s','i','c','s',' ','*',0, /* 4664: struct WrongPhysics * */
+    'u','n','i','o','n','_','T','a','g','g','e','d','C','h','o','i','c','e','_','T','e','s','t','I','n','t','_','p','t','r',0, /* 4686: union_TaggedChoice_TestInt_ptr */
+    'T','a','g','g','e','d','C','h','o','i','c','e','(','T','e','s','t','I','n','t',')',' ','*',0, /* 4717: TaggedChoice(TestInt) * */
+    'v','o','i','d','_','p','t','r',0, /* 4741: void_ptr */
+    'v','o','i','d',' ','*',0, /* 4750: void * */
+    'k','e','y',0, /* 4757: key */
+    'c','o','d','e',0, /* 4761: code */
+    'x',0, /* 4766: x */
+    'y',0, /* 4768: y */
+    'l','a','b','e','l',0, /* 4770: label */
+    'w','e','i','g','h','t',0, /* 4776: weight */
+    'p','o','s','i','t','i','o','n',0, /* 4783: position */
+    'h','e','a','l','t','h',0, /* 4792: health */
+    'r','o','l','e',0, /* 4799: role */
+    's','t','a','t','u','s',0, /* 4804: status */
+    'n','a','m','e',0, /* 4811: name */
+    's','p','e','e','d',0, /* 4816: speed */
+    'a','l','i','v','e',0, /* 4822: alive */
+    'k','i','n','d',0, /* 4828: kind */
+    'v','a','l','u','e',0, /* 4833: value */
+    'f','l','a','g',0, /* 4839: flag */
+    'w','h','o','l','e',0, /* 4844: whole */
+    'r','e','a','l',0, /* 4850: real */
+    'd','a','t','a',0, /* 4855: data */
+    'l','e','n',0, /* 4860: len */
+    'i','d',0, /* 4864: id */
+    'f','l','a','g','s',0, /* 4867: flags */
+    'm','a','s','s',0, /* 4873: mass */
+    'o','k',0, /* 4878: ok */
+    'e','r','r','o','r',0, /* 4881: error */
+    't','a','g',0, /* 4887: tag */
+    'p','a','y','l','o','a','d',0, /* 4891: payload */
+    's','o','m','e',0, /* 4899: some */
+    'c','a','p',0, /* 4904: cap */
+    'i','t','e','m','s',0, /* 4908: items */
+    'g','o','l','d',0, /* 4914: gold */
+    's','n','a','c','k','s',0, /* 4919: snacks */
+    'f','i','r','s','t',0, /* 4926: first */
+    's','e','c','o','n','d',0, /* 4932: second */
+    't','h','i','r','d',0, /* 4939: third */
+    'R','O','L','E','_','W','A','R','R','I','O','R',0, /* 4945: ROLE_WARRIOR */
+    'R','O','L','E','_','M','A','G','E',0, /* 4958: ROLE_MAGE */
+    'R','O','L','E','_','R','O','G','U','E',0, /* 4968: ROLE_ROGUE */
+    'S','T','A','T','U','S','_','D','O','W','N',0, /* 4979: STATUS_DOWN */
+    'S','T','A','T','U','S','_','O','K',0, /* 4991: STATUS_OK */
+    'S','T','A','T','U','S','_','B','U','F','F','E','D',0, /* 5001: STATUS_BUFFED */
+    'R','E','S','U','L','T','_','O','K',0, /* 5015: RESULT_OK */
+    'R','E','S','U','L','T','_','E','R','R','O','R',0, /* 5025: RESULT_ERROR */
+    'O','P','T','I','O','N','_','N','O','N','E',0, /* 5038: OPTION_NONE */
+    'O','P','T','I','O','N','_','S','O','M','E',0, /* 5050: OPTION_SOME */
+    'E','r','r','o','r','N','o','n','e',0, /* 5062: ErrorNone */
+    'E','r','r','o','r','F','a','i','l','e','d',0, /* 5072: ErrorFailed */
+    'I','n','f','e','r','r','e','d','E','r','r','o','r','N','o','n','e',0, /* 5084: InferredErrorNone */
+    'I','n','f','e','r','r','e','d','E','r','r','o','r','F','a','i','l','e','d',0, /* 5102: InferredErrorFailed */
 };
 
-static const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[129] = {
+static const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[141] = {
     /* size, align, kind, -, flags, name, first, count, inner, display */
     { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, /* 0: INVALID */
     { 0, 0, 1, 0, 0, 1, 0, 0, 0, 1 }, /* 1: void */
@@ -532,240 +567,262 @@ static const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[129] = {
     { 4, 4, 4, 0, 6, 226, 0, 0, 0, 226 }, /* 14: float */
     { 8, 8, 4, 0, 6, 232, 0, 0, 0, 232 }, /* 15: double */
     { 16, 16, 4, 0, 2, 239, 0, 0, 0, 251 }, /* 16: long_double */
-    { 16, 8, 7, 0, 70, 263, 20, 2, 0, 275 }, /* 17: Array_int_2 */
-    { 24, 8, 7, 0, 70, 289, 18, 2, 0, 301 }, /* 18: Array_int_4 */
-    { 1, 1, 7, 0, 70, 315, 86, 1, 0, 323 }, /* 19: Box_Tag */
-    { 4, 4, 7, 0, 70, 332, 87, 1, 0, 344 }, /* 20: Box_TestInt */
-    { 8, 8, 7, 0, 70, 357, 45, 1, 0, 368 }, /* 21: Box_double */
-    { 4, 4, 7, 0, 6, 380, 48, 1, 0, 380 }, /* 22: Dog */
-    { 4, 4, 9, 0, 134, 384, 10, 2, 9, 384 }, /* 23: ErrorCode */
-    { 16, 8, 7, 0, 0, 394, 0, 2, 0, 394 }, /* 24: FieldInfo */
-    { 44, 4, 7, 0, 2, 404, 6, 7, 0, 404 }, /* 25: Hero */
-    { 4, 4, 9, 0, 134, 409, 12, 2, 9, 409 }, /* 26: InferredError */
-    { 32, 8, 7, 0, 0, 423, 46, 2, 0, 423 }, /* 27: Inventory */
-    { 14, 2, 7, 0, 6, 433, 4, 2, 0, 433 }, /* 28: Item */
-    { 24, 8, 7, 0, 0, 438, 36, 3, 0, 438 }, /* 29: NamedActor */
-    { 4, 4, 8, 0, 2, 449, 16, 2, 0, 449 }, /* 30: Number */
-    { 4, 4, 8, 0, 66, 456, 81, 1, 0, 478 }, /* 31: OptionPayload_TestInt */
-    { 8, 8, 8, 0, 66, 501, 39, 1, 0, 522 }, /* 32: OptionPayload_double */
-    { 4, 4, 8, 0, 66, 544, 40, 1, 0, 562 }, /* 33: OptionPayload_int */
-    { 4, 4, 9, 0, 134, 581, 8, 2, 9, 581 }, /* 34: OptionTag */
-    { 8, 4, 7, 0, 66, 591, 82, 2, 0, 606 }, /* 35: Option_TestInt */
-    { 16, 8, 7, 0, 66, 622, 41, 2, 0, 636 }, /* 36: Option_double */
-    { 8, 4, 7, 0, 66, 651, 43, 2, 0, 662 }, /* 37: Option_int */
-    { 16, 8, 7, 0, 66, 674, 88, 2, 0, 690 }, /* 38: Pair_Tag_double */
-    { 16, 8, 7, 0, 66, 708, 90, 2, 0, 724 }, /* 39: Pair_double_Tag */
-    { 16, 8, 7, 0, 6, 742, 33, 3, 0, 742 }, /* 40: PhysicsBody */
-    { 8, 4, 7, 0, 6, 754, 2, 2, 0, 754 }, /* 41: Point */
-    { 4, 4, 8, 0, 66, 760, 61, 2, 0, 788 }, /* 42: ResultPayload_Dog_ErrorCode */
-    { 4, 4, 8, 0, 66, 818, 63, 2, 0, 840 }, /* 43: ResultPayload_Dog_int */
-    { 8, 8, 8, 0, 66, 864, 59, 2, 0, 903 }, /* 44: ResultPayload_InferredDouble_ErrorCode */
-    { 8, 8, 8, 0, 66, 944, 57, 2, 0, 985 }, /* 45: ResultPayload_InferredLong_InferredError */
-    { 4, 4, 8, 0, 66, 1028, 65, 2, 0, 1060 }, /* 46: ResultPayload_Tag_InferredError */
-    { 4, 4, 8, 0, 66, 1094, 67, 2, 0, 1126 }, /* 47: ResultPayload_TestInt_ErrorCode */
-    { 4, 4, 9, 0, 134, 1160, 6, 2, 9, 1160 }, /* 48: ResultTag */
-    { 8, 4, 7, 0, 66, 1170, 73, 2, 0, 1191 }, /* 49: Result_Dog_ErrorCode */
-    { 8, 4, 7, 0, 66, 1214, 75, 2, 0, 1229 }, /* 50: Result_Dog_int */
-    { 16, 8, 7, 0, 66, 1246, 71, 2, 0, 1278 }, /* 51: Result_InferredDouble_ErrorCode */
-    { 16, 8, 7, 0, 66, 1312, 69, 2, 0, 1346 }, /* 52: Result_InferredLong_InferredError */
-    { 8, 4, 7, 0, 66, 1382, 77, 2, 0, 1407 }, /* 53: Result_Tag_InferredError */
-    { 8, 4, 7, 0, 66, 1434, 79, 2, 0, 1459 }, /* 54: Result_TestInt_ErrorCode */
-    { 4, 4, 9, 0, 134, 1486, 0, 3, 9, 1486 }, /* 55: Role */
-    { 4, 4, 9, 0, 7, 1491, 3, 3, 8, 1491 }, /* 56: Status */
-    { 16, 8, 7, 0, 66, 1498, 92, 3, 0, 1536 }, /* 57: Triple_Tag_InferredError_InferredLong */
-    { 12, 4, 7, 0, 66, 1577, 95, 3, 0, 1606 }, /* 58: Triple_TestInt_ErrorCode_Tag */
-    { 16, 8, 7, 0, 66, 1638, 98, 3, 0, 1666 }, /* 59: Triple_double_ErrorCode_Tag */
-    { 24, 8, 7, 0, 68, 1697, 25, 3, 0, 1706 }, /* 60: Vec_Item */
-    { 24, 8, 7, 0, 68, 1716, 54, 3, 0, 1728 }, /* 61: Vec_TestInt */
-    { 24, 8, 7, 0, 68, 1741, 22, 3, 0, 1749 }, /* 62: Vec_int */
-    { 4, 4, 7, 0, 6, 1758, 32, 1, 0, 1771 }, /* 63: struct_Actor */
-    { 4, 4, 7, 0, 6, 1784, 30, 1, 0, 1798 }, /* 64: struct_Entity */
-    { 8, 8, 7, 0, 4, 1812, 31, 1, 0, 1825 }, /* 65: struct_Named */
-    { 4, 4, 7, 0, 10, 1838, 13, 3, 0, 1852 }, /* 66: struct_Packed */
-    { 8, 4, 7, 0, 6, 1866, 28, 2, 0, 1881 }, /* 67: struct_Physics */
-    { 4, 4, 7, 0, 70, 1896, 84, 1, 0, 1921 }, /* 68: struct_TaggedBox_TestInt */
-    { 12, 4, 7, 0, 6, 1940, 51, 3, 0, 1958 }, /* 69: struct_WrongActor */
-    { 16, 8, 7, 0, 2, 1976, 49, 2, 0, 1996 }, /* 70: struct_WrongPhysics */
-    { 4, 4, 8, 0, 66, 2016, 85, 1, 0, 2043 }, /* 71: union_TaggedChoice_TestInt */
-    { 8, 8, 5, 0, 4, 2065, 0, 0, 17, 2081 }, /* 72: Array_int_2_ptr */
-    { 8, 8, 5, 0, 4, 2097, 0, 0, 18, 2113 }, /* 73: Array_int_4_ptr */
-    { 8, 8, 5, 0, 4, 2129, 0, 0, 19, 2141 }, /* 74: Box_Tag_ptr */
-    { 8, 8, 5, 0, 4, 2152, 0, 0, 20, 2168 }, /* 75: Box_TestInt_ptr */
-    { 8, 8, 5, 0, 4, 2183, 0, 0, 21, 2198 }, /* 76: Box_double_ptr */
-    { 8, 8, 5, 0, 4, 2212, 0, 0, 22, 2220 }, /* 77: Dog_ptr */
-    { 8, 8, 5, 0, 4, 2226, 0, 0, 24, 2240 }, /* 78: FieldInfo_ptr */
-    { 8, 8, 5, 0, 4, 2252, 0, 0, 25, 2261 }, /* 79: Hero_ptr */
-    { 8, 8, 5, 0, 4, 2268, 0, 0, 27, 2282 }, /* 80: Inventory_ptr */
-    { 8, 8, 5, 0, 4, 2294, 0, 0, 28, 2303 }, /* 81: Item_ptr */
-    { 8, 8, 5, 0, 4, 2310, 0, 0, 29, 2325 }, /* 82: NamedActor_ptr */
-    { 8, 8, 5, 0, 4, 2338, 0, 0, 30, 2349 }, /* 83: Number_ptr */
-    { 8, 8, 5, 0, 4, 2358, 0, 0, 31, 2384 }, /* 84: OptionPayload_TestInt_ptr */
-    { 8, 8, 5, 0, 4, 2409, 0, 0, 32, 2434 }, /* 85: OptionPayload_double_ptr */
-    { 8, 8, 5, 0, 4, 2458, 0, 0, 33, 2480 }, /* 86: OptionPayload_int_ptr */
-    { 8, 8, 5, 0, 4, 2501, 0, 0, 35, 2520 }, /* 87: Option_TestInt_ptr */
-    { 8, 8, 5, 0, 4, 2538, 0, 0, 36, 2556 }, /* 88: Option_double_ptr */
-    { 8, 8, 5, 0, 4, 2573, 0, 0, 37, 2588 }, /* 89: Option_int_ptr */
-    { 8, 8, 5, 0, 4, 2602, 0, 0, 38, 2622 }, /* 90: Pair_Tag_double_ptr */
-    { 8, 8, 5, 0, 4, 2642, 0, 0, 39, 2662 }, /* 91: Pair_double_Tag_ptr */
-    { 8, 8, 5, 0, 4, 2682, 0, 0, 40, 2698 }, /* 92: PhysicsBody_ptr */
-    { 8, 8, 5, 0, 4, 2712, 0, 0, 41, 2722 }, /* 93: Point_ptr */
-    { 8, 8, 5, 0, 4, 2730, 0, 0, 42, 2762 }, /* 94: ResultPayload_Dog_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 2794, 0, 0, 43, 2820 }, /* 95: ResultPayload_Dog_int_ptr */
-    { 8, 8, 5, 0, 4, 2846, 0, 0, 44, 2889 }, /* 96: ResultPayload_InferredDouble_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 2932, 0, 0, 45, 2977 }, /* 97: ResultPayload_InferredLong_InferredError_ptr */
-    { 8, 8, 5, 0, 4, 3022, 0, 0, 46, 3058 }, /* 98: ResultPayload_Tag_InferredError_ptr */
-    { 8, 8, 5, 0, 4, 3094, 0, 0, 47, 3130 }, /* 99: ResultPayload_TestInt_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3166, 0, 0, 49, 3191 }, /* 100: Result_Dog_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3216, 0, 0, 50, 3235 }, /* 101: Result_Dog_int_ptr */
-    { 8, 8, 5, 0, 4, 3254, 0, 0, 51, 3290 }, /* 102: Result_InferredDouble_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3326, 0, 0, 52, 3364 }, /* 103: Result_InferredLong_InferredError_ptr */
-    { 8, 8, 5, 0, 4, 3402, 0, 0, 53, 3431 }, /* 104: Result_Tag_InferredError_ptr */
-    { 8, 8, 5, 0, 4, 3460, 0, 0, 54, 3489 }, /* 105: Result_TestInt_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3518, 0, 0, 57, 3560 }, /* 106: Triple_Tag_InferredError_InferredLong_ptr */
-    { 8, 8, 5, 0, 4, 3603, 0, 0, 58, 3636 }, /* 107: Triple_TestInt_ErrorCode_Tag_ptr */
-    { 8, 8, 5, 0, 4, 3670, 0, 0, 59, 3702 }, /* 108: Triple_double_ErrorCode_Tag_ptr */
-    { 8, 8, 5, 0, 4, 3735, 0, 0, 60, 3748 }, /* 109: Vec_Item_ptr */
-    { 8, 8, 5, 0, 4, 3760, 0, 0, 61, 3776 }, /* 110: Vec_TestInt_ptr */
-    { 8, 8, 5, 0, 4, 3791, 0, 0, 62, 3803 }, /* 111: Vec_int_ptr */
-    { 12, 1, 6, 0, 6, 3814, 0, 12, 3, 3825 }, /* 112: char_arr12 */
-    { 16, 1, 6, 0, 6, 3834, 0, 16, 3, 3845 }, /* 113: char_arr16 */
-    { 8, 8, 5, 0, 4, 3854, 0, 0, 3, 3863 }, /* 114: char_ptr */
-    { 8, 8, 5, 0, 4, 3870, 0, 0, 3, 3885 }, /* 115: const_char_ptr */
-    { 8, 4, 6, 0, 6, 3898, 0, 2, 8, 3907 }, /* 116: int_arr2 */
-    { 16, 4, 6, 0, 6, 3914, 0, 4, 8, 3923 }, /* 117: int_arr4 */
-    { 8, 8, 5, 0, 4, 3930, 0, 0, 8, 3938 }, /* 118: int_ptr */
-    { 8, 8, 5, 0, 4, 3944, 0, 0, 63, 3961 }, /* 119: struct_Actor_ptr */
-    { 8, 8, 5, 0, 4, 3976, 0, 0, 64, 3994 }, /* 120: struct_Entity_ptr */
-    { 8, 8, 5, 0, 4, 4010, 0, 0, 65, 4027 }, /* 121: struct_Named_ptr */
-    { 8, 8, 5, 0, 4, 4042, 0, 0, 66, 4060 }, /* 122: struct_Packed_ptr */
-    { 8, 8, 5, 0, 4, 4076, 0, 0, 67, 4095 }, /* 123: struct_Physics_ptr */
-    { 8, 8, 5, 0, 4, 4112, 0, 0, 68, 4141 }, /* 124: struct_TaggedBox_TestInt_ptr */
-    { 8, 8, 5, 0, 4, 4162, 0, 0, 69, 4184 }, /* 125: struct_WrongActor_ptr */
-    { 8, 8, 5, 0, 4, 4204, 0, 0, 70, 4228 }, /* 126: struct_WrongPhysics_ptr */
-    { 8, 8, 5, 0, 4, 4250, 0, 0, 71, 4281 }, /* 127: union_TaggedChoice_TestInt_ptr */
-    { 8, 8, 5, 0, 4, 4305, 0, 0, 1, 4314 }, /* 128: void_ptr */
+    { 16, 8, 7, 0, 70, 263, 63, 2, 0, 279 }, /* 17: Array_TestInt_2 */
+    { 24, 8, 7, 0, 70, 297, 61, 2, 0, 313 }, /* 18: Array_TestInt_4 */
+    { 16, 8, 7, 0, 70, 331, 20, 2, 0, 343 }, /* 19: Array_int_2 */
+    { 24, 8, 7, 0, 70, 357, 18, 2, 0, 369 }, /* 20: Array_int_4 */
+    { 1, 1, 7, 0, 70, 383, 90, 1, 0, 391 }, /* 21: Box_Tag */
+    { 4, 4, 7, 0, 70, 400, 91, 1, 0, 412 }, /* 22: Box_TestInt */
+    { 8, 8, 7, 0, 70, 425, 43, 1, 0, 436 }, /* 23: Box_double */
+    { 8, 4, 7, 0, 66, 448, 45, 1, 0, 461 }, /* 24: Boxed_Option */
+    { 4, 4, 7, 0, 6, 475, 55, 1, 0, 475 }, /* 25: Dog */
+    { 4, 4, 9, 0, 134, 479, 10, 2, 9, 479 }, /* 26: ErrorCode */
+    { 16, 8, 7, 0, 0, 489, 0, 2, 0, 489 }, /* 27: FieldInfo */
+    { 44, 4, 7, 0, 2, 499, 6, 7, 0, 499 }, /* 28: Hero */
+    { 4, 4, 9, 0, 134, 504, 12, 2, 9, 504 }, /* 29: InferredError */
+    { 32, 8, 7, 0, 0, 518, 53, 2, 0, 518 }, /* 30: Inventory */
+    { 14, 2, 7, 0, 6, 528, 4, 2, 0, 528 }, /* 31: Item */
+    { 24, 8, 7, 0, 0, 533, 30, 3, 0, 533 }, /* 32: NamedActor */
+    { 4, 4, 8, 0, 2, 544, 16, 2, 0, 544 }, /* 33: Number */
+    { 4, 4, 8, 0, 66, 551, 85, 1, 0, 573 }, /* 34: OptionPayload_TestInt */
+    { 8, 8, 8, 0, 66, 596, 37, 1, 0, 617 }, /* 35: OptionPayload_double */
+    { 4, 4, 8, 0, 66, 639, 38, 1, 0, 657 }, /* 36: OptionPayload_int */
+    { 4, 4, 9, 0, 134, 676, 8, 2, 9, 676 }, /* 37: OptionTag */
+    { 8, 4, 7, 0, 66, 686, 86, 2, 0, 701 }, /* 38: Option_TestInt */
+    { 16, 8, 7, 0, 66, 717, 39, 2, 0, 731 }, /* 39: Option_double */
+    { 8, 4, 7, 0, 66, 746, 41, 2, 0, 757 }, /* 40: Option_int */
+    { 16, 8, 7, 0, 66, 769, 92, 2, 0, 785 }, /* 41: Pair_Tag_double */
+    { 16, 8, 7, 0, 66, 803, 94, 2, 0, 819 }, /* 42: Pair_double_Tag */
+    { 16, 8, 7, 0, 6, 837, 27, 3, 0, 837 }, /* 43: PhysicsBody */
+    { 4, 4, 7, 0, 6, 849, 44, 1, 0, 849 }, /* 44: Plain */
+    { 4, 4, 7, 0, 70, 855, 46, 1, 0, 870 }, /* 45: PlainBox_Plain */
+    { 8, 4, 7, 0, 6, 886, 2, 2, 0, 886 }, /* 46: Point */
+    { 8, 8, 8, 0, 66, 892, 67, 2, 0, 931 }, /* 47: ResultPayload_InferredDouble_ErrorCode */
+    { 8, 8, 8, 0, 66, 972, 65, 2, 0, 1013 }, /* 48: ResultPayload_InferredLong_InferredError */
+    { 4, 4, 8, 0, 66, 1056, 71, 2, 0, 1088 }, /* 49: ResultPayload_Tag_InferredError */
+    { 4, 4, 8, 0, 66, 1122, 73, 2, 0, 1154 }, /* 50: ResultPayload_TestInt_ErrorCode */
+    { 4, 4, 8, 0, 66, 1188, 69, 2, 0, 1216 }, /* 51: ResultPayload_int_ErrorCode */
+    { 4, 4, 8, 0, 66, 1246, 33, 2, 0, 1268 }, /* 52: ResultPayload_int_int */
+    { 4, 4, 9, 0, 134, 1292, 6, 2, 9, 1292 }, /* 53: ResultTag */
+    { 16, 8, 7, 0, 66, 1302, 77, 2, 0, 1334 }, /* 54: Result_InferredDouble_ErrorCode */
+    { 16, 8, 7, 0, 66, 1368, 75, 2, 0, 1402 }, /* 55: Result_InferredLong_InferredError */
+    { 8, 4, 7, 0, 66, 1438, 81, 2, 0, 1463 }, /* 56: Result_Tag_InferredError */
+    { 8, 4, 7, 0, 66, 1490, 83, 2, 0, 1515 }, /* 57: Result_TestInt_ErrorCode */
+    { 8, 4, 7, 0, 66, 1542, 79, 2, 0, 1563 }, /* 58: Result_int_ErrorCode */
+    { 8, 4, 7, 0, 66, 1586, 35, 2, 0, 1601 }, /* 59: Result_int_int */
+    { 4, 4, 9, 0, 134, 1618, 0, 3, 9, 1618 }, /* 60: Role */
+    { 4, 4, 9, 0, 7, 1623, 3, 3, 8, 1623 }, /* 61: Status */
+    { 16, 8, 7, 0, 66, 1630, 96, 3, 0, 1668 }, /* 62: Triple_Tag_InferredError_InferredLong */
+    { 12, 4, 7, 0, 66, 1709, 102, 3, 0, 1738 }, /* 63: Triple_TestInt_ErrorCode_Tag */
+    { 12, 4, 7, 0, 70, 1770, 99, 3, 0, 1801 }, /* 64: Triple_TestInt_TestInt_TestInt */
+    { 16, 8, 7, 0, 66, 1835, 105, 3, 0, 1863 }, /* 65: Triple_double_ErrorCode_Tag */
+    { 24, 8, 7, 0, 68, 1894, 50, 3, 0, 1903 }, /* 66: Vec_Item */
+    { 24, 8, 7, 0, 68, 1913, 108, 3, 0, 1925 }, /* 67: Vec_TestInt */
+    { 24, 8, 7, 0, 68, 1938, 47, 3, 0, 1946 }, /* 68: Vec_int */
+    { 4, 4, 7, 0, 6, 1955, 26, 1, 0, 1968 }, /* 69: struct_Actor */
+    { 4, 4, 7, 0, 6, 1981, 24, 1, 0, 1995 }, /* 70: struct_Entity */
+    { 8, 8, 7, 0, 4, 2009, 25, 1, 0, 2022 }, /* 71: struct_Named */
+    { 4, 4, 7, 0, 10, 2035, 13, 3, 0, 2049 }, /* 72: struct_Packed */
+    { 8, 4, 7, 0, 6, 2063, 22, 2, 0, 2078 }, /* 73: struct_Physics */
+    { 4, 4, 7, 0, 70, 2093, 88, 1, 0, 2118 }, /* 74: struct_TaggedBox_TestInt */
+    { 12, 4, 7, 0, 6, 2137, 58, 3, 0, 2155 }, /* 75: struct_WrongActor */
+    { 16, 8, 7, 0, 2, 2173, 56, 2, 0, 2193 }, /* 76: struct_WrongPhysics */
+    { 4, 4, 8, 0, 66, 2213, 89, 1, 0, 2240 }, /* 77: union_TaggedChoice_TestInt */
+    { 8, 8, 5, 0, 4, 2262, 0, 0, 17, 2282 }, /* 78: Array_TestInt_2_ptr */
+    { 8, 8, 5, 0, 4, 2302, 0, 0, 18, 2322 }, /* 79: Array_TestInt_4_ptr */
+    { 8, 8, 5, 0, 4, 2342, 0, 0, 19, 2358 }, /* 80: Array_int_2_ptr */
+    { 8, 8, 5, 0, 4, 2374, 0, 0, 20, 2390 }, /* 81: Array_int_4_ptr */
+    { 8, 8, 5, 0, 4, 2406, 0, 0, 21, 2418 }, /* 82: Box_Tag_ptr */
+    { 8, 8, 5, 0, 4, 2429, 0, 0, 22, 2445 }, /* 83: Box_TestInt_ptr */
+    { 8, 8, 5, 0, 4, 2460, 0, 0, 23, 2475 }, /* 84: Box_double_ptr */
+    { 8, 8, 5, 0, 4, 2489, 0, 0, 24, 2506 }, /* 85: Boxed_Option_ptr */
+    { 8, 8, 5, 0, 4, 2522, 0, 0, 25, 2530 }, /* 86: Dog_ptr */
+    { 8, 8, 5, 0, 4, 2536, 0, 0, 27, 2550 }, /* 87: FieldInfo_ptr */
+    { 8, 8, 5, 0, 4, 2562, 0, 0, 28, 2571 }, /* 88: Hero_ptr */
+    { 8, 8, 5, 0, 4, 2578, 0, 0, 30, 2592 }, /* 89: Inventory_ptr */
+    { 8, 8, 5, 0, 4, 2604, 0, 0, 31, 2613 }, /* 90: Item_ptr */
+    { 8, 8, 5, 0, 4, 2620, 0, 0, 32, 2635 }, /* 91: NamedActor_ptr */
+    { 8, 8, 5, 0, 4, 2648, 0, 0, 33, 2659 }, /* 92: Number_ptr */
+    { 8, 8, 5, 0, 4, 2668, 0, 0, 34, 2694 }, /* 93: OptionPayload_TestInt_ptr */
+    { 8, 8, 5, 0, 4, 2719, 0, 0, 35, 2744 }, /* 94: OptionPayload_double_ptr */
+    { 8, 8, 5, 0, 4, 2768, 0, 0, 36, 2790 }, /* 95: OptionPayload_int_ptr */
+    { 8, 8, 5, 0, 4, 2811, 0, 0, 38, 2830 }, /* 96: Option_TestInt_ptr */
+    { 8, 8, 5, 0, 4, 2848, 0, 0, 39, 2866 }, /* 97: Option_double_ptr */
+    { 8, 8, 5, 0, 4, 2883, 0, 0, 40, 2898 }, /* 98: Option_int_ptr */
+    { 8, 8, 5, 0, 4, 2912, 0, 0, 41, 2932 }, /* 99: Pair_Tag_double_ptr */
+    { 8, 8, 5, 0, 4, 2952, 0, 0, 42, 2972 }, /* 100: Pair_double_Tag_ptr */
+    { 8, 8, 5, 0, 4, 2992, 0, 0, 43, 3008 }, /* 101: PhysicsBody_ptr */
+    { 8, 8, 5, 0, 4, 3022, 0, 0, 45, 3041 }, /* 102: PlainBox_Plain_ptr */
+    { 8, 8, 5, 0, 4, 3059, 0, 0, 44, 3069 }, /* 103: Plain_ptr */
+    { 8, 8, 5, 0, 4, 3077, 0, 0, 46, 3087 }, /* 104: Point_ptr */
+    { 8, 8, 5, 0, 4, 3095, 0, 0, 47, 3138 }, /* 105: ResultPayload_InferredDouble_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3181, 0, 0, 48, 3226 }, /* 106: ResultPayload_InferredLong_InferredError_ptr */
+    { 8, 8, 5, 0, 4, 3271, 0, 0, 49, 3307 }, /* 107: ResultPayload_Tag_InferredError_ptr */
+    { 8, 8, 5, 0, 4, 3343, 0, 0, 50, 3379 }, /* 108: ResultPayload_TestInt_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3415, 0, 0, 51, 3447 }, /* 109: ResultPayload_int_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3479, 0, 0, 52, 3505 }, /* 110: ResultPayload_int_int_ptr */
+    { 8, 8, 5, 0, 4, 3531, 0, 0, 54, 3567 }, /* 111: Result_InferredDouble_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3603, 0, 0, 55, 3641 }, /* 112: Result_InferredLong_InferredError_ptr */
+    { 8, 8, 5, 0, 4, 3679, 0, 0, 56, 3708 }, /* 113: Result_Tag_InferredError_ptr */
+    { 8, 8, 5, 0, 4, 3737, 0, 0, 57, 3766 }, /* 114: Result_TestInt_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3795, 0, 0, 58, 3820 }, /* 115: Result_int_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3845, 0, 0, 59, 3864 }, /* 116: Result_int_int_ptr */
+    { 8, 8, 5, 0, 4, 3883, 0, 0, 62, 3925 }, /* 117: Triple_Tag_InferredError_InferredLong_ptr */
+    { 8, 8, 5, 0, 4, 3968, 0, 0, 63, 4001 }, /* 118: Triple_TestInt_ErrorCode_Tag_ptr */
+    { 8, 8, 5, 0, 4, 4035, 0, 0, 64, 4070 }, /* 119: Triple_TestInt_TestInt_TestInt_ptr */
+    { 8, 8, 5, 0, 4, 4106, 0, 0, 65, 4138 }, /* 120: Triple_double_ErrorCode_Tag_ptr */
+    { 8, 8, 5, 0, 4, 4171, 0, 0, 66, 4184 }, /* 121: Vec_Item_ptr */
+    { 8, 8, 5, 0, 4, 4196, 0, 0, 67, 4212 }, /* 122: Vec_TestInt_ptr */
+    { 8, 8, 5, 0, 4, 4227, 0, 0, 68, 4239 }, /* 123: Vec_int_ptr */
+    { 12, 1, 6, 0, 6, 4250, 0, 12, 3, 4261 }, /* 124: char_arr12 */
+    { 16, 1, 6, 0, 6, 4270, 0, 16, 3, 4281 }, /* 125: char_arr16 */
+    { 8, 8, 5, 0, 4, 4290, 0, 0, 3, 4299 }, /* 126: char_ptr */
+    { 8, 8, 5, 0, 4, 4306, 0, 0, 3, 4321 }, /* 127: const_char_ptr */
+    { 8, 4, 6, 0, 6, 4334, 0, 2, 8, 4343 }, /* 128: int_arr2 */
+    { 16, 4, 6, 0, 6, 4350, 0, 4, 8, 4359 }, /* 129: int_arr4 */
+    { 8, 8, 5, 0, 4, 4366, 0, 0, 8, 4374 }, /* 130: int_ptr */
+    { 8, 8, 5, 0, 4, 4380, 0, 0, 69, 4397 }, /* 131: struct_Actor_ptr */
+    { 8, 8, 5, 0, 4, 4412, 0, 0, 70, 4430 }, /* 132: struct_Entity_ptr */
+    { 8, 8, 5, 0, 4, 4446, 0, 0, 71, 4463 }, /* 133: struct_Named_ptr */
+    { 8, 8, 5, 0, 4, 4478, 0, 0, 72, 4496 }, /* 134: struct_Packed_ptr */
+    { 8, 8, 5, 0, 4, 4512, 0, 0, 73, 4531 }, /* 135: struct_Physics_ptr */
+    { 8, 8, 5, 0, 4, 4548, 0, 0, 74, 4577 }, /* 136: struct_TaggedBox_TestInt_ptr */
+    { 8, 8, 5, 0, 4, 4598, 0, 0, 75, 4620 }, /* 137: struct_WrongActor_ptr */
+    { 8, 8, 5, 0, 4, 4640, 0, 0, 76, 4664 }, /* 138: struct_WrongPhysics_ptr */
+    { 8, 8, 5, 0, 4, 4686, 0, 0, 77, 4717 }, /* 139: union_TaggedChoice_TestInt_ptr */
+    { 8, 8, 5, 0, 4, 4741, 0, 0, 1, 4750 }, /* 140: void_ptr */
 };
 
 static const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {
     /* name, type, offset, bit_width, quals, flags, attr, meta_type */
-    { 4321, 115, 0, 0, 0, 0, 0, 0 }, /* key */
-    { 4325, 8, 8, 0, 0, 0, 0, 0 }, /* code */
-    { 4330, 8, 0, 0, 0, 0, 0, 0 }, /* x */
-    { 4332, 8, 4, 0, 0, 0, 0, 0 }, /* y */
-    { 4334, 112, 0, 0, 0, 0, 0, 0 }, /* label */
-    { 4340, 7, 12, 0, 0, 0, 0, 0 }, /* weight */
-    { 4347, 41, 0, 0, 0, 0, 0, 0 }, /* position */
-    { 4356, 8, 8, 0, 0, 0, 0, 0 }, /* health */
-    { 4363, 55, 12, 0, 0, 0, 0, 0 }, /* role */
-    { 4368, 56, 16, 0, 0, 0, 0, 0 }, /* status */
-    { 4375, 113, 20, 0, 0, 0, 0, 0 }, /* name */
-    { 4380, 14, 36, 0, 0, 0, 0, 0 }, /* speed */
-    { 4386, 2, 40, 0, 0, 0, 0, 0 }, /* alive */
-    { 4392, 5, 0, 0, 0, 0, 0, 0 }, /* kind */
-    { 4397, 9, 8, 12, 0, 1, 0, 0 }, /* value */
-    { 4403, 9, 20, 1, 0, 1, 0, 0 }, /* flag */
-    { 4408, 8, 0, 0, 0, 0, 0, 0 }, /* whole */
-    { 4414, 14, 0, 0, 0, 0, 0, 0 }, /* real */
-    { 4419, 117, 0, 0, 0, 0, 0, 0 }, /* data */
-    { 4424, 11, 16, 0, 0, 0, 0, 0 }, /* len */
-    { 4419, 116, 0, 0, 0, 0, 0, 0 }, /* data */
-    { 4424, 11, 8, 0, 0, 0, 0, 0 }, /* len */
-    { 4419, 118, 0, 0, 0, 0, 23, 24 }, /* data */
-    { 4424, 11, 8, 0, 0, 0, 24, 24 }, /* len */
-    { 4428, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
-    { 4419, 81, 0, 0, 0, 0, 26, 24 }, /* data */
-    { 4424, 11, 8, 0, 0, 0, 27, 24 }, /* len */
-    { 4428, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
-    { 4330, 8, 0, 0, 0, 0, 0, 0 }, /* x */
-    { 4332, 8, 4, 0, 0, 0, 0, 0 }, /* y */
-    { 4432, 8, 0, 0, 0, 0, 0, 0 }, /* id */
-    { 4375, 115, 0, 0, 0, 0, 0, 0 }, /* name */
-    { 4435, 9, 0, 0, 0, 0, 0, 0 }, /* flags */
-    { 4330, 8, 0, 0, 0, 0, 0, 0 }, /* x */
-    { 4332, 8, 4, 0, 0, 0, 0, 0 }, /* y */
-    { 4441, 15, 8, 0, 0, 0, 0, 0 }, /* mass */
-    { 4432, 8, 0, 0, 0, 0, 0, 0 }, /* id */
-    { 4375, 115, 8, 0, 0, 0, 0, 0 }, /* name */
-    { 4435, 9, 16, 0, 0, 0, 0, 0 }, /* flags */
-    { 4446, 15, 0, 0, 0, 0, 0, 0 }, /* some */
-    { 4446, 8, 0, 0, 0, 0, 0, 0 }, /* some */
-    { 4451, 34, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 32, 8, 0, 0, 0, 0, 0 }, /* payload */
-    { 4451, 34, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 33, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4397, 15, 0, 0, 0, 0, 0, 0 }, /* value */
-    { 4463, 60, 0, 0, 0, 0, 0, 0 }, /* items */
-    { 4469, 9, 24, 0, 0, 0, 0, 0 }, /* gold */
-    { 4474, 8, 0, 0, 0, 0, 0, 0 }, /* snacks */
-    { 4330, 8, 0, 0, 0, 0, 0, 0 }, /* x */
-    { 4332, 15, 8, 0, 0, 0, 0, 0 }, /* y */
-    { 4432, 8, 0, 0, 0, 0, 0, 0 }, /* id */
-    { 4375, 8, 4, 0, 0, 0, 0, 0 }, /* name */
-    { 4435, 9, 8, 0, 0, 0, 0, 0 }, /* flags */
-    { 4419, 118, 0, 0, 0, 0, 55, 24 }, /* data */
-    { 4424, 11, 8, 0, 0, 0, 56, 24 }, /* len */
-    { 4428, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
-    { 4481, 10, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4484, 26, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4481, 15, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4484, 23, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4481, 22, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4484, 23, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4481, 22, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4484, 8, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4481, 5, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4484, 26, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4481, 8, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4484, 23, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4451, 48, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 45, 8, 0, 0, 0, 0, 0 }, /* payload */
-    { 4451, 48, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 44, 8, 0, 0, 0, 0, 0 }, /* payload */
-    { 4451, 48, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 42, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4451, 48, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 43, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4451, 48, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 46, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4451, 48, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 47, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4446, 8, 0, 0, 0, 0, 0, 0 }, /* some */
-    { 4451, 34, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4455, 31, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4397, 8, 0, 0, 0, 0, 0, 0 }, /* value */
-    { 4397, 8, 0, 0, 0, 0, 0, 0 }, /* value */
-    { 4397, 5, 0, 0, 0, 0, 0, 0 }, /* value */
-    { 4397, 8, 0, 0, 0, 0, 0, 0 }, /* value */
-    { 4490, 5, 0, 0, 0, 0, 0, 0 }, /* first */
-    { 4496, 15, 8, 0, 0, 0, 0, 0 }, /* second */
-    { 4490, 15, 0, 0, 0, 0, 0, 0 }, /* first */
-    { 4496, 5, 8, 0, 0, 0, 0, 0 }, /* second */
-    { 4490, 5, 0, 0, 0, 0, 0, 0 }, /* first */
-    { 4496, 26, 4, 0, 0, 0, 0, 0 }, /* second */
-    { 4503, 10, 8, 0, 0, 0, 0, 0 }, /* third */
-    { 4490, 8, 0, 0, 0, 0, 0, 0 }, /* first */
-    { 4496, 23, 4, 0, 0, 0, 0, 0 }, /* second */
-    { 4503, 5, 8, 0, 0, 0, 0, 0 }, /* third */
-    { 4490, 15, 0, 0, 0, 0, 0, 0 }, /* first */
-    { 4496, 23, 8, 0, 0, 0, 0, 0 }, /* second */
-    { 4503, 5, 12, 0, 0, 0, 0, 0 }, /* third */
+    { 4757, 127, 0, 0, 0, 0, 0, 0 }, /* key */
+    { 4761, 8, 8, 0, 0, 0, 0, 0 }, /* code */
+    { 4766, 8, 0, 0, 0, 0, 0, 0 }, /* x */
+    { 4768, 8, 4, 0, 0, 0, 0, 0 }, /* y */
+    { 4770, 124, 0, 0, 0, 0, 0, 0 }, /* label */
+    { 4776, 7, 12, 0, 0, 0, 0, 0 }, /* weight */
+    { 4783, 46, 0, 0, 0, 0, 0, 0 }, /* position */
+    { 4792, 8, 8, 0, 0, 0, 0, 0 }, /* health */
+    { 4799, 60, 12, 0, 0, 0, 0, 0 }, /* role */
+    { 4804, 61, 16, 0, 0, 0, 0, 0 }, /* status */
+    { 4811, 125, 20, 0, 0, 0, 0, 0 }, /* name */
+    { 4816, 14, 36, 0, 0, 0, 0, 0 }, /* speed */
+    { 4822, 2, 40, 0, 0, 0, 0, 0 }, /* alive */
+    { 4828, 5, 0, 0, 0, 0, 0, 0 }, /* kind */
+    { 4833, 9, 8, 12, 0, 1, 0, 0 }, /* value */
+    { 4839, 9, 20, 1, 0, 1, 0, 0 }, /* flag */
+    { 4844, 8, 0, 0, 0, 0, 0, 0 }, /* whole */
+    { 4850, 14, 0, 0, 0, 0, 0, 0 }, /* real */
+    { 4855, 129, 0, 0, 0, 0, 0, 0 }, /* data */
+    { 4860, 11, 16, 0, 0, 0, 0, 0 }, /* len */
+    { 4855, 128, 0, 0, 0, 0, 0, 0 }, /* data */
+    { 4860, 11, 8, 0, 0, 0, 0, 0 }, /* len */
+    { 4766, 8, 0, 0, 0, 0, 0, 0 }, /* x */
+    { 4768, 8, 4, 0, 0, 0, 0, 0 }, /* y */
+    { 4864, 8, 0, 0, 0, 0, 0, 0 }, /* id */
+    { 4811, 127, 0, 0, 0, 0, 0, 0 }, /* name */
+    { 4867, 9, 0, 0, 0, 0, 0, 0 }, /* flags */
+    { 4766, 8, 0, 0, 0, 0, 0, 0 }, /* x */
+    { 4768, 8, 4, 0, 0, 0, 0, 0 }, /* y */
+    { 4873, 15, 8, 0, 0, 0, 0, 0 }, /* mass */
+    { 4864, 8, 0, 0, 0, 0, 0, 0 }, /* id */
+    { 4811, 127, 8, 0, 0, 0, 0, 0 }, /* name */
+    { 4867, 9, 16, 0, 0, 0, 0, 0 }, /* flags */
+    { 4878, 8, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4881, 8, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 52, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4899, 15, 0, 0, 0, 0, 0, 0 }, /* some */
+    { 4899, 8, 0, 0, 0, 0, 0, 0 }, /* some */
+    { 4887, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 35, 8, 0, 0, 0, 0, 0 }, /* payload */
+    { 4887, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 36, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4833, 15, 0, 0, 0, 0, 0, 0 }, /* value */
+    { 4766, 8, 0, 0, 0, 0, 0, 0 }, /* x */
+    { 4833, 40, 0, 0, 0, 0, 0, 0 }, /* value */
+    { 4833, 44, 0, 0, 0, 0, 0, 0 }, /* value */
+    { 4855, 130, 0, 0, 0, 0, 48, 27 }, /* data */
+    { 4860, 11, 8, 0, 0, 0, 49, 27 }, /* len */
+    { 4904, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
+    { 4855, 90, 0, 0, 0, 0, 51, 27 }, /* data */
+    { 4860, 11, 8, 0, 0, 0, 52, 27 }, /* len */
+    { 4904, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
+    { 4908, 66, 0, 0, 0, 0, 0, 0 }, /* items */
+    { 4914, 9, 24, 0, 0, 0, 0, 0 }, /* gold */
+    { 4919, 8, 0, 0, 0, 0, 0, 0 }, /* snacks */
+    { 4766, 8, 0, 0, 0, 0, 0, 0 }, /* x */
+    { 4768, 15, 8, 0, 0, 0, 0, 0 }, /* y */
+    { 4864, 8, 0, 0, 0, 0, 0, 0 }, /* id */
+    { 4811, 8, 4, 0, 0, 0, 0, 0 }, /* name */
+    { 4867, 9, 8, 0, 0, 0, 0, 0 }, /* flags */
+    { 4855, 129, 0, 0, 0, 0, 0, 0 }, /* data */
+    { 4860, 11, 16, 0, 0, 0, 0, 0 }, /* len */
+    { 4855, 128, 0, 0, 0, 0, 0, 0 }, /* data */
+    { 4860, 11, 8, 0, 0, 0, 0, 0 }, /* len */
+    { 4878, 10, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4881, 29, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4878, 15, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4881, 26, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4878, 8, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4881, 26, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4878, 5, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4881, 29, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4878, 8, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4881, 26, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 48, 8, 0, 0, 0, 0, 0 }, /* payload */
+    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 47, 8, 0, 0, 0, 0, 0 }, /* payload */
+    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 51, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 49, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 50, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4899, 8, 0, 0, 0, 0, 0, 0 }, /* some */
+    { 4887, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4891, 34, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4833, 8, 0, 0, 0, 0, 0, 0 }, /* value */
+    { 4833, 8, 0, 0, 0, 0, 0, 0 }, /* value */
+    { 4833, 5, 0, 0, 0, 0, 0, 0 }, /* value */
+    { 4833, 8, 0, 0, 0, 0, 0, 0 }, /* value */
+    { 4926, 5, 0, 0, 0, 0, 0, 0 }, /* first */
+    { 4932, 15, 8, 0, 0, 0, 0, 0 }, /* second */
+    { 4926, 15, 0, 0, 0, 0, 0, 0 }, /* first */
+    { 4932, 5, 8, 0, 0, 0, 0, 0 }, /* second */
+    { 4926, 5, 0, 0, 0, 0, 0, 0 }, /* first */
+    { 4932, 29, 4, 0, 0, 0, 0, 0 }, /* second */
+    { 4939, 10, 8, 0, 0, 0, 0, 0 }, /* third */
+    { 4926, 8, 0, 0, 0, 0, 0, 0 }, /* first */
+    { 4932, 8, 4, 0, 0, 0, 0, 0 }, /* second */
+    { 4939, 8, 8, 0, 0, 0, 0, 0 }, /* third */
+    { 4926, 8, 0, 0, 0, 0, 0, 0 }, /* first */
+    { 4932, 26, 4, 0, 0, 0, 0, 0 }, /* second */
+    { 4939, 5, 8, 0, 0, 0, 0, 0 }, /* third */
+    { 4926, 15, 0, 0, 0, 0, 0, 0 }, /* first */
+    { 4932, 26, 8, 0, 0, 0, 0, 0 }, /* second */
+    { 4939, 5, 12, 0, 0, 0, 0, 0 }, /* third */
+    { 4855, 130, 0, 0, 0, 0, 109, 27 }, /* data */
+    { 4860, 11, 8, 0, 0, 0, 110, 27 }, /* len */
+    { 4904, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
 };
 
 static const TMPLGEN_SYM(TypeEnumerator) TMPLGEN_SYM(RuntimeTypeEnumTable)[] = {
-    { (int64_t)0ULL, 4509, 0 }, /* ROLE_WARRIOR */
-    { (int64_t)1ULL, 4522, 0 }, /* ROLE_MAGE */
-    { (int64_t)2ULL, 4532, 0 }, /* ROLE_ROGUE */
-    { -1LL, 4543, 0 }, /* STATUS_DOWN */
-    { 0LL, 4555, 0 }, /* STATUS_OK */
-    { 4LL, 4565, 0 }, /* STATUS_BUFFED */
-    { (int64_t)0ULL, 4579, 0 }, /* RESULT_OK */
-    { (int64_t)1ULL, 4589, 0 }, /* RESULT_ERROR */
-    { (int64_t)0ULL, 4602, 0 }, /* OPTION_NONE */
-    { (int64_t)1ULL, 4614, 0 }, /* OPTION_SOME */
-    { (int64_t)0ULL, 4626, 0 }, /* ErrorNone */
-    { (int64_t)1ULL, 4636, 0 }, /* ErrorFailed */
-    { (int64_t)0ULL, 4648, 0 }, /* InferredErrorNone */
-    { (int64_t)1ULL, 4666, 0 }, /* InferredErrorFailed */
+    { (int64_t)0ULL, 4945, 0 }, /* ROLE_WARRIOR */
+    { (int64_t)1ULL, 4958, 0 }, /* ROLE_MAGE */
+    { (int64_t)2ULL, 4968, 0 }, /* ROLE_ROGUE */
+    { -1LL, 4979, 0 }, /* STATUS_DOWN */
+    { 0LL, 4991, 0 }, /* STATUS_OK */
+    { 4LL, 5001, 0 }, /* STATUS_BUFFED */
+    { (int64_t)0ULL, 5015, 0 }, /* RESULT_OK */
+    { (int64_t)1ULL, 5025, 0 }, /* RESULT_ERROR */
+    { (int64_t)0ULL, 5038, 0 }, /* OPTION_NONE */
+    { (int64_t)1ULL, 5050, 0 }, /* OPTION_SOME */
+    { (int64_t)0ULL, 5062, 0 }, /* ErrorNone */
+    { (int64_t)1ULL, 5072, 0 }, /* ErrorFailed */
+    { (int64_t)0ULL, 5084, 0 }, /* InferredErrorNone */
+    { (int64_t)1ULL, 5102, 0 }, /* InferredErrorFailed */
 };
 
 typedef struct TMPLGEN_SYM(Any) {
@@ -847,6 +904,12 @@ extern const struct tmplgen_reflect_unknown_type
 #ifndef TMPLGEN_REFLECT_GNU_TEST_TYPES_H
 #define TMPLGEN_REFLECT_GNU_TEST_TYPES_H(x, next) next
 #endif
+#ifndef TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H
+#define TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H
+#endif
+#ifndef TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H
+#define TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H(x, next) next
+#endif
 #ifndef TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H
 #define TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H
 #endif
@@ -882,6 +945,12 @@ extern const struct tmplgen_reflect_unknown_type
 #endif
 #ifndef TMPLGEN_REFLECT_GNU_TMPL_H_ARRAY_GEN_H
 #define TMPLGEN_REFLECT_GNU_TMPL_H_ARRAY_GEN_H(x, next) next
+#endif
+#ifndef TMPLGEN_REFLECT_TYPETAG_TMPL_H_HKT_GEN_H
+#define TMPLGEN_REFLECT_TYPETAG_TMPL_H_HKT_GEN_H
+#endif
+#ifndef TMPLGEN_REFLECT_GNU_TMPL_H_HKT_GEN_H
+#define TMPLGEN_REFLECT_GNU_TMPL_H_HKT_GEN_H(x, next) next
 #endif
 #ifndef TMPLGEN_REFLECT_TYPETAG_TMPL_H_RESULT_GEN_H
 #define TMPLGEN_REFLECT_TYPETAG_TMPL_H_RESULT_GEN_H
@@ -920,12 +989,14 @@ extern const struct tmplgen_reflect_unknown_type
     TMPLGEN_REFLECT_TYPETAG_REFLECT_TYPES_H \
     TMPLGEN_REFLECT_TYPETAG_STRUCTURAL_ROWS_TYPES_H \
     TMPLGEN_REFLECT_TYPETAG_TEST_TYPES_H \
+    TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H \
     TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H \
     TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H \
     TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H \
     TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H \
     TMPLGEN_REFLECT_TYPETAG_TMPLGEN_PHYSICS_H \
     TMPLGEN_REFLECT_TYPETAG_TMPL_H_ARRAY_GEN_H \
+    TMPLGEN_REFLECT_TYPETAG_TMPL_H_HKT_GEN_H \
     TMPLGEN_REFLECT_TYPETAG_TMPL_H_RESULT_GEN_H \
     TMPLGEN_REFLECT_TYPETAG_TMPL_H_VEC_GEN_H \
     default: tmplgen_reflect_no_typetag_for_this_argument_type)
@@ -950,7 +1021,7 @@ extern const struct tmplgen_reflect_unknown_type
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), const char *), TMPLGEN_SYM(TYPETAG_const_char_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), int *), TMPLGEN_SYM(TYPETAG_int_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), void *), TMPLGEN_SYM(TYPETAG_void_ptr), \
-    TMPLGEN_REFLECT_GNU_POINT_H(x, TMPLGEN_REFLECT_GNU_REFLECT_TYPES_H(x, TMPLGEN_REFLECT_GNU_STRUCTURAL_ROWS_TYPES_H(x, TMPLGEN_REFLECT_GNU_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_PHYSICS_H(x, TMPLGEN_REFLECT_GNU_TMPL_H_ARRAY_GEN_H(x, TMPLGEN_REFLECT_GNU_TMPL_H_RESULT_GEN_H(x, TMPLGEN_REFLECT_GNU_TMPL_H_VEC_GEN_H(x, tmplgen_reflect_no_typetag_for_this_argument_type)))))))))))))))))))))))))))))))
+    TMPLGEN_REFLECT_GNU_POINT_H(x, TMPLGEN_REFLECT_GNU_REFLECT_TYPES_H(x, TMPLGEN_REFLECT_GNU_STRUCTURAL_ROWS_TYPES_H(x, TMPLGEN_REFLECT_GNU_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H(x, TMPLGEN_REFLECT_GNU_TMPLGEN_PHYSICS_H(x, TMPLGEN_REFLECT_GNU_TMPL_H_ARRAY_GEN_H(x, TMPLGEN_REFLECT_GNU_TMPL_H_HKT_GEN_H(x, TMPLGEN_REFLECT_GNU_TMPL_H_RESULT_GEN_H(x, TMPLGEN_REFLECT_GNU_TMPL_H_VEC_GEN_H(x, tmplgen_reflect_no_typetag_for_this_argument_type)))))))))))))))))))))))))))))))))
 #endif
 
 #ifndef TMPLGEN_REFLECT_ENUMTAG_REFLECT_TYPES_H
@@ -1180,6 +1251,32 @@ TMPLGEN_REFLECT_CHECK(sizeof(InferredError) == 4 && TMPLGEN_REFLECT_ALIGN_IS(Inf
     next))
 #endif
 
+#if defined(TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H)
+#define TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H
+TMPLGEN_REFLECT_CHECK(sizeof(Array_TestInt_2) == 16 && TMPLGEN_REFLECT_ALIGN_IS(Array_TestInt_2, 8) &&
+    offsetof(Array_TestInt_2, data) == 0 &&
+    offsetof(Array_TestInt_2, len) == 8,
+    "tmplgen: reflected layout of Array(TestInt, 2) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(Array_TestInt_4) == 24 && TMPLGEN_REFLECT_ALIGN_IS(Array_TestInt_4, 8) &&
+    offsetof(Array_TestInt_4, data) == 0 &&
+    offsetof(Array_TestInt_4, len) == 16,
+    "tmplgen: reflected layout of Array(TestInt, 4) differs from this compiler or target; regenerate with matching --clang-arg flags");
+#undef TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H
+#define TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H \
+    Array_TestInt_2: TMPLGEN_SYM(TYPETAG_Array_TestInt_2), \
+    Array_TestInt_4: TMPLGEN_SYM(TYPETAG_Array_TestInt_4), \
+    Array_TestInt_2 *: TMPLGEN_SYM(TYPETAG_Array_TestInt_2_ptr), \
+    Array_TestInt_4 *: TMPLGEN_SYM(TYPETAG_Array_TestInt_4_ptr), \
+
+#undef TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H
+#define TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H(x, next) \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Array_TestInt_2), TMPLGEN_SYM(TYPETAG_Array_TestInt_2), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Array_TestInt_4), TMPLGEN_SYM(TYPETAG_Array_TestInt_4), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Array_TestInt_2 *), TMPLGEN_SYM(TYPETAG_Array_TestInt_2_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Array_TestInt_4 *), TMPLGEN_SYM(TYPETAG_Array_TestInt_4_ptr), \
+    next))))
+#endif
+
 #if defined(TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H)
 #define TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_RESULT_GEN_H_TEST_TYPES_H
 TMPLGEN_REFLECT_CHECK(sizeof(Box_Tag) == 1 && TMPLGEN_REFLECT_ALIGN_IS(Box_Tag, 1) &&
@@ -1203,14 +1300,6 @@ TMPLGEN_REFLECT_CHECK(sizeof(Pair_double_Tag) == 16 && TMPLGEN_REFLECT_ALIGN_IS(
     offsetof(Pair_double_Tag, first) == 0 &&
     offsetof(Pair_double_Tag, second) == 8,
     "tmplgen: reflected layout of Pair(double, Tag) differs from this compiler or target; regenerate with matching --clang-arg flags");
-TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_Dog_ErrorCode) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_Dog_ErrorCode, 4) &&
-    offsetof(ResultPayload_Dog_ErrorCode, ok) == 0 &&
-    offsetof(ResultPayload_Dog_ErrorCode, error) == 0,
-    "tmplgen: reflected layout of ResultPayload(Dog, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
-TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_Dog_int) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_Dog_int, 4) &&
-    offsetof(ResultPayload_Dog_int, ok) == 0 &&
-    offsetof(ResultPayload_Dog_int, error) == 0,
-    "tmplgen: reflected layout of ResultPayload(Dog, int) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_InferredDouble_ErrorCode) == 8 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_InferredDouble_ErrorCode, 8) &&
     offsetof(ResultPayload_InferredDouble_ErrorCode, ok) == 0 &&
     offsetof(ResultPayload_InferredDouble_ErrorCode, error) == 0,
@@ -1227,14 +1316,10 @@ TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_TestInt_ErrorCode) == 4 && TMPLGEN_RE
     offsetof(ResultPayload_TestInt_ErrorCode, ok) == 0 &&
     offsetof(ResultPayload_TestInt_ErrorCode, error) == 0,
     "tmplgen: reflected layout of ResultPayload(TestInt, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
-TMPLGEN_REFLECT_CHECK(sizeof(Result_Dog_ErrorCode) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Result_Dog_ErrorCode, 4) &&
-    offsetof(Result_Dog_ErrorCode, tag) == 0 &&
-    offsetof(Result_Dog_ErrorCode, payload) == 4,
-    "tmplgen: reflected layout of Result(Dog, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
-TMPLGEN_REFLECT_CHECK(sizeof(Result_Dog_int) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Result_Dog_int, 4) &&
-    offsetof(Result_Dog_int, tag) == 0 &&
-    offsetof(Result_Dog_int, payload) == 4,
-    "tmplgen: reflected layout of Result(Dog, int) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_int_ErrorCode) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_int_ErrorCode, 4) &&
+    offsetof(ResultPayload_int_ErrorCode, ok) == 0 &&
+    offsetof(ResultPayload_int_ErrorCode, error) == 0,
+    "tmplgen: reflected layout of ResultPayload(int, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(Result_InferredDouble_ErrorCode) == 16 && TMPLGEN_REFLECT_ALIGN_IS(Result_InferredDouble_ErrorCode, 8) &&
     offsetof(Result_InferredDouble_ErrorCode, tag) == 0 &&
     offsetof(Result_InferredDouble_ErrorCode, payload) == 8,
@@ -1251,6 +1336,10 @@ TMPLGEN_REFLECT_CHECK(sizeof(Result_TestInt_ErrorCode) == 8 && TMPLGEN_REFLECT_A
     offsetof(Result_TestInt_ErrorCode, tag) == 0 &&
     offsetof(Result_TestInt_ErrorCode, payload) == 4,
     "tmplgen: reflected layout of Result(TestInt, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(Result_int_ErrorCode) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Result_int_ErrorCode, 4) &&
+    offsetof(Result_int_ErrorCode, tag) == 0 &&
+    offsetof(Result_int_ErrorCode, payload) == 4,
+    "tmplgen: reflected layout of Result(int, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(struct TaggedBox_TestInt) == 4 && TMPLGEN_REFLECT_ALIGN_IS(struct TaggedBox_TestInt, 4) &&
     offsetof(struct TaggedBox_TestInt, value) == 0,
     "tmplgen: reflected layout of TaggedBox(TestInt) differs from this compiler or target; regenerate with matching --clang-arg flags");
@@ -1265,18 +1354,16 @@ TMPLGEN_REFLECT_CHECK(sizeof(union TaggedChoice_TestInt) == 4 && TMPLGEN_REFLECT
     Option_TestInt: TMPLGEN_SYM(TYPETAG_Option_TestInt), \
     Pair_Tag_double: TMPLGEN_SYM(TYPETAG_Pair_Tag_double), \
     Pair_double_Tag: TMPLGEN_SYM(TYPETAG_Pair_double_Tag), \
-    ResultPayload_Dog_ErrorCode: TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode), \
-    ResultPayload_Dog_int: TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int), \
     ResultPayload_InferredDouble_ErrorCode: TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode), \
     ResultPayload_InferredLong_InferredError: TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError), \
     ResultPayload_Tag_InferredError: TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError), \
     ResultPayload_TestInt_ErrorCode: TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode), \
-    Result_Dog_ErrorCode: TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode), \
-    Result_Dog_int: TMPLGEN_SYM(TYPETAG_Result_Dog_int), \
+    ResultPayload_int_ErrorCode: TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode), \
     Result_InferredDouble_ErrorCode: TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode), \
     Result_InferredLong_InferredError: TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError), \
     Result_Tag_InferredError: TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError), \
     Result_TestInt_ErrorCode: TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode), \
+    Result_int_ErrorCode: TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode), \
     struct TaggedBox_TestInt: TMPLGEN_SYM(TYPETAG_struct_TaggedBox_TestInt), \
     union TaggedChoice_TestInt: TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt), \
     Box_Tag *: TMPLGEN_SYM(TYPETAG_Box_Tag_ptr), \
@@ -1285,18 +1372,16 @@ TMPLGEN_REFLECT_CHECK(sizeof(union TaggedChoice_TestInt) == 4 && TMPLGEN_REFLECT
     Option_TestInt *: TMPLGEN_SYM(TYPETAG_Option_TestInt_ptr), \
     Pair_Tag_double *: TMPLGEN_SYM(TYPETAG_Pair_Tag_double_ptr), \
     Pair_double_Tag *: TMPLGEN_SYM(TYPETAG_Pair_double_Tag_ptr), \
-    ResultPayload_Dog_ErrorCode *: TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode_ptr), \
-    ResultPayload_Dog_int *: TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int_ptr), \
     ResultPayload_InferredDouble_ErrorCode *: TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode_ptr), \
     ResultPayload_InferredLong_InferredError *: TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError_ptr), \
     ResultPayload_Tag_InferredError *: TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError_ptr), \
     ResultPayload_TestInt_ErrorCode *: TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode_ptr), \
-    Result_Dog_ErrorCode *: TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode_ptr), \
-    Result_Dog_int *: TMPLGEN_SYM(TYPETAG_Result_Dog_int_ptr), \
+    ResultPayload_int_ErrorCode *: TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode_ptr), \
     Result_InferredDouble_ErrorCode *: TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode_ptr), \
     Result_InferredLong_InferredError *: TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError_ptr), \
     Result_Tag_InferredError *: TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError_ptr), \
     Result_TestInt_ErrorCode *: TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode_ptr), \
+    Result_int_ErrorCode *: TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode_ptr), \
     struct TaggedBox_TestInt *: TMPLGEN_SYM(TYPETAG_struct_TaggedBox_TestInt_ptr), \
     union TaggedChoice_TestInt *: TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt_ptr), \
 
@@ -1308,18 +1393,16 @@ TMPLGEN_REFLECT_CHECK(sizeof(union TaggedChoice_TestInt) == 4 && TMPLGEN_REFLECT
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_TestInt), TMPLGEN_SYM(TYPETAG_Option_TestInt), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Pair_Tag_double), TMPLGEN_SYM(TYPETAG_Pair_Tag_double), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Pair_double_Tag), TMPLGEN_SYM(TYPETAG_Pair_double_Tag), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Dog_ErrorCode), TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Dog_int), TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_InferredDouble_ErrorCode), TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_InferredLong_InferredError), TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Tag_InferredError), TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_TestInt_ErrorCode), TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Dog_ErrorCode), TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Dog_int), TMPLGEN_SYM(TYPETAG_Result_Dog_int), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_int_ErrorCode), TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_InferredDouble_ErrorCode), TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_InferredLong_InferredError), TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Tag_InferredError), TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_TestInt_ErrorCode), TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_int_ErrorCode), TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), struct TaggedBox_TestInt), TMPLGEN_SYM(TYPETAG_struct_TaggedBox_TestInt), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), union TaggedChoice_TestInt), TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Box_Tag *), TMPLGEN_SYM(TYPETAG_Box_Tag_ptr), \
@@ -1328,21 +1411,19 @@ TMPLGEN_REFLECT_CHECK(sizeof(union TaggedChoice_TestInt) == 4 && TMPLGEN_REFLECT
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_TestInt *), TMPLGEN_SYM(TYPETAG_Option_TestInt_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Pair_Tag_double *), TMPLGEN_SYM(TYPETAG_Pair_Tag_double_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Pair_double_Tag *), TMPLGEN_SYM(TYPETAG_Pair_double_Tag_ptr), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Dog_ErrorCode *), TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode_ptr), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Dog_int *), TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_InferredDouble_ErrorCode *), TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_InferredLong_InferredError *), TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Tag_InferredError *), TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_TestInt_ErrorCode *), TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode_ptr), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Dog_ErrorCode *), TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode_ptr), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Dog_int *), TMPLGEN_SYM(TYPETAG_Result_Dog_int_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_int_ErrorCode *), TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_InferredDouble_ErrorCode *), TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_InferredLong_InferredError *), TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Tag_InferredError *), TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_TestInt_ErrorCode *), TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_int_ErrorCode *), TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), struct TaggedBox_TestInt *), TMPLGEN_SYM(TYPETAG_struct_TaggedBox_TestInt_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), union TaggedChoice_TestInt *), TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt_ptr), \
-    next))))))))))))))))))))))))))))))))))))))))
+    next))))))))))))))))))))))))))))))))))))
 #endif
 
 #if defined(TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H)
@@ -1357,6 +1438,11 @@ TMPLGEN_REFLECT_CHECK(sizeof(Triple_TestInt_ErrorCode_Tag) == 12 && TMPLGEN_REFL
     offsetof(Triple_TestInt_ErrorCode_Tag, second) == 4 &&
     offsetof(Triple_TestInt_ErrorCode_Tag, third) == 8,
     "tmplgen: reflected layout of Triple(TestInt, ErrorCode, Tag) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(Triple_TestInt_TestInt_TestInt) == 12 && TMPLGEN_REFLECT_ALIGN_IS(Triple_TestInt_TestInt_TestInt, 4) &&
+    offsetof(Triple_TestInt_TestInt_TestInt, first) == 0 &&
+    offsetof(Triple_TestInt_TestInt_TestInt, second) == 4 &&
+    offsetof(Triple_TestInt_TestInt_TestInt, third) == 8,
+    "tmplgen: reflected layout of Triple(TestInt, TestInt, TestInt) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(Triple_double_ErrorCode_Tag) == 16 && TMPLGEN_REFLECT_ALIGN_IS(Triple_double_ErrorCode_Tag, 8) &&
     offsetof(Triple_double_ErrorCode_Tag, first) == 0 &&
     offsetof(Triple_double_ErrorCode_Tag, second) == 8 &&
@@ -1366,20 +1452,24 @@ TMPLGEN_REFLECT_CHECK(sizeof(Triple_double_ErrorCode_Tag) == 16 && TMPLGEN_REFLE
 #define TMPLGEN_REFLECT_TYPETAG_TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H \
     Triple_Tag_InferredError_InferredLong: TMPLGEN_SYM(TYPETAG_Triple_Tag_InferredError_InferredLong), \
     Triple_TestInt_ErrorCode_Tag: TMPLGEN_SYM(TYPETAG_Triple_TestInt_ErrorCode_Tag), \
+    Triple_TestInt_TestInt_TestInt: TMPLGEN_SYM(TYPETAG_Triple_TestInt_TestInt_TestInt), \
     Triple_double_ErrorCode_Tag: TMPLGEN_SYM(TYPETAG_Triple_double_ErrorCode_Tag), \
     Triple_Tag_InferredError_InferredLong *: TMPLGEN_SYM(TYPETAG_Triple_Tag_InferredError_InferredLong_ptr), \
     Triple_TestInt_ErrorCode_Tag *: TMPLGEN_SYM(TYPETAG_Triple_TestInt_ErrorCode_Tag_ptr), \
+    Triple_TestInt_TestInt_TestInt *: TMPLGEN_SYM(TYPETAG_Triple_TestInt_TestInt_TestInt_ptr), \
     Triple_double_ErrorCode_Tag *: TMPLGEN_SYM(TYPETAG_Triple_double_ErrorCode_Tag_ptr), \
 
 #undef TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H
 #define TMPLGEN_REFLECT_GNU_TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H(x, next) \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Triple_Tag_InferredError_InferredLong), TMPLGEN_SYM(TYPETAG_Triple_Tag_InferredError_InferredLong), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Triple_TestInt_ErrorCode_Tag), TMPLGEN_SYM(TYPETAG_Triple_TestInt_ErrorCode_Tag), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Triple_TestInt_TestInt_TestInt), TMPLGEN_SYM(TYPETAG_Triple_TestInt_TestInt_TestInt), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Triple_double_ErrorCode_Tag), TMPLGEN_SYM(TYPETAG_Triple_double_ErrorCode_Tag), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Triple_Tag_InferredError_InferredLong *), TMPLGEN_SYM(TYPETAG_Triple_Tag_InferredError_InferredLong_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Triple_TestInt_ErrorCode_Tag *), TMPLGEN_SYM(TYPETAG_Triple_TestInt_ErrorCode_Tag_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Triple_TestInt_TestInt_TestInt *), TMPLGEN_SYM(TYPETAG_Triple_TestInt_TestInt_TestInt_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Triple_double_ErrorCode_Tag *), TMPLGEN_SYM(TYPETAG_Triple_double_ErrorCode_Tag_ptr), \
-    next))))))
+    next))))))))
 #endif
 
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H)
@@ -1399,8 +1489,8 @@ TMPLGEN_REFLECT_CHECK(sizeof(Vec_Item) == 24 && TMPLGEN_REFLECT_ALIGN_IS(Vec_Ite
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Vec_Item), TMPLGEN_SYM(TYPETAG_Vec_Item), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Vec_Item *), TMPLGEN_SYM(TYPETAG_Vec_Item_ptr), \
     next))
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_26) = &(FieldInfo){.key = "data", .code = 1};
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_27) = &(FieldInfo){.key = "len", .code = 2};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_51) = &(FieldInfo){.key = "data", .code = 1};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_52) = &(FieldInfo){.key = "len", .code = 2};
 #endif
 
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H)
@@ -1420,8 +1510,8 @@ TMPLGEN_REFLECT_CHECK(sizeof(Vec_TestInt) == 24 && TMPLGEN_REFLECT_ALIGN_IS(Vec_
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Vec_TestInt), TMPLGEN_SYM(TYPETAG_Vec_TestInt), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Vec_TestInt *), TMPLGEN_SYM(TYPETAG_Vec_TestInt_ptr), \
     next))
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_55) = &(FieldInfo){.key = "data", .code = 1};
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_56) = &(FieldInfo){.key = "len", .code = 2};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_109) = &(FieldInfo){.key = "data", .code = 1};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_110) = &(FieldInfo){.key = "len", .code = 2};
 #endif
 
 #if defined(TMPLGEN_PHYSICS_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_PHYSICS_H)
@@ -1507,6 +1597,37 @@ TMPLGEN_REFLECT_CHECK(sizeof(Array_int_4) == 24 && TMPLGEN_REFLECT_ALIGN_IS(Arra
     next))))
 #endif
 
+#if defined(TMPL_H_HKT_GEN_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPL_H_HKT_GEN_H)
+#define TMPLGEN_REFLECT_HAVE_TMPL_H_HKT_GEN_H
+TMPLGEN_REFLECT_CHECK(sizeof(Boxed_Option) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Boxed_Option, 4) &&
+    offsetof(Boxed_Option, value) == 0,
+    "tmplgen: reflected layout of Boxed(Option) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(Plain) == 4 && TMPLGEN_REFLECT_ALIGN_IS(Plain, 4) &&
+    offsetof(Plain, x) == 0,
+    "tmplgen: reflected layout of Plain differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(PlainBox_Plain) == 4 && TMPLGEN_REFLECT_ALIGN_IS(PlainBox_Plain, 4) &&
+    offsetof(PlainBox_Plain, value) == 0,
+    "tmplgen: reflected layout of PlainBox(Plain) differs from this compiler or target; regenerate with matching --clang-arg flags");
+#undef TMPLGEN_REFLECT_TYPETAG_TMPL_H_HKT_GEN_H
+#define TMPLGEN_REFLECT_TYPETAG_TMPL_H_HKT_GEN_H \
+    Boxed_Option: TMPLGEN_SYM(TYPETAG_Boxed_Option), \
+    Plain: TMPLGEN_SYM(TYPETAG_Plain), \
+    PlainBox_Plain: TMPLGEN_SYM(TYPETAG_PlainBox_Plain), \
+    Boxed_Option *: TMPLGEN_SYM(TYPETAG_Boxed_Option_ptr), \
+    PlainBox_Plain *: TMPLGEN_SYM(TYPETAG_PlainBox_Plain_ptr), \
+    Plain *: TMPLGEN_SYM(TYPETAG_Plain_ptr), \
+
+#undef TMPLGEN_REFLECT_GNU_TMPL_H_HKT_GEN_H
+#define TMPLGEN_REFLECT_GNU_TMPL_H_HKT_GEN_H(x, next) \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Boxed_Option), TMPLGEN_SYM(TYPETAG_Boxed_Option), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Plain), TMPLGEN_SYM(TYPETAG_Plain), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), PlainBox_Plain), TMPLGEN_SYM(TYPETAG_PlainBox_Plain), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Boxed_Option *), TMPLGEN_SYM(TYPETAG_Boxed_Option_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), PlainBox_Plain *), TMPLGEN_SYM(TYPETAG_PlainBox_Plain_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Plain *), TMPLGEN_SYM(TYPETAG_Plain_ptr), \
+    next))))))
+#endif
+
 #if defined(TMPL_H_RESULT_GEN_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPL_H_RESULT_GEN_H)
 #define TMPLGEN_REFLECT_HAVE_TMPL_H_RESULT_GEN_H
 TMPLGEN_REFLECT_CHECK(sizeof(Box_double) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Box_double, 8) &&
@@ -1530,10 +1651,18 @@ TMPLGEN_REFLECT_CHECK(sizeof(Option_int) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Option
     offsetof(Option_int, tag) == 0 &&
     offsetof(Option_int, payload) == 4,
     "tmplgen: reflected layout of Option(int) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_int_int) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_int_int, 4) &&
+    offsetof(ResultPayload_int_int, ok) == 0 &&
+    offsetof(ResultPayload_int_int, error) == 0,
+    "tmplgen: reflected layout of ResultPayload(int, int) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(ResultTag) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultTag, 4) &&
     (unsigned long long)RESULT_OK == 0ULL &&
     (unsigned long long)RESULT_ERROR == 1ULL,
     "tmplgen: reflected layout of ResultTag differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(Result_int_int) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Result_int_int, 4) &&
+    offsetof(Result_int_int, tag) == 0 &&
+    offsetof(Result_int_int, payload) == 4,
+    "tmplgen: reflected layout of Result(int, int) differs from this compiler or target; regenerate with matching --clang-arg flags");
 #undef TMPLGEN_REFLECT_TYPETAG_TMPL_H_RESULT_GEN_H
 #define TMPLGEN_REFLECT_TYPETAG_TMPL_H_RESULT_GEN_H \
     Box_double: TMPLGEN_SYM(TYPETAG_Box_double), \
@@ -1541,11 +1670,15 @@ TMPLGEN_REFLECT_CHECK(sizeof(ResultTag) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultT
     OptionPayload_int: TMPLGEN_SYM(TYPETAG_OptionPayload_int), \
     Option_double: TMPLGEN_SYM(TYPETAG_Option_double), \
     Option_int: TMPLGEN_SYM(TYPETAG_Option_int), \
+    ResultPayload_int_int: TMPLGEN_SYM(TYPETAG_ResultPayload_int_int), \
+    Result_int_int: TMPLGEN_SYM(TYPETAG_Result_int_int), \
     Box_double *: TMPLGEN_SYM(TYPETAG_Box_double_ptr), \
     OptionPayload_double *: TMPLGEN_SYM(TYPETAG_OptionPayload_double_ptr), \
     OptionPayload_int *: TMPLGEN_SYM(TYPETAG_OptionPayload_int_ptr), \
     Option_double *: TMPLGEN_SYM(TYPETAG_Option_double_ptr), \
     Option_int *: TMPLGEN_SYM(TYPETAG_Option_int_ptr), \
+    ResultPayload_int_int *: TMPLGEN_SYM(TYPETAG_ResultPayload_int_int_ptr), \
+    Result_int_int *: TMPLGEN_SYM(TYPETAG_Result_int_int_ptr), \
 
 #undef TMPLGEN_REFLECT_GNU_TMPL_H_RESULT_GEN_H
 #define TMPLGEN_REFLECT_GNU_TMPL_H_RESULT_GEN_H(x, next) \
@@ -1554,12 +1687,16 @@ TMPLGEN_REFLECT_CHECK(sizeof(ResultTag) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultT
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), OptionPayload_int), TMPLGEN_SYM(TYPETAG_OptionPayload_int), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_double), TMPLGEN_SYM(TYPETAG_Option_double), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_int), TMPLGEN_SYM(TYPETAG_Option_int), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_int_int), TMPLGEN_SYM(TYPETAG_ResultPayload_int_int), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_int_int), TMPLGEN_SYM(TYPETAG_Result_int_int), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Box_double *), TMPLGEN_SYM(TYPETAG_Box_double_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), OptionPayload_double *), TMPLGEN_SYM(TYPETAG_OptionPayload_double_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), OptionPayload_int *), TMPLGEN_SYM(TYPETAG_OptionPayload_int_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_double *), TMPLGEN_SYM(TYPETAG_Option_double_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_int *), TMPLGEN_SYM(TYPETAG_Option_int_ptr), \
-    next))))))))))
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_int_int *), TMPLGEN_SYM(TYPETAG_ResultPayload_int_int_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_int_int *), TMPLGEN_SYM(TYPETAG_Result_int_int_ptr), \
+    next))))))))))))))
 #undef TMPLGEN_REFLECT_ENUMTAG_TMPL_H_RESULT_GEN_H
 #define TMPLGEN_REFLECT_ENUMTAG_TMPL_H_RESULT_GEN_H \
     OptionTag: TMPLGEN_SYM(TYPETAG_OptionTag), \
@@ -1597,8 +1734,8 @@ TMPLGEN_REFLECT_CHECK(sizeof(Vec_int) == 24 && TMPLGEN_REFLECT_ALIGN_IS(Vec_int,
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), FieldInfo *), TMPLGEN_SYM(TYPETAG_FieldInfo_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Vec_int *), TMPLGEN_SYM(TYPETAG_Vec_int_ptr), \
     next))))
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_23) = &(FieldInfo){.key = "data", .code = 1};
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_24) = &(FieldInfo){.key = "len", .code = 2};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_48) = &(FieldInfo){.key = "data", .code = 1};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_49) = &(FieldInfo){.key = "len", .code = 2};
 #endif
 
 /* Field metadata from template @meta annotations. */
@@ -1609,22 +1746,22 @@ static inline const void *TMPLGEN_SYM(reflect_meta)(
 {
     switch (field->attr) {
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H)
-    case 26: return TMPLGEN_SYM(tmplgen_reflect_meta_26);
+    case 51: return TMPLGEN_SYM(tmplgen_reflect_meta_51);
 #endif
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H)
-    case 27: return TMPLGEN_SYM(tmplgen_reflect_meta_27);
+    case 52: return TMPLGEN_SYM(tmplgen_reflect_meta_52);
 #endif
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H)
-    case 55: return TMPLGEN_SYM(tmplgen_reflect_meta_55);
+    case 109: return TMPLGEN_SYM(tmplgen_reflect_meta_109);
 #endif
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H)
-    case 56: return TMPLGEN_SYM(tmplgen_reflect_meta_56);
+    case 110: return TMPLGEN_SYM(tmplgen_reflect_meta_110);
 #endif
 #if defined(TMPL_H_VEC_GEN_H)
-    case 23: return TMPLGEN_SYM(tmplgen_reflect_meta_23);
+    case 48: return TMPLGEN_SYM(tmplgen_reflect_meta_48);
 #endif
 #if defined(TMPL_H_VEC_GEN_H)
-    case 24: return TMPLGEN_SYM(tmplgen_reflect_meta_24);
+    case 49: return TMPLGEN_SYM(tmplgen_reflect_meta_49);
 #endif
     default: return NULL;
     }

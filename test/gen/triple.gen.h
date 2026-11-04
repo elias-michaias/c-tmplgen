@@ -98,6 +98,13 @@ typedef struct {
     InferredLong third;
 } Triple_Tag_InferredError_InferredLong;
 
+/* ---- triple: Triple_TestInt_TestInt_TestInt ---- */
+typedef struct {
+    TestInt first;
+    TestInt second;
+    TestInt third;
+} Triple_TestInt_TestInt_TestInt;
+
 /* ---- triple: Triple_TestInt_ErrorCode_Tag ---- */
 typedef struct {
     TestInt first;
@@ -151,7 +158,7 @@ static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredErro
 static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third);
 /// static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third)
 static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third);
-#line 155 "/home/elias/Projects/c-tmplgen/test/gen/triple.gen.h"
+#line 162 "/home/elias/Projects/c-tmplgen/test/gen/triple.gen.h"
 #undef TMPLGEN_GENERIC_triple_make_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_triple_make_N0_TEST_TYPES_H(...) \
     Tag:     _Generic((GEN_ARG1(__VA_ARGS__)), \
@@ -188,7 +195,7 @@ static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(doubl
 static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value);
 /// static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value)
 static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value);
-#line 192 "/home/elias/Projects/c-tmplgen/test/gen/triple.gen.h"
+#line 199 "/home/elias/Projects/c-tmplgen/test/gen/triple.gen.h"
 #undef TMPLGEN_GENERIC_triple_first_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_triple_first_N0_TEST_TYPES_H(...) \
     Triple_Tag_InferredError_InferredLong *: triple_first_Tag_InferredError_InferredLong, \

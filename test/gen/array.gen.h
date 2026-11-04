@@ -150,3 +150,40 @@ extern void array_pair_sum__no_match_for_argument_type(struct tmplgen_no_associa
 
 #endif /* TMPLGEN_AGGREGATING */
 #endif /* TMPL_H_ARRAY_GEN_H */
+
+/* Specializations that name project types. Each section is
+   compiled once the header declaring those types (identified by its
+   include guard) has been included; include this header after them,
+   or again. */
+#if defined(TEST_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H)
+#define TMPLGEN_HAVE_TMPL_H_ARRAY_GEN_H_TEST_TYPES_H
+
+/* ---- array: Array_TestInt_4 ---- */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#line 10 "/home/elias/Projects/c-tmplgen/test/cases/hkt.c"
+_Static_assert((4 > 0), "tmplgen: @where failed to satisfy N > 0");
+#elif defined(__GNUC__) || defined(__clang__)
+#line 10 "/home/elias/Projects/c-tmplgen/test/cases/hkt.c"
+__extension__ _Static_assert((4 > 0), "tmplgen: @where failed to satisfy N > 0");
+#endif
+#line 170 "/home/elias/Projects/c-tmplgen/test/gen/array.gen.h"
+typedef struct {
+  TestInt data[4];
+  size_t len;
+} Array_TestInt_4;
+
+/* ---- array: Array_TestInt_2 ---- */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#line 11 "/home/elias/Projects/c-tmplgen/test/cases/value_generic.c"
+_Static_assert((2 > 0), "tmplgen: @where failed to satisfy N > 0");
+#elif defined(__GNUC__) || defined(__clang__)
+#line 11 "/home/elias/Projects/c-tmplgen/test/cases/value_generic.c"
+__extension__ _Static_assert((2 > 0), "tmplgen: @where failed to satisfy N > 0");
+#endif
+#line 184 "/home/elias/Projects/c-tmplgen/test/gen/array.gen.h"
+typedef struct {
+  TestInt data[2];
+  size_t len;
+} Array_TestInt_2;
+
+#endif

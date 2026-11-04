@@ -151,4 +151,26 @@ else
     printf '%s\n' 'Expected tmplgen failure for explicit_mixed.tmpl.h (diagnostics above).'
 fi
 
+HKTMISMATCH="$BUILD/hkt-mismatch"
+mkdir -p "$HKTMISMATCH/tmpl" "$HKTMISMATCH/gen" "$HKTMISMATCH/test/cases"
+cp -R "$ROOT/test/tmpl/." "$HKTMISMATCH/tmpl/"
+cp "$ROOT/test/cases/test_types.h" "$HKTMISMATCH/test/cases/test_types.h"
+cp "$ROOT/test/negative/hkt_mismatch.c.in" "$HKTMISMATCH/main.c"
+printf '\n===== hkt_mismatch.c.in =====\n'
+if "$BUILD/tmplgen" --source-root "$HKTMISMATCH" \
+    --template-dir "$HKTMISMATCH/tmpl" --output "$HKTMISMATCH/gen/all.gen.h" \
+    --clang-arg=-std=c11 >"$BUILD/hkt-mismatch.log" 2>&1; then
+    cat "$BUILD/hkt-mismatch.log" >&2
+    printf '%s\n' 'ERROR: hkt_mismatch.c.in unexpectedly generated' >&2
+    failed=1
+elif ! grep -Fq "Boxed() argument 'Array' is not a template constructor matching 'F'" \
+        "$BUILD/hkt-mismatch.log"; then
+    cat "$BUILD/hkt-mismatch.log" >&2
+    printf '%s\n' 'constructor signature mismatch was not diagnosed clearly' >&2
+    failed=1
+else
+    cat "$BUILD/hkt-mismatch.log" >&2
+    printf '%s\n' 'Expected tmplgen failure for hkt_mismatch.c.in (diagnostics above).'
+fi
+
 exit "$failed"

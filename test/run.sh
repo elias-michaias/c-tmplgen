@@ -115,6 +115,19 @@ if ! grep -q '^#define zero_value(type0) zero_value_##type0()$' test/gen/convert
 fi
 
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/hkt.c -o "$BUILD/hkt"
+"$BUILD/hkt"
+if ! grep -q '^} Boxed_Option;$' test/gen/hkt.gen.h ||
+   ! grep -q '^} PlainBox_Plain;$' test/gen/hkt.gen.h ||
+   ! grep -q 'Option_int value;' test/gen/hkt.gen.h ||
+   ! grep -q 'container_unwrap_Option_TestInt' test/gen/hkt.gen.h ||
+   ! grep -q 'sized_unwrap_TestInt_Array_4' test/gen/hkt.gen.h ||
+   ! grep -q 'triple_wrapped_Triple_TestInt' test/gen/hkt.gen.h; then
+    printf '%s\n' 'constructor parameters were not bound and decomposed correctly' >&2
+    exit 1
+fi
+
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/builtin_types.c -o "$BUILD/builtin-types"
 "$BUILD/builtin-types"
 

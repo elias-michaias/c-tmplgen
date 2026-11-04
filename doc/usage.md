@@ -113,6 +113,51 @@ type argument at a call site must be a single token (an identifier or a builtin
 type keyword). Functions that mix explicit and inferred type variables are
 rejected; call the suffixed specialization directly in that case.
 
+### Constructor parameters
+
+A parameter declared `template(params) F` binds a whole type constructor
+instead of a type. The signature uses the same parameter kinds as `@template`:
+`typename` (or a bare identifier) for type parameters and a scalar type for
+value parameters, in any combination and arity, including zero.
+
+```c
+// @template template(typename) F
+typedef struct {
+    F(int) value;
+} Boxed;
+
+// @template template(typename, size_t) G, typename T, size_t N
+static inline T sized_unwrap(G(T, N) *box)
+{
+    (void)box;
+    return (T){0};
+}
+```
+
+At a use site the argument is the bare name of another template type
+constructor, and the specialization is named after it:
+
+```c
+Boxed(Option) boxed;        /* Boxed_Option, with an Option_int field */
+Array(int, 4) array;
+sized_unwrap(&array);       /* sized_unwrap_int_Array_4(Array_int_4 *) */
+```
+
+The constructor's signature must match kind-by-kind: same arity, type
+parameters in the same positions, and value parameters with the same value
+type (`size_t`, not `int`). Passing `Array` where `template(typename) F` is
+declared is a generation error. Names inside the signature
+(`template(typename Item, size_t Count) G`) are documentation only.
+
+Constructor parameters also participate in inference: an observed
+`Array_int_4` matched against `G(T, N)` binds `G = Array`, `T = int`, `N = 4`.
+Applications such as `F(int)` in a body request the applied specialization
+recursively. Cross-file constructors work as usual through template includes.
+
+Not supported: partial application (`Result(int, _)`), constraints on the
+constructor parameter itself, function templates as constructor arguments,
+and builtin pseudo-constructors such as pointers or arrays.
+
 ## Infer specializations from source
 
 The generator parses `.c` and `.h` files under `--source-root`. It matches
