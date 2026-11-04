@@ -47,7 +47,7 @@ Install a C compiler and the libclang development headers and library, then run
 from the project root:
 
 ```sh
-cc -std=c99 -Wall -Wextra -pedantic tmplgen.c -lclang -o tmplgen
+make
 ```
 
 ### 2. Generate concrete code

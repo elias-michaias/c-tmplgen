@@ -178,7 +178,7 @@ python3 test/bench/generate.py --root /tmp/tmplgen-project \
 Then run tmplgen against it:
 
 ```sh
-cc -O2 -std=c99 tmplgen.c -lclang -o /tmp/tmplgen
+make && cp tmplgen /tmp/tmplgen
 /tmp/tmplgen --source-root /tmp/tmplgen-project \
   --template-dir /tmp/tmplgen-project/tmpl \
   --output /tmp/tmplgen-project/gen/all.gen.h \

@@ -14,7 +14,8 @@ if(NOT BUILD_CLANG_PLUGIN AND NOT BUILD_CLANGD_PLUGIN)
     message(FATAL_ERROR "Enable BUILD_CLANG_PLUGIN and/or BUILD_CLANGD_PLUGIN")
 endif()
 
-add_library(tmplgen-plugin-core OBJECT ../tmplgen.c)
+file(GLOB TMPLGEN_CORE_SOURCES CONFIGURE_DEPENDS ../src/*.c)
+add_library(tmplgen-plugin-core OBJECT ${TMPLGEN_CORE_SOURCES})
 set_target_properties(tmplgen-plugin-core PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     C_STANDARD 99
@@ -23,6 +24,7 @@ target_compile_definitions(tmplgen-plugin-core PRIVATE CLANGPLUGIN)
 target_include_directories(tmplgen-plugin-core SYSTEM PRIVATE
     ${LLVM_INCLUDE_DIRS}
     ${CLANG_INCLUDE_DIRS})
+target_include_directories(tmplgen-plugin-core PRIVATE ../src)
 
 if(BUILD_CLANG_PLUGIN)
     add_library(tmplgen-clang-plugin MODULE

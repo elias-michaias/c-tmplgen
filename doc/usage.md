@@ -182,7 +182,7 @@ examples.
 Build once, then run from the project root:
 
 ```sh
-cc -std=c99 -Wall -Wextra -pedantic tmplgen.c -lclang -o tmplgen
+make
 ./tmplgen --clang-arg=-std=c11
 ./tmplgen --check --clang-arg=-std=c11
 ```

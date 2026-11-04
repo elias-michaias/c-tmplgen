@@ -3,3 +3,4 @@
 .tmplgen-tu-*
 .tmplgen-plugin*
 /build/
+/tmplgen

@@ -11,14 +11,38 @@ Install a C compiler and the libclang development headers and library. The
 generator includes `<clang-c/Index.h>` and links against libclang:
 
 ```sh
-cc -std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
-  tmplgen.c -lclang -o tmplgen
+make
 ```
 
 Some systems install libclang under a versioned library name or outside the
 default linker paths; use the matching include and linker flags for that LLVM
 installation. The generator’s C compiler does not need to be Clang, but its
 libclang headers and library must come from a compatible installation.
+
+Use `make -j` to compile the independent modules in parallel. The same C99
+sources are reused by the Clang and clangd plugin builds.
+
+## Source layout
+
+The generator implementation lives under `src/`:
+
+| File | Responsibility |
+| --- | --- |
+| `driver.c` | Top-level generation, CLI, watch mode, and entry points |
+| `template.c` | Annotation parsing and libclang declaration analysis |
+| `discover.c` | Project-source analysis and call-site inference |
+| `model.c` | Template model, specialization registries, and shared queries |
+| `rewrite.c` | Argument rewriting and dependency expansion |
+| `emit.c` | Specialization, bootstrap, and dispatch emission |
+| `output.c` | Output paths, output registry, and type requirements |
+| `reflect.c` | Reflection graph construction and emission |
+| `cache.c` | Input signatures and persistent caches |
+| `util.c` | Buffers, strings, paths, and file utilities |
+| `state.c` | Shared invocation and discovery state |
+| `internal.h` | Shared types and cross-module declarations |
+
+Module-private functions and data have internal linkage; only actual
+cross-module interfaces are declared in `internal.h`.
 
 ## Keep libclang’s view aligned with the build
 

@@ -52,8 +52,9 @@ def positive_argument(name: str):
 def compile_tmplgen(destination: Path) -> Path:
     compiler = shlex.split(os.environ.get("CC", "cc"))
     flags = shlex.split(os.environ.get("CFLAGS", "-O2 -std=c99 -Wall -Wextra"))
+    sources = sorted((REPO_ROOT / "src").glob("*.c"))
     command = compiler + flags + [
-        str(REPO_ROOT / "tmplgen.c"),
+        *(str(source) for source in sources),
         "-lclang",
         "-o",
         str(destination),

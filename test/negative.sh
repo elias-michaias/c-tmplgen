@@ -8,7 +8,7 @@ CC=${CC:-cc}
 BUILD=$(mktemp -d "$ROOT/test/.negative.XXXXXX")
 trap 'rm -rf "$BUILD"' EXIT HUP INT TERM
 "$CC" -std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
-    "$ROOT/tmplgen.c" -lclang -o "$BUILD/tmplgen"
+    "$ROOT"/src/*.c -lclang -o "$BUILD/tmplgen"
 
 failed=0
 for fixture in "$ROOT"/test/negative/*.c.in; do

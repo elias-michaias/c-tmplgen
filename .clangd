@@ -1,5 +1,10 @@
 CompileFlags:
-  Add: [-std=c99]
+  Add: [-std=c99, -I/home/elias/Projects/llvm-project/clang/include]
+---
+If:
+  PathMatch: src/.*[.]h
+CompileFlags:
+  Add: [-x, c]
 ---
 If:
   PathMatch: test/tmpl/.*[.]tmpl[.]h
