@@ -2,7 +2,7 @@ CC ?= cc
 CPPFLAGS ?=
 CFLAGS ?= -std=c99 -Wall -Wextra -pedantic
 LDFLAGS ?=
-LDLIBS ?= -lclang
+LDLIBS ?= -lclang -pthread
 
 SOURCES := $(sort $(wildcard src/*.c))
 OBJECTS := $(patsubst src/%.c,build/tmplgen/%.o,$(SOURCES))

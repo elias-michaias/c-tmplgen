@@ -10,7 +10,7 @@ mkdir -p "$BUILD"
 cd "$ROOT"
 
 "$CC" -std=c99 -Wall -Wextra -pedantic -Wconversion -Wshadow \
-    src/*.c -lclang -o "$BUILD/tmplgen"
+    src/*.c -lclang -pthread -o "$BUILD/tmplgen"
 # The test project also writes gen/reflection.h (test/cases/reflect_*.c).
 "$BUILD/tmplgen" --template-dir test/tmpl --output test/gen/all.gen.h \
     --reflect=project --clang-arg=-std=c23

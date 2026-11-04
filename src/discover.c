@@ -1,6 +1,13 @@
 /* Libclang project analysis and call-site inference. */
 #include "internal.h"
 
+#if !TMPLGEN_PLUGIN_BUILD && !defined(_WIN32)
+#include <pthread.h>
+#define GEN_PARALLEL_PARSE 1
+#else
+#define GEN_PARALLEL_PARSE 0
+#endif
+
 
 /* A schema is a set of field names. Schemas are merged from every source file
  * (and from cached facts), so additions must not duplicate existing fields:
@@ -1285,11 +1292,10 @@ static int infer_use_type_from_variable(ClangContext *context, ClangUse *use)
     return use->type_spelling[0] != '\0';
 }
 
-static int parse_source_with_clang(CXIndex index, SourceFile *source,
-                                   const Buf *bootstrap,
-                                   int pass, const TemplateInfo *infos,
-                                   size_t template_count, SourceList *files,
-                                   ClangUseList *uses, SourceFacts *facts)
+static int parse_source_translation_unit(CXIndex index, const SourceFile *source,
+                                         const Buf *bootstrap,
+                                         CXTranslationUnit *out_tu,
+                                         enum CXErrorCode *out_result)
 {
     const char **arguments;
     int argument_count = (int)g_clang_arg_count + 2;
@@ -1298,12 +1304,9 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
     char **unsaved_paths;
     OutputRegistry registry;
     size_t unsaved_count;
-    size_t source_unsaved_index;
     size_t unsaved_index;
     CXTranslationUnit tu = NULL;
     enum CXErrorCode result;
-    ClangContext context;
-    InclusionCapture capture;
     arguments = (const char **)malloc((size_t)argument_count * sizeof(*arguments));
     if (arguments == NULL) die("out of memory");
     arguments[0] = "-x";
@@ -1332,7 +1335,6 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
         ++unsaved_count;
     }
     output_registry_free(&registry);
-    source_unsaved_index = unsaved_count;
     unsaved_paths[unsaved_count] = copy_string(source->path);
     unsaved[unsaved_count].Filename = unsaved_paths[unsaved_count];
     unsaved[unsaved_count].Contents = source->text.p != NULL ? source->text.p : "";
@@ -1350,7 +1352,6 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
         ++unsaved_count;
     }
 #endif
-    (void)source_unsaved_index;
     result = clang_parseTranslationUnit2(index, source->path, arguments,
         argument_count, unsaved, (unsigned)unsaved_count,
         CXTranslationUnit_DetailedPreprocessingRecord |
@@ -1361,12 +1362,27 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
     }
     free(unsaved_paths);
     free(unsaved);
+    *out_result = result;
     if (result != CXError_Success || tu == NULL) {
-        report_error(source->path, 0U,
-                     "libclang failed to parse this source file (%d)",
-                     (int)result);
+        if (tu != NULL) clang_disposeTranslationUnit(tu);
+        *out_tu = NULL;
         return 0;
     }
+    *out_tu = tu;
+    return 1;
+}
+
+static int analyze_source_translation_unit(CXTranslationUnit tu,
+                                           int pass,
+                                           const TemplateInfo *infos,
+                                           size_t template_count,
+                                           SourceList *files,
+                                           ClangUseList *uses,
+                                           SourceFacts *facts)
+{
+    ClangContext context;
+    InclusionCapture capture;
+    size_t unsaved_index;
     capture.all = &g_clang_dependencies;
     capture.local = g_tu_cache_enabled ? &facts->dependencies : NULL;
     if (g_cache_enabled || g_tu_cache_enabled) {
@@ -1420,7 +1436,6 @@ static int parse_source_with_clang(CXIndex index, SourceFile *source,
     }
     source_variable_list_free(&context.variables);
     free(context.scanned_files);
-    clang_disposeTranslationUnit(tu);
     return context.failed == 0;
 }
 
@@ -1551,9 +1566,9 @@ GenInstance *project_instance(const TemplateInfo *ti,
     return result;
 }
 
-static int source_has_suffix_api_call(const SourceFile *file,
-                                      const TemplateInfo *infos,
-                                      size_t template_count)
+static int source_has_template_function_call(const SourceFile *file,
+                                             const TemplateInfo *infos,
+                                             size_t template_count)
 {
     size_t token_index;
     for (token_index = 0U; token_index + 1U < file->token_count; ++token_index) {
@@ -1570,6 +1585,7 @@ static int source_has_suffix_api_call(const SourceFile *file,
                 const TemplateFunction *function =
                     &infos[template_index].functions[function_index];
                 size_t base_length = strlen(function->name);
+                if (str_eq(token, function->name)) return 1;
                 if (function->type_parameter_count != 0U &&
                     strlen(token) > base_length &&
                     strncmp(token, function->name, base_length) == 0 &&
@@ -1578,6 +1594,65 @@ static int source_has_suffix_api_call(const SourceFile *file,
         }
     }
     return 0;
+}
+
+static void source_mark_template_uses(const SourceFile *file,
+                                      const TemplateInfo *infos,
+                                      size_t template_count,
+                                      unsigned char *used)
+{
+    size_t token_index;
+    size_t i;
+    for (token_index = 0U; token_index + 1U < file->token_count; ++token_index) {
+        size_t template_index;
+        const char *token = file->tokens[token_index].text;
+        if (file->tokens[token_index].kind != C_TOKEN_IDENT ||
+            !token_is(file, token_index + 1U, "(")) continue;
+        for (template_index = 0U; template_index < template_count;
+             ++template_index) {
+            size_t function_index;
+            for (function_index = 0U;
+                 function_index < infos[template_index].function_count;
+                 ++function_index) {
+                const TemplateFunction *function =
+                    &infos[template_index].functions[function_index];
+                size_t base_length = strlen(function->name);
+                if (str_eq(token, function->name) ||
+                    (function->type_parameter_count != 0U &&
+                     strlen(token) > base_length &&
+                     strncmp(token, function->name, base_length) == 0 &&
+                     token[base_length] == '_')) {
+                    used[template_index] = 1U;
+                }
+            }
+        }
+    }
+    for (i = 0U; i < file->facts.constructor_count; ++i) {
+        size_t template_index = file->facts.constructors[i].template_index;
+        if (template_index < template_count) used[template_index] = 1U;
+    }
+    for (i = 0U; i < file->facts.pass1_uses.count; ++i) {
+        size_t template_index = 0U;
+        if (generic_function_template(infos, template_count,
+                                      file->facts.pass1_uses.items[i].name,
+                                      &template_index)) {
+            used[template_index] = 1U;
+        }
+    }
+    for (;;) {
+        int changed = 0;
+        for (i = 0U; i < g_function_call_dependency_count; ++i) {
+            const FunctionCallDependency *dependency =
+                &g_function_call_dependencies[i];
+            if (dependency->caller_template_index >= template_count ||
+                dependency->callee_template_index >= template_count ||
+                !used[dependency->caller_template_index] ||
+                used[dependency->callee_template_index]) continue;
+            used[dependency->callee_template_index] = 1U;
+            changed = 1;
+        }
+        if (!changed) break;
+    }
 }
 
 static int source_call_group_equal(const ClangUse *left, const ClangUse *right)
@@ -1642,16 +1717,24 @@ static unsigned long long source_facts_pass2_key(const SourceFile *source,
     unsigned long long hash = 14695981039346656037ULL;
     char numeric[64];
     size_t i, j;
-    int use_global_bootstrap = g_dispatch_backend == GEN_DISPATCH_NONE ||
-        source_has_suffix_api_call(source, infos, template_count);
+    unsigned char *used;
+    int use_global_bootstrap = g_dispatch_backend == GEN_DISPATCH_NONE;
+    if (!source_has_template_function_call(source, infos, template_count)) {
+        return source->facts.pass1_key;
+    }
     (void)snprintf(numeric, sizeof(numeric), "%016llx",
                    source->facts.pass1_key);
     signature_mix(&hash, numeric, strlen(numeric));
+    used = (unsigned char *)calloc(template_count, sizeof(*used));
+    if (used == NULL && template_count != 0U) die("out of memory");
+    source_mark_template_uses(source, infos, template_count, used);
     for (i = 0U; i < template_count; ++i) {
+        if (!used[i]) continue;
         signature_mix(&hash, infos[i].path, strlen(infos[i].path));
         signature_mix(&hash, infos[i].body.p != NULL ? infos[i].body.p : "",
                       infos[i].body.len);
     }
+    free(used);
     for (i = 0U; i < source->facts.dependencies.count; ++i) {
         unsigned long long hash1, hash2;
         if (!cache_file_hash(source->facts.dependencies.items[i], &hash1, &hash2)) {
@@ -1786,12 +1869,138 @@ static unsigned long long source_facts_pass2_key(const SourceFile *source,
     return hash;
 }
 
+static size_t source_parse_worker_count(size_t source_count)
+{
+#if GEN_PARALLEL_PARSE
+    long online = sysconf(_SC_NPROCESSORS_ONLN);
+    size_t count = online > 0 ? (size_t)online : 1U;
+    if (count > 16U) count = 16U;
+    if (count > source_count) count = source_count;
+    return count == 0U ? 1U : count;
+#else
+    (void)source_count;
+    return 1U;
+#endif
+}
+
+#if GEN_PARALLEL_PARSE
+typedef struct {
+    const CXIndex *indices;
+    size_t worker;
+    size_t worker_count;
+    const Buf *bootstrap;
+    const SourceList *files;
+    const size_t *parse_order;
+    size_t parse_count;
+    CXTranslationUnit *tus;
+    enum CXErrorCode *results;
+    unsigned char *done;
+} ParseWorker;
+
+static void *parse_worker_main(void *data)
+{
+    ParseWorker *worker = (ParseWorker *)data;
+    size_t position;
+    CXIndex index = worker->indices[worker->worker % worker->worker_count];
+    for (position = worker->worker; position < worker->parse_count;
+         position += worker->worker_count) {
+        size_t source_index = worker->parse_order[position];
+        SourceFile *source = &worker->files->items[source_index];
+        (void)parse_source_translation_unit(index, source, worker->bootstrap,
+                                            &worker->tus[source_index],
+                                            &worker->results[source_index]);
+        worker->done[source_index] = 1U;
+    }
+    return NULL;
+}
+#endif
+
+static void parse_source_batch(const CXIndex *indices, size_t worker_count,
+                               const Buf *bootstrap, const SourceList *files,
+                               const size_t *parse_order, size_t parse_count,
+                               CXTranslationUnit *tus,
+                               enum CXErrorCode *results)
+{
+    size_t count = parse_count;
+    size_t i;
+#if GEN_PARALLEL_PARSE
+    unsigned char *done = (unsigned char *)calloc(files->count, 1U);
+    pthread_t *threads = NULL;
+    ParseWorker *workers = NULL;
+    size_t launched = 0U;
+    size_t actual = worker_count;
+    if (done == NULL && files->count != 0U) die("out of memory");
+    if (count < actual) actual = count;
+    if (actual > 1U) {
+        threads = (pthread_t *)calloc(actual, sizeof(*threads));
+        workers = (ParseWorker *)calloc(actual, sizeof(*workers));
+        if (threads == NULL || workers == NULL) die("out of memory");
+        for (i = 1U; i < actual; ++i) {
+            workers[i].indices = indices;
+            workers[i].worker = i;
+            workers[i].worker_count = actual;
+            workers[i].bootstrap = bootstrap;
+            workers[i].files = files;
+            workers[i].parse_order = parse_order;
+            workers[i].parse_count = parse_count;
+            workers[i].tus = tus;
+            workers[i].results = results;
+            workers[i].done = done;
+            if (pthread_create(&threads[launched], NULL, parse_worker_main,
+                               &workers[i]) != 0) break;
+            ++launched;
+        }
+        if (actual > 1U && launched == 0U) actual = 1U;
+        workers[0].indices = indices;
+        workers[0].worker = 0U;
+        workers[0].worker_count = actual;
+        workers[0].bootstrap = bootstrap;
+        workers[0].files = files;
+        workers[0].parse_order = parse_order;
+        workers[0].parse_count = parse_count;
+        workers[0].tus = tus;
+        workers[0].results = results;
+        workers[0].done = done;
+        (void)parse_worker_main(&workers[0]);
+        for (i = 0U; i < launched; ++i) (void)pthread_join(threads[i], NULL);
+    }
+    for (i = 0U; i < count; ++i) {
+        size_t source_index = parse_order[i];
+        if (done[source_index]) continue;
+        (void)parse_source_translation_unit(indices[0],
+            &files->items[source_index], bootstrap, &tus[source_index],
+            &results[source_index]);
+        done[source_index] = 1U;
+    }
+    free(workers);
+    free(threads);
+    free(done);
+#else
+    (void)indices;
+    (void)worker_count;
+    for (i = 0U; i < count; ++i) {
+        size_t source_index = parse_order[i];
+        (void)parse_source_translation_unit(indices[0],
+            &files->items[source_index], bootstrap, &tus[source_index],
+            &results[source_index]);
+    }
+#endif
+}
+
 int discover_source_usages(const TemplateInfo *infos, size_t template_count,
                                   SourceList *files)
 {
     CXIndex index;
+    CXIndex *indices;
     Buf bootstrap;
     size_t i;
+    size_t worker_count;
+    size_t batch_capacity;
+    size_t batch_start;
+    unsigned char *need_parse;
+    size_t *parse_order;
+    CXTranslationUnit *tus;
+    enum CXErrorCode *parse_results;
     int success = 1;
     if (!scan_source_directory(files, g_source_root)) return 0;
     /* The directory scan follows readdir order, which is filesystem
@@ -1802,34 +2011,85 @@ int discover_source_usages(const TemplateInfo *infos, size_t template_count,
               source_file_path_compare);
     }
     for (i = 0U; i < files->count; ++i) tokenize_source(&files->items[i]);
+    worker_count = source_parse_worker_count(files->count);
+    batch_capacity = worker_count * 4U;
+    if (batch_capacity < worker_count) die("too many source files");
+    if (files->count != 0U && batch_capacity > files->count) {
+        batch_capacity = files->count;
+    }
+    indices = (CXIndex *)calloc(worker_count, sizeof(*indices));
+    need_parse = (unsigned char *)calloc(files->count, 1U);
+    parse_order = (size_t *)malloc(batch_capacity * sizeof(*parse_order));
+    tus = (CXTranslationUnit *)calloc(files->count, sizeof(*tus));
+    parse_results = (enum CXErrorCode *)calloc(files->count,
+                                                sizeof(*parse_results));
+    if (indices == NULL || (files->count != 0U && need_parse == NULL) ||
+        parse_order == NULL || (files->count != 0U && tus == NULL) ||
+        (files->count != 0U && parse_results == NULL)) {
+        die("out of memory");
+    }
     index = clang_createIndex(0, 0);
     if (index == NULL) die("libclang could not create an index");
+    indices[0] = index;
+    for (i = 1U; i < worker_count; ++i) {
+        indices[i] = clang_createIndex(0, 0);
+        if (indices[i] == NULL) die("libclang could not create an index");
+    }
     buf_init(&bootstrap);
     emit_bootstrap_header(&bootstrap, infos, template_count, 0);
-    for (i = 0U; i < files->count; ++i) {
-        SourceFile *source = &files->items[i];
-        SourceFacts *facts = &source->facts;
-        unsigned long long pass1_key = source_facts_key(source, &bootstrap, 1);
-        int pass1_ok = 1;
-        if (g_tu_cache_enabled && !facts->loaded) {
-            (void)source_facts_load(source, files);
+    batch_start = 0U;
+    while (batch_start < files->count) {
+        size_t batch_end = batch_start + batch_capacity;
+        size_t parse_count = 0U;
+        if (batch_end > files->count) batch_end = files->count;
+        memset(need_parse + batch_start, 0, batch_end - batch_start);
+        for (i = batch_start; i < batch_end; ++i) {
+            SourceFile *source = &files->items[i];
+            SourceFacts *facts = &source->facts;
+            unsigned long long pass1_key = source_facts_key(source, &bootstrap, 1);
+            if (g_tu_cache_enabled && !facts->loaded) {
+                (void)source_facts_load(source, files);
+            }
+            if (!g_tu_cache_enabled || !facts->loaded || !facts->pass1_valid ||
+                facts->pass1_key != pass1_key) {
+                source_facts_reset(facts);
+                facts->pass1_key = pass1_key;
+                need_parse[i] = 1U;
+                parse_order[parse_count++] = i;
+                tus[i] = NULL;
+                parse_results[i] = CXError_Failure;
+            }
         }
-        if (!g_tu_cache_enabled || !facts->loaded || !facts->pass1_valid ||
-            facts->pass1_key != pass1_key) {
-            source_facts_reset(facts);
-            facts->pass1_key = pass1_key;
-            pass1_ok = parse_source_with_clang(index, source, &bootstrap,
-                1, infos, template_count, files, &facts->pass1_uses, facts);
-            facts->pass1_valid = pass1_ok;
-            facts->loaded = g_tu_cache_enabled;
-            if (!pass1_ok) success = 0;
-        } else if (g_verbose) {
-            fprintf(stderr, "tmplgen: reused source facts pass 1 for %s\n",
-                    source->path);
+        parse_source_batch(indices, worker_count, &bootstrap, files,
+                           parse_order, parse_count, tus, parse_results);
+        for (i = batch_start; i < batch_end; ++i) {
+            SourceFile *source = &files->items[i];
+            SourceFacts *facts = &source->facts;
+            int pass1_ok = 1;
+            if (need_parse[i]) {
+                if (tus[i] == NULL) {
+                    report_error(source->path, 0U,
+                        "libclang failed to parse this source file (%d)",
+                        (int)parse_results[i]);
+                    pass1_ok = 0;
+                } else {
+                    pass1_ok = analyze_source_translation_unit(tus[i], 1, infos,
+                        template_count, files, &facts->pass1_uses, facts);
+                    clang_disposeTranslationUnit(tus[i]);
+                    tus[i] = NULL;
+                }
+                facts->pass1_valid = pass1_ok;
+                facts->loaded = g_tu_cache_enabled;
+                if (!pass1_ok) success = 0;
+            } else if (g_verbose) {
+                fprintf(stderr, "tmplgen: reused source facts pass 1 for %s\n",
+                        source->path);
+            }
+            if (!pass1_ok) continue;
+            source_facts_apply(facts);
+            (void)process_clang_uses(&facts->pass1_uses, infos, template_count, 0);
         }
-        if (!pass1_ok) continue;
-        source_facts_apply(facts);
-        (void)process_clang_uses(&facts->pass1_uses, infos, template_count, 0);
+        batch_start = batch_end;
     }
     buf_free(&bootstrap);
     if (success) {
@@ -1840,29 +2100,69 @@ int discover_source_usages(const TemplateInfo *infos, size_t template_count,
         /* Errors are reported again (once) after the second pass. */
         (void)compute_instance_requirements();
         emit_bootstrap_header(&bootstrap, infos, template_count, 1);
-        for (i = 0U; i < files->count; ++i) {
-            SourceFile *source = &files->items[i];
-            SourceFacts *facts = &source->facts;
-            unsigned long long pass2_key = source_facts_pass2_key(
-                source, infos, template_count, &bootstrap);
-            int pass2_ok = 1;
-            if (!g_tu_cache_enabled || !facts->loaded ||
-                !facts->pass2_valid || facts->pass2_key != pass2_key) {
-                clang_use_list_free(&facts->pass2_uses);
-                facts->pass2_key = pass2_key;
-                pass2_ok = parse_source_with_clang(index, source, &bootstrap,
-                    2, infos, template_count, files, &facts->pass2_uses, facts);
-                facts->pass2_valid = pass2_ok;
-                facts->loaded = g_tu_cache_enabled;
-                if (!pass2_ok) success = 0;
-            } else if (g_verbose) {
-                fprintf(stderr, "tmplgen: reused source facts pass 2 for %s\n",
-                        source->path);
+        batch_start = 0U;
+        while (batch_start < files->count) {
+            size_t batch_end = batch_start + batch_capacity;
+            size_t parse_count = 0U;
+            if (batch_end > files->count) batch_end = files->count;
+            memset(need_parse + batch_start, 0, batch_end - batch_start);
+            for (i = batch_start; i < batch_end; ++i) {
+                SourceFile *source = &files->items[i];
+                SourceFacts *facts = &source->facts;
+                unsigned long long pass2_key = source_facts_pass2_key(
+                    source, infos, template_count, &bootstrap);
+                int needs_pass2 = source_has_template_function_call(
+                    source, infos, template_count);
+                if (!needs_pass2) {
+                    clang_use_list_free(&facts->pass2_uses);
+                    facts->pass2_key = pass2_key;
+                    facts->pass2_valid = 1;
+                    facts->loaded = g_tu_cache_enabled;
+                } else if (!g_tu_cache_enabled || !facts->loaded ||
+                    !facts->pass2_valid || facts->pass2_key != pass2_key) {
+                    clang_use_list_free(&facts->pass2_uses);
+                    facts->pass2_key = pass2_key;
+                    need_parse[i] = 1U;
+                    parse_order[parse_count++] = i;
+                    tus[i] = NULL;
+                    parse_results[i] = CXError_Failure;
+                }
             }
-            if (!pass2_ok) continue;
-            if (!process_clang_uses(&facts->pass2_uses, infos, template_count, 1)) {
-                /* Inference warnings do not stop source discovery. */
+            parse_source_batch(indices, worker_count, &bootstrap, files,
+                               parse_order, parse_count, tus, parse_results);
+            for (i = batch_start; i < batch_end; ++i) {
+                SourceFile *source = &files->items[i];
+                SourceFacts *facts = &source->facts;
+                int pass2_ok = 1;
+                if (need_parse[i]) {
+                    if (tus[i] == NULL) {
+                        report_error(source->path, 0U,
+                            "libclang failed to parse this source file (%d)",
+                            (int)parse_results[i]);
+                        pass2_ok = 0;
+                    } else {
+                        pass2_ok = analyze_source_translation_unit(tus[i], 2,
+                            infos, template_count, files, &facts->pass2_uses,
+                            facts);
+                        clang_disposeTranslationUnit(tus[i]);
+                        tus[i] = NULL;
+                    }
+                    facts->pass2_valid = pass2_ok;
+                    facts->loaded = g_tu_cache_enabled;
+                    if (!pass2_ok) success = 0;
+                } else if (g_verbose && facts->pass2_valid &&
+                           source_has_template_function_call(source, infos,
+                                                             template_count)) {
+                    fprintf(stderr, "tmplgen: reused source facts pass 2 for %s\n",
+                            source->path);
+                }
+                if (!pass2_ok) continue;
+                if (!process_clang_uses(&facts->pass2_uses, infos,
+                                        template_count, 1)) {
+                    /* Inference warnings do not stop source discovery. */
+                }
             }
+            batch_start = batch_end;
         }
         expand_dependencies_to_fixpoint(infos, template_count, 1);
         if (success && g_tu_cache_enabled) {
@@ -1872,7 +2172,12 @@ int discover_source_usages(const TemplateInfo *infos, size_t template_count,
         }
     }
     buf_free(&bootstrap);
-    clang_disposeIndex(index);
+    for (i = 0U; i < worker_count; ++i) clang_disposeIndex(indices[i]);
+    free(indices);
+    free(need_parse);
+    free(parse_order);
+    free(tus);
+    free(parse_results);
     return success;
 }
 

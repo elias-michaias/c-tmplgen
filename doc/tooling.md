@@ -8,7 +8,8 @@ compiler.
 ## Build requirements
 
 Install a C compiler and the libclang development headers and library. The
-generator includes `<clang-c/Index.h>` and links against libclang:
+generator includes `<clang-c/Index.h>`, links against libclang, and uses POSIX
+threads to parse independent source files in parallel on Unix-like systems:
 
 ```sh
 make

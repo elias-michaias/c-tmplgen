@@ -56,6 +56,7 @@ def compile_tmplgen(destination: Path) -> Path:
     command = compiler + flags + [
         *(str(source) for source in sources),
         "-lclang",
+        "-pthread",
         "-o",
         str(destination),
     ]
