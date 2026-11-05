@@ -142,19 +142,19 @@ typedef enum TMPLGEN_SYM(TypeTag) {
     TMPLGEN_SYM(TYPETAG_Plain),
     TMPLGEN_SYM(TYPETAG_PlainBox_Plain),
     TMPLGEN_SYM(TYPETAG_Point),
+    TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode),
+    TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int),
     TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode),
     TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError),
     TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError),
     TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode),
-    TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode),
-    TMPLGEN_SYM(TYPETAG_ResultPayload_int_int),
     TMPLGEN_SYM(TYPETAG_ResultTag),
+    TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode),
+    TMPLGEN_SYM(TYPETAG_Result_Dog_int),
     TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode),
     TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError),
     TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError),
     TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode),
-    TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode),
-    TMPLGEN_SYM(TYPETAG_Result_int_int),
     TMPLGEN_SYM(TYPETAG_Role),
     TMPLGEN_SYM(TYPETAG_Status),
     TMPLGEN_SYM(TYPETAG_Triple_Tag_InferredError_InferredLong),
@@ -200,18 +200,18 @@ typedef enum TMPLGEN_SYM(TypeTag) {
     TMPLGEN_SYM(TYPETAG_PlainBox_Plain_ptr),
     TMPLGEN_SYM(TYPETAG_Plain_ptr),
     TMPLGEN_SYM(TYPETAG_Point_ptr),
+    TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode_ptr),
+    TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int_ptr),
     TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode_ptr),
     TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError_ptr),
     TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError_ptr),
     TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode_ptr),
-    TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode_ptr),
-    TMPLGEN_SYM(TYPETAG_ResultPayload_int_int_ptr),
+    TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode_ptr),
+    TMPLGEN_SYM(TYPETAG_Result_Dog_int_ptr),
     TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode_ptr),
     TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError_ptr),
     TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError_ptr),
     TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode_ptr),
-    TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode_ptr),
-    TMPLGEN_SYM(TYPETAG_Result_int_int_ptr),
     TMPLGEN_SYM(TYPETAG_Triple_Tag_InferredError_InferredLong_ptr),
     TMPLGEN_SYM(TYPETAG_Triple_TestInt_ErrorCode_Tag_ptr),
     TMPLGEN_SYM(TYPETAG_Triple_TestInt_TestInt_TestInt_ptr),
@@ -312,31 +312,31 @@ static const char TMPLGEN_SYM(RuntimeTypeStrings)[] = {
     'P','l','a','i','n','B','o','x','_','P','l','a','i','n',0, /* 855: PlainBox_Plain */
     'P','l','a','i','n','B','o','x','(','P','l','a','i','n',')',0, /* 870: PlainBox(Plain) */
     'P','o','i','n','t',0, /* 886: Point */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e',0, /* 892: ResultPayload_InferredDouble_ErrorCode */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 931: ResultPayload(InferredDouble, ErrorCode) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 972: ResultPayload_InferredLong_InferredError */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1013: ResultPayload(InferredLong, InferredError) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1056: ResultPayload_Tag_InferredError */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1088: ResultPayload(Tag, InferredError) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1122: ResultPayload_TestInt_ErrorCode */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1154: ResultPayload(TestInt, ErrorCode) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','i','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1188: ResultPayload_int_ErrorCode */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','i','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1216: ResultPayload(int, ErrorCode) */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','i','n','t','_','i','n','t',0, /* 1246: ResultPayload_int_int */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','i','n','t',',',' ','i','n','t',')',0, /* 1268: ResultPayload(int, int) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','D','o','g','_','E','r','r','o','r','C','o','d','e',0, /* 892: ResultPayload_Dog_ErrorCode */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','D','o','g',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 920: ResultPayload(Dog, ErrorCode) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','D','o','g','_','i','n','t',0, /* 950: ResultPayload_Dog_int */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','D','o','g',',',' ','i','n','t',')',0, /* 972: ResultPayload(Dog, int) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e',0, /* 996: ResultPayload_InferredDouble_ErrorCode */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1035: ResultPayload(InferredDouble, ErrorCode) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1076: ResultPayload_InferredLong_InferredError */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1117: ResultPayload(InferredLong, InferredError) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1160: ResultPayload_Tag_InferredError */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1192: ResultPayload(Tag, InferredError) */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1226: ResultPayload_TestInt_ErrorCode */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1258: ResultPayload(TestInt, ErrorCode) */
     'R','e','s','u','l','t','T','a','g',0, /* 1292: ResultTag */
-    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e',0, /* 1302: Result_InferredDouble_ErrorCode */
-    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1334: Result(InferredDouble, ErrorCode) */
-    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1368: Result_InferredLong_InferredError */
-    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1402: Result(InferredLong, InferredError) */
-    'R','e','s','u','l','t','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1438: Result_Tag_InferredError */
-    'R','e','s','u','l','t','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1463: Result(Tag, InferredError) */
-    'R','e','s','u','l','t','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1490: Result_TestInt_ErrorCode */
-    'R','e','s','u','l','t','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1515: Result(TestInt, ErrorCode) */
-    'R','e','s','u','l','t','_','i','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1542: Result_int_ErrorCode */
-    'R','e','s','u','l','t','(','i','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1563: Result(int, ErrorCode) */
-    'R','e','s','u','l','t','_','i','n','t','_','i','n','t',0, /* 1586: Result_int_int */
-    'R','e','s','u','l','t','(','i','n','t',',',' ','i','n','t',')',0, /* 1601: Result(int, int) */
+    'R','e','s','u','l','t','_','D','o','g','_','E','r','r','o','r','C','o','d','e',0, /* 1302: Result_Dog_ErrorCode */
+    'R','e','s','u','l','t','(','D','o','g',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1323: Result(Dog, ErrorCode) */
+    'R','e','s','u','l','t','_','D','o','g','_','i','n','t',0, /* 1346: Result_Dog_int */
+    'R','e','s','u','l','t','(','D','o','g',',',' ','i','n','t',')',0, /* 1361: Result(Dog, int) */
+    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e',0, /* 1378: Result_InferredDouble_ErrorCode */
+    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1410: Result(InferredDouble, ErrorCode) */
+    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1444: Result_InferredLong_InferredError */
+    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1478: Result(InferredLong, InferredError) */
+    'R','e','s','u','l','t','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r',0, /* 1514: Result_Tag_InferredError */
+    'R','e','s','u','l','t','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',0, /* 1539: Result(Tag, InferredError) */
+    'R','e','s','u','l','t','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e',0, /* 1566: Result_TestInt_ErrorCode */
+    'R','e','s','u','l','t','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',0, /* 1591: Result(TestInt, ErrorCode) */
     'R','o','l','e',0, /* 1618: Role */
     'S','t','a','t','u','s',0, /* 1623: Status */
     'T','r','i','p','l','e','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','I','n','f','e','r','r','e','d','L','o','n','g',0, /* 1630: Triple_Tag_InferredError_InferredLong */
@@ -425,30 +425,30 @@ static const char TMPLGEN_SYM(RuntimeTypeStrings)[] = {
     'P','l','a','i','n',' ','*',0, /* 3069: Plain * */
     'P','o','i','n','t','_','p','t','r',0, /* 3077: Point_ptr */
     'P','o','i','n','t',' ','*',0, /* 3087: Point * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3095: ResultPayload_InferredDouble_ErrorCode_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3138: ResultPayload(InferredDouble, ErrorCode) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3181: ResultPayload_InferredLong_InferredError_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3226: ResultPayload(InferredLong, InferredError) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3271: ResultPayload_Tag_InferredError_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3307: ResultPayload(Tag, InferredError) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3343: ResultPayload_TestInt_ErrorCode_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3379: ResultPayload(TestInt, ErrorCode) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','i','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3415: ResultPayload_int_ErrorCode_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','i','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3447: ResultPayload(int, ErrorCode) * */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','i','n','t','_','i','n','t','_','p','t','r',0, /* 3479: ResultPayload_int_int_ptr */
-    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','i','n','t',',',' ','i','n','t',')',' ','*',0, /* 3505: ResultPayload(int, int) * */
-    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3531: Result_InferredDouble_ErrorCode_ptr */
-    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3567: Result(InferredDouble, ErrorCode) * */
-    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3603: Result_InferredLong_InferredError_ptr */
-    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3641: Result(InferredLong, InferredError) * */
-    'R','e','s','u','l','t','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3679: Result_Tag_InferredError_ptr */
-    'R','e','s','u','l','t','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3708: Result(Tag, InferredError) * */
-    'R','e','s','u','l','t','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3737: Result_TestInt_ErrorCode_ptr */
-    'R','e','s','u','l','t','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3766: Result(TestInt, ErrorCode) * */
-    'R','e','s','u','l','t','_','i','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3795: Result_int_ErrorCode_ptr */
-    'R','e','s','u','l','t','(','i','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3820: Result(int, ErrorCode) * */
-    'R','e','s','u','l','t','_','i','n','t','_','i','n','t','_','p','t','r',0, /* 3845: Result_int_int_ptr */
-    'R','e','s','u','l','t','(','i','n','t',',',' ','i','n','t',')',' ','*',0, /* 3864: Result(int, int) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','D','o','g','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3095: ResultPayload_Dog_ErrorCode_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','D','o','g',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3127: ResultPayload(Dog, ErrorCode) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','D','o','g','_','i','n','t','_','p','t','r',0, /* 3159: ResultPayload_Dog_int_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','D','o','g',',',' ','i','n','t',')',' ','*',0, /* 3185: ResultPayload(Dog, int) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3211: ResultPayload_InferredDouble_ErrorCode_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3254: ResultPayload(InferredDouble, ErrorCode) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3297: ResultPayload_InferredLong_InferredError_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3342: ResultPayload(InferredLong, InferredError) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3387: ResultPayload_Tag_InferredError_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3423: ResultPayload(Tag, InferredError) * */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3459: ResultPayload_TestInt_ErrorCode_ptr */
+    'R','e','s','u','l','t','P','a','y','l','o','a','d','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3495: ResultPayload(TestInt, ErrorCode) * */
+    'R','e','s','u','l','t','_','D','o','g','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3531: Result_Dog_ErrorCode_ptr */
+    'R','e','s','u','l','t','(','D','o','g',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3556: Result(Dog, ErrorCode) * */
+    'R','e','s','u','l','t','_','D','o','g','_','i','n','t','_','p','t','r',0, /* 3581: Result_Dog_int_ptr */
+    'R','e','s','u','l','t','(','D','o','g',',',' ','i','n','t',')',' ','*',0, /* 3600: Result(Dog, int) * */
+    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','D','o','u','b','l','e','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3619: Result_InferredDouble_ErrorCode_ptr */
+    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','D','o','u','b','l','e',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3655: Result(InferredDouble, ErrorCode) * */
+    'R','e','s','u','l','t','_','I','n','f','e','r','r','e','d','L','o','n','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3691: Result_InferredLong_InferredError_ptr */
+    'R','e','s','u','l','t','(','I','n','f','e','r','r','e','d','L','o','n','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3729: Result(InferredLong, InferredError) * */
+    'R','e','s','u','l','t','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','p','t','r',0, /* 3767: Result_Tag_InferredError_ptr */
+    'R','e','s','u','l','t','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',')',' ','*',0, /* 3796: Result(Tag, InferredError) * */
+    'R','e','s','u','l','t','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','p','t','r',0, /* 3825: Result_TestInt_ErrorCode_ptr */
+    'R','e','s','u','l','t','(','T','e','s','t','I','n','t',',',' ','E','r','r','o','r','C','o','d','e',')',' ','*',0, /* 3854: Result(TestInt, ErrorCode) * */
     'T','r','i','p','l','e','_','T','a','g','_','I','n','f','e','r','r','e','d','E','r','r','o','r','_','I','n','f','e','r','r','e','d','L','o','n','g','_','p','t','r',0, /* 3883: Triple_Tag_InferredError_InferredLong_ptr */
     'T','r','i','p','l','e','(','T','a','g',',',' ','I','n','f','e','r','r','e','d','E','r','r','o','r',',',' ','I','n','f','e','r','r','e','d','L','o','n','g',')',' ','*',0, /* 3925: Triple(Tag, InferredError, InferredLong) * */
     'T','r','i','p','l','e','_','T','e','s','t','I','n','t','_','E','r','r','o','r','C','o','d','e','_','T','a','g','_','p','t','r',0, /* 3968: Triple_TestInt_ErrorCode_Tag_ptr */
@@ -520,15 +520,15 @@ static const char TMPLGEN_SYM(RuntimeTypeStrings)[] = {
     'i','d',0, /* 4864: id */
     'f','l','a','g','s',0, /* 4867: flags */
     'm','a','s','s',0, /* 4873: mass */
-    'o','k',0, /* 4878: ok */
-    'e','r','r','o','r',0, /* 4881: error */
-    't','a','g',0, /* 4887: tag */
-    'p','a','y','l','o','a','d',0, /* 4891: payload */
-    's','o','m','e',0, /* 4899: some */
-    'c','a','p',0, /* 4904: cap */
-    'i','t','e','m','s',0, /* 4908: items */
-    'g','o','l','d',0, /* 4914: gold */
-    's','n','a','c','k','s',0, /* 4919: snacks */
+    's','o','m','e',0, /* 4878: some */
+    't','a','g',0, /* 4883: tag */
+    'p','a','y','l','o','a','d',0, /* 4887: payload */
+    'c','a','p',0, /* 4895: cap */
+    'i','t','e','m','s',0, /* 4899: items */
+    'g','o','l','d',0, /* 4905: gold */
+    's','n','a','c','k','s',0, /* 4910: snacks */
+    'o','k',0, /* 4917: ok */
+    'e','r','r','o','r',0, /* 4920: error */
     'f','i','r','s','t',0, /* 4926: first */
     's','e','c','o','n','d',0, /* 4932: second */
     't','h','i','r','d',0, /* 4939: third */
@@ -567,66 +567,66 @@ static const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[141] = {
     { 4, 4, 4, 0, 6, 226, 0, 0, 0, 226 }, /* 14: float */
     { 8, 8, 4, 0, 6, 232, 0, 0, 0, 232 }, /* 15: double */
     { 16, 16, 4, 0, 2, 239, 0, 0, 0, 251 }, /* 16: long_double */
-    { 16, 8, 7, 0, 70, 263, 63, 2, 0, 279 }, /* 17: Array_TestInt_2 */
-    { 24, 8, 7, 0, 70, 297, 61, 2, 0, 313 }, /* 18: Array_TestInt_4 */
+    { 16, 8, 7, 0, 70, 263, 59, 2, 0, 279 }, /* 17: Array_TestInt_2 */
+    { 24, 8, 7, 0, 70, 297, 57, 2, 0, 313 }, /* 18: Array_TestInt_4 */
     { 16, 8, 7, 0, 70, 331, 20, 2, 0, 343 }, /* 19: Array_int_2 */
     { 24, 8, 7, 0, 70, 357, 18, 2, 0, 369 }, /* 20: Array_int_4 */
     { 1, 1, 7, 0, 70, 383, 90, 1, 0, 391 }, /* 21: Box_Tag */
     { 4, 4, 7, 0, 70, 400, 91, 1, 0, 412 }, /* 22: Box_TestInt */
-    { 8, 8, 7, 0, 70, 425, 43, 1, 0, 436 }, /* 23: Box_double */
-    { 8, 4, 7, 0, 66, 448, 45, 1, 0, 461 }, /* 24: Boxed_Option */
-    { 4, 4, 7, 0, 6, 475, 55, 1, 0, 475 }, /* 25: Dog */
+    { 8, 8, 7, 0, 70, 425, 39, 1, 0, 436 }, /* 23: Box_double */
+    { 8, 4, 7, 0, 66, 448, 41, 1, 0, 461 }, /* 24: Boxed_Option */
+    { 4, 4, 7, 0, 6, 475, 51, 1, 0, 475 }, /* 25: Dog */
     { 4, 4, 9, 0, 134, 479, 10, 2, 9, 479 }, /* 26: ErrorCode */
     { 16, 8, 7, 0, 0, 489, 0, 2, 0, 489 }, /* 27: FieldInfo */
     { 44, 4, 7, 0, 2, 499, 6, 7, 0, 499 }, /* 28: Hero */
     { 4, 4, 9, 0, 134, 504, 12, 2, 9, 504 }, /* 29: InferredError */
-    { 32, 8, 7, 0, 0, 518, 53, 2, 0, 518 }, /* 30: Inventory */
+    { 32, 8, 7, 0, 0, 518, 49, 2, 0, 518 }, /* 30: Inventory */
     { 14, 2, 7, 0, 6, 528, 4, 2, 0, 528 }, /* 31: Item */
     { 24, 8, 7, 0, 0, 533, 30, 3, 0, 533 }, /* 32: NamedActor */
     { 4, 4, 8, 0, 2, 544, 16, 2, 0, 544 }, /* 33: Number */
     { 4, 4, 8, 0, 66, 551, 85, 1, 0, 573 }, /* 34: OptionPayload_TestInt */
-    { 8, 8, 8, 0, 66, 596, 37, 1, 0, 617 }, /* 35: OptionPayload_double */
-    { 4, 4, 8, 0, 66, 639, 38, 1, 0, 657 }, /* 36: OptionPayload_int */
+    { 8, 8, 8, 0, 66, 596, 33, 1, 0, 617 }, /* 35: OptionPayload_double */
+    { 4, 4, 8, 0, 66, 639, 34, 1, 0, 657 }, /* 36: OptionPayload_int */
     { 4, 4, 9, 0, 134, 676, 8, 2, 9, 676 }, /* 37: OptionTag */
     { 8, 4, 7, 0, 66, 686, 86, 2, 0, 701 }, /* 38: Option_TestInt */
-    { 16, 8, 7, 0, 66, 717, 39, 2, 0, 731 }, /* 39: Option_double */
-    { 8, 4, 7, 0, 66, 746, 41, 2, 0, 757 }, /* 40: Option_int */
+    { 16, 8, 7, 0, 66, 717, 35, 2, 0, 731 }, /* 39: Option_double */
+    { 8, 4, 7, 0, 66, 746, 37, 2, 0, 757 }, /* 40: Option_int */
     { 16, 8, 7, 0, 66, 769, 92, 2, 0, 785 }, /* 41: Pair_Tag_double */
     { 16, 8, 7, 0, 66, 803, 94, 2, 0, 819 }, /* 42: Pair_double_Tag */
     { 16, 8, 7, 0, 6, 837, 27, 3, 0, 837 }, /* 43: PhysicsBody */
-    { 4, 4, 7, 0, 6, 849, 44, 1, 0, 849 }, /* 44: Plain */
-    { 4, 4, 7, 0, 70, 855, 46, 1, 0, 870 }, /* 45: PlainBox_Plain */
+    { 4, 4, 7, 0, 6, 849, 40, 1, 0, 849 }, /* 44: Plain */
+    { 4, 4, 7, 0, 70, 855, 42, 1, 0, 870 }, /* 45: PlainBox_Plain */
     { 8, 4, 7, 0, 6, 886, 2, 2, 0, 886 }, /* 46: Point */
-    { 8, 8, 8, 0, 66, 892, 67, 2, 0, 931 }, /* 47: ResultPayload_InferredDouble_ErrorCode */
-    { 8, 8, 8, 0, 66, 972, 65, 2, 0, 1013 }, /* 48: ResultPayload_InferredLong_InferredError */
-    { 4, 4, 8, 0, 66, 1056, 71, 2, 0, 1088 }, /* 49: ResultPayload_Tag_InferredError */
-    { 4, 4, 8, 0, 66, 1122, 73, 2, 0, 1154 }, /* 50: ResultPayload_TestInt_ErrorCode */
-    { 4, 4, 8, 0, 66, 1188, 69, 2, 0, 1216 }, /* 51: ResultPayload_int_ErrorCode */
-    { 4, 4, 8, 0, 66, 1246, 33, 2, 0, 1268 }, /* 52: ResultPayload_int_int */
+    { 4, 4, 8, 0, 66, 892, 65, 2, 0, 920 }, /* 47: ResultPayload_Dog_ErrorCode */
+    { 4, 4, 8, 0, 66, 950, 67, 2, 0, 972 }, /* 48: ResultPayload_Dog_int */
+    { 8, 8, 8, 0, 66, 996, 63, 2, 0, 1035 }, /* 49: ResultPayload_InferredDouble_ErrorCode */
+    { 8, 8, 8, 0, 66, 1076, 61, 2, 0, 1117 }, /* 50: ResultPayload_InferredLong_InferredError */
+    { 4, 4, 8, 0, 66, 1160, 69, 2, 0, 1192 }, /* 51: ResultPayload_Tag_InferredError */
+    { 4, 4, 8, 0, 66, 1226, 71, 2, 0, 1258 }, /* 52: ResultPayload_TestInt_ErrorCode */
     { 4, 4, 9, 0, 134, 1292, 6, 2, 9, 1292 }, /* 53: ResultTag */
-    { 16, 8, 7, 0, 66, 1302, 77, 2, 0, 1334 }, /* 54: Result_InferredDouble_ErrorCode */
-    { 16, 8, 7, 0, 66, 1368, 75, 2, 0, 1402 }, /* 55: Result_InferredLong_InferredError */
-    { 8, 4, 7, 0, 66, 1438, 81, 2, 0, 1463 }, /* 56: Result_Tag_InferredError */
-    { 8, 4, 7, 0, 66, 1490, 83, 2, 0, 1515 }, /* 57: Result_TestInt_ErrorCode */
-    { 8, 4, 7, 0, 66, 1542, 79, 2, 0, 1563 }, /* 58: Result_int_ErrorCode */
-    { 8, 4, 7, 0, 66, 1586, 35, 2, 0, 1601 }, /* 59: Result_int_int */
+    { 8, 4, 7, 0, 66, 1302, 77, 2, 0, 1323 }, /* 54: Result_Dog_ErrorCode */
+    { 8, 4, 7, 0, 66, 1346, 79, 2, 0, 1361 }, /* 55: Result_Dog_int */
+    { 16, 8, 7, 0, 66, 1378, 75, 2, 0, 1410 }, /* 56: Result_InferredDouble_ErrorCode */
+    { 16, 8, 7, 0, 66, 1444, 73, 2, 0, 1478 }, /* 57: Result_InferredLong_InferredError */
+    { 8, 4, 7, 0, 66, 1514, 81, 2, 0, 1539 }, /* 58: Result_Tag_InferredError */
+    { 8, 4, 7, 0, 66, 1566, 83, 2, 0, 1591 }, /* 59: Result_TestInt_ErrorCode */
     { 4, 4, 9, 0, 134, 1618, 0, 3, 9, 1618 }, /* 60: Role */
     { 4, 4, 9, 0, 7, 1623, 3, 3, 8, 1623 }, /* 61: Status */
     { 16, 8, 7, 0, 66, 1630, 96, 3, 0, 1668 }, /* 62: Triple_Tag_InferredError_InferredLong */
     { 12, 4, 7, 0, 66, 1709, 102, 3, 0, 1738 }, /* 63: Triple_TestInt_ErrorCode_Tag */
     { 12, 4, 7, 0, 70, 1770, 99, 3, 0, 1801 }, /* 64: Triple_TestInt_TestInt_TestInt */
     { 16, 8, 7, 0, 66, 1835, 105, 3, 0, 1863 }, /* 65: Triple_double_ErrorCode_Tag */
-    { 24, 8, 7, 0, 68, 1894, 50, 3, 0, 1903 }, /* 66: Vec_Item */
+    { 24, 8, 7, 0, 68, 1894, 46, 3, 0, 1903 }, /* 66: Vec_Item */
     { 24, 8, 7, 0, 68, 1913, 108, 3, 0, 1925 }, /* 67: Vec_TestInt */
-    { 24, 8, 7, 0, 68, 1938, 47, 3, 0, 1946 }, /* 68: Vec_int */
+    { 24, 8, 7, 0, 68, 1938, 43, 3, 0, 1946 }, /* 68: Vec_int */
     { 4, 4, 7, 0, 6, 1955, 26, 1, 0, 1968 }, /* 69: struct_Actor */
     { 4, 4, 7, 0, 6, 1981, 24, 1, 0, 1995 }, /* 70: struct_Entity */
     { 8, 8, 7, 0, 4, 2009, 25, 1, 0, 2022 }, /* 71: struct_Named */
     { 4, 4, 7, 0, 10, 2035, 13, 3, 0, 2049 }, /* 72: struct_Packed */
     { 8, 4, 7, 0, 6, 2063, 22, 2, 0, 2078 }, /* 73: struct_Physics */
     { 4, 4, 7, 0, 70, 2093, 88, 1, 0, 2118 }, /* 74: struct_TaggedBox_TestInt */
-    { 12, 4, 7, 0, 6, 2137, 58, 3, 0, 2155 }, /* 75: struct_WrongActor */
-    { 16, 8, 7, 0, 2, 2173, 56, 2, 0, 2193 }, /* 76: struct_WrongPhysics */
+    { 12, 4, 7, 0, 6, 2137, 54, 3, 0, 2155 }, /* 75: struct_WrongActor */
+    { 16, 8, 7, 0, 2, 2173, 52, 2, 0, 2193 }, /* 76: struct_WrongPhysics */
     { 4, 4, 8, 0, 66, 2213, 89, 1, 0, 2240 }, /* 77: union_TaggedChoice_TestInt */
     { 8, 8, 5, 0, 4, 2262, 0, 0, 17, 2282 }, /* 78: Array_TestInt_2_ptr */
     { 8, 8, 5, 0, 4, 2302, 0, 0, 18, 2322 }, /* 79: Array_TestInt_4_ptr */
@@ -655,18 +655,18 @@ static const TMPLGEN_SYM(TypeInfo) TMPLGEN_SYM(RuntimeTypeInfoTable)[141] = {
     { 8, 8, 5, 0, 4, 3022, 0, 0, 45, 3041 }, /* 102: PlainBox_Plain_ptr */
     { 8, 8, 5, 0, 4, 3059, 0, 0, 44, 3069 }, /* 103: Plain_ptr */
     { 8, 8, 5, 0, 4, 3077, 0, 0, 46, 3087 }, /* 104: Point_ptr */
-    { 8, 8, 5, 0, 4, 3095, 0, 0, 47, 3138 }, /* 105: ResultPayload_InferredDouble_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3181, 0, 0, 48, 3226 }, /* 106: ResultPayload_InferredLong_InferredError_ptr */
-    { 8, 8, 5, 0, 4, 3271, 0, 0, 49, 3307 }, /* 107: ResultPayload_Tag_InferredError_ptr */
-    { 8, 8, 5, 0, 4, 3343, 0, 0, 50, 3379 }, /* 108: ResultPayload_TestInt_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3415, 0, 0, 51, 3447 }, /* 109: ResultPayload_int_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3479, 0, 0, 52, 3505 }, /* 110: ResultPayload_int_int_ptr */
-    { 8, 8, 5, 0, 4, 3531, 0, 0, 54, 3567 }, /* 111: Result_InferredDouble_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3603, 0, 0, 55, 3641 }, /* 112: Result_InferredLong_InferredError_ptr */
-    { 8, 8, 5, 0, 4, 3679, 0, 0, 56, 3708 }, /* 113: Result_Tag_InferredError_ptr */
-    { 8, 8, 5, 0, 4, 3737, 0, 0, 57, 3766 }, /* 114: Result_TestInt_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3795, 0, 0, 58, 3820 }, /* 115: Result_int_ErrorCode_ptr */
-    { 8, 8, 5, 0, 4, 3845, 0, 0, 59, 3864 }, /* 116: Result_int_int_ptr */
+    { 8, 8, 5, 0, 4, 3095, 0, 0, 47, 3127 }, /* 105: ResultPayload_Dog_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3159, 0, 0, 48, 3185 }, /* 106: ResultPayload_Dog_int_ptr */
+    { 8, 8, 5, 0, 4, 3211, 0, 0, 49, 3254 }, /* 107: ResultPayload_InferredDouble_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3297, 0, 0, 50, 3342 }, /* 108: ResultPayload_InferredLong_InferredError_ptr */
+    { 8, 8, 5, 0, 4, 3387, 0, 0, 51, 3423 }, /* 109: ResultPayload_Tag_InferredError_ptr */
+    { 8, 8, 5, 0, 4, 3459, 0, 0, 52, 3495 }, /* 110: ResultPayload_TestInt_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3531, 0, 0, 54, 3556 }, /* 111: Result_Dog_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3581, 0, 0, 55, 3600 }, /* 112: Result_Dog_int_ptr */
+    { 8, 8, 5, 0, 4, 3619, 0, 0, 56, 3655 }, /* 113: Result_InferredDouble_ErrorCode_ptr */
+    { 8, 8, 5, 0, 4, 3691, 0, 0, 57, 3729 }, /* 114: Result_InferredLong_InferredError_ptr */
+    { 8, 8, 5, 0, 4, 3767, 0, 0, 58, 3796 }, /* 115: Result_Tag_InferredError_ptr */
+    { 8, 8, 5, 0, 4, 3825, 0, 0, 59, 3854 }, /* 116: Result_TestInt_ErrorCode_ptr */
     { 8, 8, 5, 0, 4, 3883, 0, 0, 62, 3925 }, /* 117: Triple_Tag_InferredError_InferredLong_ptr */
     { 8, 8, 5, 0, 4, 3968, 0, 0, 63, 4001 }, /* 118: Triple_TestInt_ErrorCode_Tag_ptr */
     { 8, 8, 5, 0, 4, 4035, 0, 0, 64, 4070 }, /* 119: Triple_TestInt_TestInt_TestInt_ptr */
@@ -728,29 +728,25 @@ static const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {
     { 4864, 8, 0, 0, 0, 0, 0, 0 }, /* id */
     { 4811, 127, 8, 0, 0, 0, 0, 0 }, /* name */
     { 4867, 9, 16, 0, 0, 0, 0, 0 }, /* flags */
-    { 4878, 8, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4881, 8, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 52, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4899, 15, 0, 0, 0, 0, 0, 0 }, /* some */
-    { 4899, 8, 0, 0, 0, 0, 0, 0 }, /* some */
-    { 4887, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 35, 8, 0, 0, 0, 0, 0 }, /* payload */
-    { 4887, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 36, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4878, 15, 0, 0, 0, 0, 0, 0 }, /* some */
+    { 4878, 8, 0, 0, 0, 0, 0, 0 }, /* some */
+    { 4883, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 35, 8, 0, 0, 0, 0, 0 }, /* payload */
+    { 4883, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 36, 4, 0, 0, 0, 0, 0 }, /* payload */
     { 4833, 15, 0, 0, 0, 0, 0, 0 }, /* value */
     { 4766, 8, 0, 0, 0, 0, 0, 0 }, /* x */
     { 4833, 40, 0, 0, 0, 0, 0, 0 }, /* value */
     { 4833, 44, 0, 0, 0, 0, 0, 0 }, /* value */
-    { 4855, 130, 0, 0, 0, 0, 48, 27 }, /* data */
-    { 4860, 11, 8, 0, 0, 0, 49, 27 }, /* len */
-    { 4904, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
-    { 4855, 90, 0, 0, 0, 0, 51, 27 }, /* data */
-    { 4860, 11, 8, 0, 0, 0, 52, 27 }, /* len */
-    { 4904, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
-    { 4908, 66, 0, 0, 0, 0, 0, 0 }, /* items */
-    { 4914, 9, 24, 0, 0, 0, 0, 0 }, /* gold */
-    { 4919, 8, 0, 0, 0, 0, 0, 0 }, /* snacks */
+    { 4855, 130, 0, 0, 0, 0, 44, 27 }, /* data */
+    { 4860, 11, 8, 0, 0, 0, 45, 27 }, /* len */
+    { 4895, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
+    { 4855, 90, 0, 0, 0, 0, 47, 27 }, /* data */
+    { 4860, 11, 8, 0, 0, 0, 48, 27 }, /* len */
+    { 4895, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
+    { 4899, 66, 0, 0, 0, 0, 0, 0 }, /* items */
+    { 4905, 9, 24, 0, 0, 0, 0, 0 }, /* gold */
+    { 4910, 8, 0, 0, 0, 0, 0, 0 }, /* snacks */
     { 4766, 8, 0, 0, 0, 0, 0, 0 }, /* x */
     { 4768, 15, 8, 0, 0, 0, 0, 0 }, /* y */
     { 4864, 8, 0, 0, 0, 0, 0, 0 }, /* id */
@@ -760,29 +756,33 @@ static const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {
     { 4860, 11, 16, 0, 0, 0, 0, 0 }, /* len */
     { 4855, 128, 0, 0, 0, 0, 0, 0 }, /* data */
     { 4860, 11, 8, 0, 0, 0, 0, 0 }, /* len */
-    { 4878, 10, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4881, 29, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4878, 15, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4881, 26, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4878, 8, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4881, 26, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4878, 5, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4881, 29, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4878, 8, 0, 0, 0, 0, 0, 0 }, /* ok */
-    { 4881, 26, 0, 0, 0, 0, 0, 0 }, /* error */
-    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 48, 8, 0, 0, 0, 0, 0 }, /* payload */
-    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 47, 8, 0, 0, 0, 0, 0 }, /* payload */
-    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 51, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 49, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4887, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 50, 4, 0, 0, 0, 0, 0 }, /* payload */
-    { 4899, 8, 0, 0, 0, 0, 0, 0 }, /* some */
-    { 4887, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
-    { 4891, 34, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4917, 10, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4920, 29, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4917, 15, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4920, 26, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4917, 25, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4920, 26, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4917, 25, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4920, 8, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4917, 5, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4920, 29, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4917, 8, 0, 0, 0, 0, 0, 0 }, /* ok */
+    { 4920, 26, 0, 0, 0, 0, 0, 0 }, /* error */
+    { 4883, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 50, 8, 0, 0, 0, 0, 0 }, /* payload */
+    { 4883, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 49, 8, 0, 0, 0, 0, 0 }, /* payload */
+    { 4883, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 47, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4883, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 48, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4883, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 51, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4883, 53, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 52, 4, 0, 0, 0, 0, 0 }, /* payload */
+    { 4878, 8, 0, 0, 0, 0, 0, 0 }, /* some */
+    { 4883, 37, 0, 0, 0, 0, 0, 0 }, /* tag */
+    { 4887, 34, 4, 0, 0, 0, 0, 0 }, /* payload */
     { 4833, 8, 0, 0, 0, 0, 0, 0 }, /* value */
     { 4833, 8, 0, 0, 0, 0, 0, 0 }, /* value */
     { 4833, 5, 0, 0, 0, 0, 0, 0 }, /* value */
@@ -805,7 +805,7 @@ static const TMPLGEN_SYM(TypeField) TMPLGEN_SYM(RuntimeTypeFieldTable)[] = {
     { 4939, 5, 12, 0, 0, 0, 0, 0 }, /* third */
     { 4855, 130, 0, 0, 0, 0, 109, 27 }, /* data */
     { 4860, 11, 8, 0, 0, 0, 110, 27 }, /* len */
-    { 4904, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
+    { 4895, 11, 16, 0, 0, 0, 0, 0 }, /* cap */
 };
 
 static const TMPLGEN_SYM(TypeEnumerator) TMPLGEN_SYM(RuntimeTypeEnumTable)[] = {
@@ -1300,6 +1300,14 @@ TMPLGEN_REFLECT_CHECK(sizeof(Pair_double_Tag) == 16 && TMPLGEN_REFLECT_ALIGN_IS(
     offsetof(Pair_double_Tag, first) == 0 &&
     offsetof(Pair_double_Tag, second) == 8,
     "tmplgen: reflected layout of Pair(double, Tag) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_Dog_ErrorCode) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_Dog_ErrorCode, 4) &&
+    offsetof(ResultPayload_Dog_ErrorCode, ok) == 0 &&
+    offsetof(ResultPayload_Dog_ErrorCode, error) == 0,
+    "tmplgen: reflected layout of ResultPayload(Dog, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_Dog_int) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_Dog_int, 4) &&
+    offsetof(ResultPayload_Dog_int, ok) == 0 &&
+    offsetof(ResultPayload_Dog_int, error) == 0,
+    "tmplgen: reflected layout of ResultPayload(Dog, int) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_InferredDouble_ErrorCode) == 8 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_InferredDouble_ErrorCode, 8) &&
     offsetof(ResultPayload_InferredDouble_ErrorCode, ok) == 0 &&
     offsetof(ResultPayload_InferredDouble_ErrorCode, error) == 0,
@@ -1316,10 +1324,14 @@ TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_TestInt_ErrorCode) == 4 && TMPLGEN_RE
     offsetof(ResultPayload_TestInt_ErrorCode, ok) == 0 &&
     offsetof(ResultPayload_TestInt_ErrorCode, error) == 0,
     "tmplgen: reflected layout of ResultPayload(TestInt, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
-TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_int_ErrorCode) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_int_ErrorCode, 4) &&
-    offsetof(ResultPayload_int_ErrorCode, ok) == 0 &&
-    offsetof(ResultPayload_int_ErrorCode, error) == 0,
-    "tmplgen: reflected layout of ResultPayload(int, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(Result_Dog_ErrorCode) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Result_Dog_ErrorCode, 4) &&
+    offsetof(Result_Dog_ErrorCode, tag) == 0 &&
+    offsetof(Result_Dog_ErrorCode, payload) == 4,
+    "tmplgen: reflected layout of Result(Dog, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
+TMPLGEN_REFLECT_CHECK(sizeof(Result_Dog_int) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Result_Dog_int, 4) &&
+    offsetof(Result_Dog_int, tag) == 0 &&
+    offsetof(Result_Dog_int, payload) == 4,
+    "tmplgen: reflected layout of Result(Dog, int) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(Result_InferredDouble_ErrorCode) == 16 && TMPLGEN_REFLECT_ALIGN_IS(Result_InferredDouble_ErrorCode, 8) &&
     offsetof(Result_InferredDouble_ErrorCode, tag) == 0 &&
     offsetof(Result_InferredDouble_ErrorCode, payload) == 8,
@@ -1336,10 +1348,6 @@ TMPLGEN_REFLECT_CHECK(sizeof(Result_TestInt_ErrorCode) == 8 && TMPLGEN_REFLECT_A
     offsetof(Result_TestInt_ErrorCode, tag) == 0 &&
     offsetof(Result_TestInt_ErrorCode, payload) == 4,
     "tmplgen: reflected layout of Result(TestInt, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
-TMPLGEN_REFLECT_CHECK(sizeof(Result_int_ErrorCode) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Result_int_ErrorCode, 4) &&
-    offsetof(Result_int_ErrorCode, tag) == 0 &&
-    offsetof(Result_int_ErrorCode, payload) == 4,
-    "tmplgen: reflected layout of Result(int, ErrorCode) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(struct TaggedBox_TestInt) == 4 && TMPLGEN_REFLECT_ALIGN_IS(struct TaggedBox_TestInt, 4) &&
     offsetof(struct TaggedBox_TestInt, value) == 0,
     "tmplgen: reflected layout of TaggedBox(TestInt) differs from this compiler or target; regenerate with matching --clang-arg flags");
@@ -1354,16 +1362,18 @@ TMPLGEN_REFLECT_CHECK(sizeof(union TaggedChoice_TestInt) == 4 && TMPLGEN_REFLECT
     Option_TestInt: TMPLGEN_SYM(TYPETAG_Option_TestInt), \
     Pair_Tag_double: TMPLGEN_SYM(TYPETAG_Pair_Tag_double), \
     Pair_double_Tag: TMPLGEN_SYM(TYPETAG_Pair_double_Tag), \
+    ResultPayload_Dog_ErrorCode: TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode), \
+    ResultPayload_Dog_int: TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int), \
     ResultPayload_InferredDouble_ErrorCode: TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode), \
     ResultPayload_InferredLong_InferredError: TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError), \
     ResultPayload_Tag_InferredError: TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError), \
     ResultPayload_TestInt_ErrorCode: TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode), \
-    ResultPayload_int_ErrorCode: TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode), \
+    Result_Dog_ErrorCode: TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode), \
+    Result_Dog_int: TMPLGEN_SYM(TYPETAG_Result_Dog_int), \
     Result_InferredDouble_ErrorCode: TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode), \
     Result_InferredLong_InferredError: TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError), \
     Result_Tag_InferredError: TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError), \
     Result_TestInt_ErrorCode: TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode), \
-    Result_int_ErrorCode: TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode), \
     struct TaggedBox_TestInt: TMPLGEN_SYM(TYPETAG_struct_TaggedBox_TestInt), \
     union TaggedChoice_TestInt: TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt), \
     Box_Tag *: TMPLGEN_SYM(TYPETAG_Box_Tag_ptr), \
@@ -1372,16 +1382,18 @@ TMPLGEN_REFLECT_CHECK(sizeof(union TaggedChoice_TestInt) == 4 && TMPLGEN_REFLECT
     Option_TestInt *: TMPLGEN_SYM(TYPETAG_Option_TestInt_ptr), \
     Pair_Tag_double *: TMPLGEN_SYM(TYPETAG_Pair_Tag_double_ptr), \
     Pair_double_Tag *: TMPLGEN_SYM(TYPETAG_Pair_double_Tag_ptr), \
+    ResultPayload_Dog_ErrorCode *: TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode_ptr), \
+    ResultPayload_Dog_int *: TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int_ptr), \
     ResultPayload_InferredDouble_ErrorCode *: TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode_ptr), \
     ResultPayload_InferredLong_InferredError *: TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError_ptr), \
     ResultPayload_Tag_InferredError *: TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError_ptr), \
     ResultPayload_TestInt_ErrorCode *: TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode_ptr), \
-    ResultPayload_int_ErrorCode *: TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode_ptr), \
+    Result_Dog_ErrorCode *: TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode_ptr), \
+    Result_Dog_int *: TMPLGEN_SYM(TYPETAG_Result_Dog_int_ptr), \
     Result_InferredDouble_ErrorCode *: TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode_ptr), \
     Result_InferredLong_InferredError *: TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError_ptr), \
     Result_Tag_InferredError *: TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError_ptr), \
     Result_TestInt_ErrorCode *: TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode_ptr), \
-    Result_int_ErrorCode *: TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode_ptr), \
     struct TaggedBox_TestInt *: TMPLGEN_SYM(TYPETAG_struct_TaggedBox_TestInt_ptr), \
     union TaggedChoice_TestInt *: TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt_ptr), \
 
@@ -1393,16 +1405,18 @@ TMPLGEN_REFLECT_CHECK(sizeof(union TaggedChoice_TestInt) == 4 && TMPLGEN_REFLECT
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_TestInt), TMPLGEN_SYM(TYPETAG_Option_TestInt), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Pair_Tag_double), TMPLGEN_SYM(TYPETAG_Pair_Tag_double), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Pair_double_Tag), TMPLGEN_SYM(TYPETAG_Pair_double_Tag), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Dog_ErrorCode), TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Dog_int), TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_InferredDouble_ErrorCode), TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_InferredLong_InferredError), TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Tag_InferredError), TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_TestInt_ErrorCode), TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_int_ErrorCode), TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Dog_ErrorCode), TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Dog_int), TMPLGEN_SYM(TYPETAG_Result_Dog_int), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_InferredDouble_ErrorCode), TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_InferredLong_InferredError), TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Tag_InferredError), TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_TestInt_ErrorCode), TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_int_ErrorCode), TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), struct TaggedBox_TestInt), TMPLGEN_SYM(TYPETAG_struct_TaggedBox_TestInt), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), union TaggedChoice_TestInt), TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Box_Tag *), TMPLGEN_SYM(TYPETAG_Box_Tag_ptr), \
@@ -1411,19 +1425,21 @@ TMPLGEN_REFLECT_CHECK(sizeof(union TaggedChoice_TestInt) == 4 && TMPLGEN_REFLECT
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_TestInt *), TMPLGEN_SYM(TYPETAG_Option_TestInt_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Pair_Tag_double *), TMPLGEN_SYM(TYPETAG_Pair_Tag_double_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Pair_double_Tag *), TMPLGEN_SYM(TYPETAG_Pair_double_Tag_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Dog_ErrorCode *), TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_ErrorCode_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Dog_int *), TMPLGEN_SYM(TYPETAG_ResultPayload_Dog_int_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_InferredDouble_ErrorCode *), TMPLGEN_SYM(TYPETAG_ResultPayload_InferredDouble_ErrorCode_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_InferredLong_InferredError *), TMPLGEN_SYM(TYPETAG_ResultPayload_InferredLong_InferredError_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_Tag_InferredError *), TMPLGEN_SYM(TYPETAG_ResultPayload_Tag_InferredError_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_TestInt_ErrorCode *), TMPLGEN_SYM(TYPETAG_ResultPayload_TestInt_ErrorCode_ptr), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_int_ErrorCode *), TMPLGEN_SYM(TYPETAG_ResultPayload_int_ErrorCode_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Dog_ErrorCode *), TMPLGEN_SYM(TYPETAG_Result_Dog_ErrorCode_ptr), \
+    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Dog_int *), TMPLGEN_SYM(TYPETAG_Result_Dog_int_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_InferredDouble_ErrorCode *), TMPLGEN_SYM(TYPETAG_Result_InferredDouble_ErrorCode_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_InferredLong_InferredError *), TMPLGEN_SYM(TYPETAG_Result_InferredLong_InferredError_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_Tag_InferredError *), TMPLGEN_SYM(TYPETAG_Result_Tag_InferredError_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_TestInt_ErrorCode *), TMPLGEN_SYM(TYPETAG_Result_TestInt_ErrorCode_ptr), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_int_ErrorCode *), TMPLGEN_SYM(TYPETAG_Result_int_ErrorCode_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), struct TaggedBox_TestInt *), TMPLGEN_SYM(TYPETAG_struct_TaggedBox_TestInt_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), union TaggedChoice_TestInt *), TMPLGEN_SYM(TYPETAG_union_TaggedChoice_TestInt_ptr), \
-    next))))))))))))))))))))))))))))))))))))
+    next))))))))))))))))))))))))))))))))))))))))
 #endif
 
 #if defined(TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_TRIPLE_GEN_H_TEST_TYPES_H)
@@ -1489,8 +1505,8 @@ TMPLGEN_REFLECT_CHECK(sizeof(Vec_Item) == 24 && TMPLGEN_REFLECT_ALIGN_IS(Vec_Ite
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Vec_Item), TMPLGEN_SYM(TYPETAG_Vec_Item), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Vec_Item *), TMPLGEN_SYM(TYPETAG_Vec_Item_ptr), \
     next))
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_51) = &(FieldInfo){.key = "data", .code = 1};
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_52) = &(FieldInfo){.key = "len", .code = 2};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_47) = &(FieldInfo){.key = "data", .code = 1};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_48) = &(FieldInfo){.key = "len", .code = 2};
 #endif
 
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H) && !defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H)
@@ -1651,18 +1667,10 @@ TMPLGEN_REFLECT_CHECK(sizeof(Option_int) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Option
     offsetof(Option_int, tag) == 0 &&
     offsetof(Option_int, payload) == 4,
     "tmplgen: reflected layout of Option(int) differs from this compiler or target; regenerate with matching --clang-arg flags");
-TMPLGEN_REFLECT_CHECK(sizeof(ResultPayload_int_int) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultPayload_int_int, 4) &&
-    offsetof(ResultPayload_int_int, ok) == 0 &&
-    offsetof(ResultPayload_int_int, error) == 0,
-    "tmplgen: reflected layout of ResultPayload(int, int) differs from this compiler or target; regenerate with matching --clang-arg flags");
 TMPLGEN_REFLECT_CHECK(sizeof(ResultTag) == 4 && TMPLGEN_REFLECT_ALIGN_IS(ResultTag, 4) &&
     (unsigned long long)RESULT_OK == 0ULL &&
     (unsigned long long)RESULT_ERROR == 1ULL,
     "tmplgen: reflected layout of ResultTag differs from this compiler or target; regenerate with matching --clang-arg flags");
-TMPLGEN_REFLECT_CHECK(sizeof(Result_int_int) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Result_int_int, 4) &&
-    offsetof(Result_int_int, tag) == 0 &&
-    offsetof(Result_int_int, payload) == 4,
-    "tmplgen: reflected layout of Result(int, int) differs from this compiler or target; regenerate with matching --clang-arg flags");
 #undef TMPLGEN_REFLECT_TYPETAG_TMPL_H_RESULT_GEN_H
 #define TMPLGEN_REFLECT_TYPETAG_TMPL_H_RESULT_GEN_H \
     Box_double: TMPLGEN_SYM(TYPETAG_Box_double), \
@@ -1670,15 +1678,11 @@ TMPLGEN_REFLECT_CHECK(sizeof(Result_int_int) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Re
     OptionPayload_int: TMPLGEN_SYM(TYPETAG_OptionPayload_int), \
     Option_double: TMPLGEN_SYM(TYPETAG_Option_double), \
     Option_int: TMPLGEN_SYM(TYPETAG_Option_int), \
-    ResultPayload_int_int: TMPLGEN_SYM(TYPETAG_ResultPayload_int_int), \
-    Result_int_int: TMPLGEN_SYM(TYPETAG_Result_int_int), \
     Box_double *: TMPLGEN_SYM(TYPETAG_Box_double_ptr), \
     OptionPayload_double *: TMPLGEN_SYM(TYPETAG_OptionPayload_double_ptr), \
     OptionPayload_int *: TMPLGEN_SYM(TYPETAG_OptionPayload_int_ptr), \
     Option_double *: TMPLGEN_SYM(TYPETAG_Option_double_ptr), \
     Option_int *: TMPLGEN_SYM(TYPETAG_Option_int_ptr), \
-    ResultPayload_int_int *: TMPLGEN_SYM(TYPETAG_ResultPayload_int_int_ptr), \
-    Result_int_int *: TMPLGEN_SYM(TYPETAG_Result_int_int_ptr), \
 
 #undef TMPLGEN_REFLECT_GNU_TMPL_H_RESULT_GEN_H
 #define TMPLGEN_REFLECT_GNU_TMPL_H_RESULT_GEN_H(x, next) \
@@ -1687,16 +1691,12 @@ TMPLGEN_REFLECT_CHECK(sizeof(Result_int_int) == 8 && TMPLGEN_REFLECT_ALIGN_IS(Re
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), OptionPayload_int), TMPLGEN_SYM(TYPETAG_OptionPayload_int), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_double), TMPLGEN_SYM(TYPETAG_Option_double), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_int), TMPLGEN_SYM(TYPETAG_Option_int), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_int_int), TMPLGEN_SYM(TYPETAG_ResultPayload_int_int), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_int_int), TMPLGEN_SYM(TYPETAG_Result_int_int), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Box_double *), TMPLGEN_SYM(TYPETAG_Box_double_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), OptionPayload_double *), TMPLGEN_SYM(TYPETAG_OptionPayload_double_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), OptionPayload_int *), TMPLGEN_SYM(TYPETAG_OptionPayload_int_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_double *), TMPLGEN_SYM(TYPETAG_Option_double_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Option_int *), TMPLGEN_SYM(TYPETAG_Option_int_ptr), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), ResultPayload_int_int *), TMPLGEN_SYM(TYPETAG_ResultPayload_int_int_ptr), \
-    __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Result_int_int *), TMPLGEN_SYM(TYPETAG_Result_int_int_ptr), \
-    next))))))))))))))
+    next))))))))))
 #undef TMPLGEN_REFLECT_ENUMTAG_TMPL_H_RESULT_GEN_H
 #define TMPLGEN_REFLECT_ENUMTAG_TMPL_H_RESULT_GEN_H \
     OptionTag: TMPLGEN_SYM(TYPETAG_OptionTag), \
@@ -1734,8 +1734,8 @@ TMPLGEN_REFLECT_CHECK(sizeof(Vec_int) == 24 && TMPLGEN_REFLECT_ALIGN_IS(Vec_int,
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), FieldInfo *), TMPLGEN_SYM(TYPETAG_FieldInfo_ptr), \
     __builtin_choose_expr(__builtin_types_compatible_p(__typeof__(x), Vec_int *), TMPLGEN_SYM(TYPETAG_Vec_int_ptr), \
     next))))
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_48) = &(FieldInfo){.key = "data", .code = 1};
-static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_49) = &(FieldInfo){.key = "len", .code = 2};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_44) = &(FieldInfo){.key = "data", .code = 1};
+static const void *const TMPLGEN_SYM(tmplgen_reflect_meta_45) = &(FieldInfo){.key = "len", .code = 2};
 #endif
 
 /* Field metadata from template @meta annotations. */
@@ -1746,10 +1746,10 @@ static inline const void *TMPLGEN_SYM(reflect_meta)(
 {
     switch (field->attr) {
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H)
-    case 51: return TMPLGEN_SYM(tmplgen_reflect_meta_51);
+    case 47: return TMPLGEN_SYM(tmplgen_reflect_meta_47);
 #endif
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H)
-    case 52: return TMPLGEN_SYM(tmplgen_reflect_meta_52);
+    case 48: return TMPLGEN_SYM(tmplgen_reflect_meta_48);
 #endif
 #if defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_TEST_TYPES_H)
     case 109: return TMPLGEN_SYM(tmplgen_reflect_meta_109);
@@ -1758,10 +1758,10 @@ static inline const void *TMPLGEN_SYM(reflect_meta)(
     case 110: return TMPLGEN_SYM(tmplgen_reflect_meta_110);
 #endif
 #if defined(TMPL_H_VEC_GEN_H)
-    case 48: return TMPLGEN_SYM(tmplgen_reflect_meta_48);
+    case 44: return TMPLGEN_SYM(tmplgen_reflect_meta_44);
 #endif
 #if defined(TMPL_H_VEC_GEN_H)
-    case 49: return TMPLGEN_SYM(tmplgen_reflect_meta_49);
+    case 45: return TMPLGEN_SYM(tmplgen_reflect_meta_45);
 #endif
     default: return NULL;
     }

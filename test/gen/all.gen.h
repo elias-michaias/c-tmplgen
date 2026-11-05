@@ -1165,17 +1165,12 @@ extern void pair_flip__no_match_for_argument_type(struct tmplgen_no_association_
 #endif
 
 #line 205 "test/tmpl/result.tmpl.h"
-/// static inline Result_int_int result_make_int_int(ResultTag tag, int value, int error)
-static inline Result_int_int result_make_int_int(ResultTag tag, int value, int error);
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_result_make_argument { int unused; };
 extern void result_make__no_match_for_argument_type(struct tmplgen_no_association_for_result_make_argument, ...);
 #ifndef TMPLGEN_GENERIC_result_make_N0_TEST_TYPES_H
 #define TMPLGEN_GENERIC_result_make_N0_TEST_TYPES_H(...)
-#endif
-#ifndef TMPLGEN_GENERIC_result_make_N3_TEST_TYPES_H
-#define TMPLGEN_GENERIC_result_make_N3_TEST_TYPES_H(...)
 #endif
 #ifndef TMPLGEN_GNU_result_make_TEST_TYPES_H
 #define TMPLGEN_GNU_result_make_TEST_TYPES_H(next, ...) next
@@ -1185,10 +1180,6 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 /// static inline Result(T, E) result_make(ResultTag tag, T value, E error)
 #line 205 "test/tmpl/result.tmpl.h"
 #define result_make(...) _Generic((GEN_ARG1(__VA_ARGS__)), \
-    int:     _Generic((GEN_ARG2(__VA_ARGS__)), \
-        int: result_make_int_int, \
-        TMPLGEN_GENERIC_result_make_N3_TEST_TYPES_H(__VA_ARGS__) \
-        default: result_make__no_match_for_argument_type), \
     TMPLGEN_GENERIC_result_make_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: result_make__no_match_for_argument_type)(__VA_ARGS__)
 
@@ -1196,10 +1187,7 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 /// static inline Result(T, E) result_make(ResultTag tag, T value, E error)
 #line 205 "test/tmpl/result.tmpl.h"
 #define result_make(...) \
-    __builtin_choose_expr( \
-        (__builtin_types_compatible_p(__typeof__(GEN_ARG1(__VA_ARGS__)), int) && __builtin_types_compatible_p(__typeof__(GEN_ARG2(__VA_ARGS__)), int)), \
-        result_make_int_int, \
-        TMPLGEN_GNU_result_make_TEST_TYPES_H(result_make__no_match_for_argument_type, __VA_ARGS__))(__VA_ARGS__)
+    TMPLGEN_GNU_result_make_TEST_TYPES_H(result_make__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
 #else
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
@@ -1312,134 +1300,142 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 #line 22 "test/tmpl/vec.tmpl.h"
 /// static inline void push_Item(Vec_Item * v, Item x)
 static inline void push_Item(Vec_Item * v, Item x);
-#line 1316 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1304 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
 #if defined(TEST_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_TEST_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_TEST_TYPES_H
 #line 27 "test/tmpl/hkt.tmpl.h"
 /// static inline TestInt container_unwrap_Option_TestInt(Option_TestInt * box)
 static inline TestInt container_unwrap_Option_TestInt(Option_TestInt * box);
-#line 1323 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1311 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 34 "test/tmpl/hkt.tmpl.h"
 /// static inline TestInt sized_unwrap_TestInt_Array_4(Array_TestInt_4 * box)
 static inline TestInt sized_unwrap_TestInt_Array_4(Array_TestInt_4 * box);
-#line 1327 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1315 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 41 "test/tmpl/hkt.tmpl.h"
 /// static inline TestInt triple_wrapped_Triple_TestInt(Triple_TestInt_TestInt_TestInt * value)
 static inline TestInt triple_wrapped_Triple_TestInt(Triple_TestInt_TestInt_TestInt * value);
-#line 1331 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1319 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 12 "test/tmpl/math.tmpl.h"
 /// static inline TestInt max_TestInt(TestInt a, TestInt b)
 static inline TestInt max_TestInt(TestInt a, TestInt b);
-#line 1335 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1323 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 27 "test/tmpl/math.tmpl.h"
 /// static inline TestInt chain_root_TestInt(TestInt value)
 static inline TestInt chain_root_TestInt(TestInt value);
-#line 1339 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1327 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 29 "test/tmpl/math.tmpl.h"
 /// static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count)
 static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count);
-#line 1343 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1331 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 37 "test/tmpl/math.tmpl.h"
 /// static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count)
 static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count);
-#line 1347 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1335 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 55 "test/tmpl/math.tmpl.h"
 /// static inline void reorder_call_TestInt_double(TestInt first, double second)
 static inline void reorder_call_TestInt_double(TestInt first, double second);
-#line 1351 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1339 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 60 "test/tmpl/math.tmpl.h"
 /// static inline TestInt cross_root_TestInt(TestInt value)
 static inline TestInt cross_root_TestInt(TestInt value);
-#line 1355 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1343 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 83 "test/tmpl/result.tmpl.h"
 /// static inline int result_is_ok_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline int result_is_ok_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
-#line 1359 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1347 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 88 "test/tmpl/result.tmpl.h"
 /// static inline int result_is_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline int result_is_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
-#line 1363 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1351 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 93 "test/tmpl/result.tmpl.h"
+/// static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError * result)
+static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError * result);
 /// static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result)
 static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result);
 /// static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
-#line 1369 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1359 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 99 "test/tmpl/result.tmpl.h"
+/// static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode * result)
+static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode * result);
 /// static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
-#line 1373 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1365 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 105 "test/tmpl/result.tmpl.h"
 /// static inline TestInt result_identity_TestInt(TestInt value)
 static inline TestInt result_identity_TestInt(TestInt value);
-#line 1377 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1369 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 119 "test/tmpl/result.tmpl.h"
 /// static inline int same_size_TestInt_TestInt(TestInt left, TestInt right)
 static inline int same_size_TestInt_TestInt(TestInt left, TestInt right);
-#line 1381 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1373 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 133 "test/tmpl/result.tmpl.h"
 /// static inline TestInt result_pointer_TestInt(TestInt * value)
 static inline TestInt result_pointer_TestInt(TestInt * value);
-#line 1385 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1377 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 135 "test/tmpl/result.tmpl.h"
 /// static inline Option_TestInt option_some_TestInt(TestInt value)
 static inline Option_TestInt option_some_TestInt(TestInt value);
-#line 1389 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1381 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 143 "test/tmpl/result.tmpl.h"
 /// static inline void option_none_TestInt(Option_TestInt * option)
 static inline void option_none_TestInt(Option_TestInt * option);
-#line 1393 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1385 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 148 "test/tmpl/result.tmpl.h"
 /// static inline int option_is_some_TestInt(Option_TestInt * option)
 static inline int option_is_some_TestInt(Option_TestInt * option);
-#line 1397 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1389 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 153 "test/tmpl/result.tmpl.h"
 /// static inline TestInt option_value_TestInt(Option_TestInt * option)
 static inline TestInt option_value_TestInt(Option_TestInt * option);
-#line 1401 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1393 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 159 "test/tmpl/result.tmpl.h"
 /// static inline TestInt tagged_box_value_TestInt(struct TaggedBox_TestInt * box)
 static inline TestInt tagged_box_value_TestInt(struct TaggedBox_TestInt * box);
-#line 1405 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1397 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 161 "test/tmpl/result.tmpl.h"
 /// static inline TestInt tagged_choice_value_TestInt(union TaggedChoice_TestInt * choice)
 static inline TestInt tagged_choice_value_TestInt(union TaggedChoice_TestInt * choice);
-#line 1409 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1401 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 163 "test/tmpl/result.tmpl.h"
 /// static inline TestInt option_pair_TestInt(Option_TestInt * left, Option_TestInt * right)
 static inline TestInt option_pair_TestInt(Option_TestInt * left, Option_TestInt * right);
-#line 1413 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1405 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 170 "test/tmpl/result.tmpl.h"
 /// static inline Box_double box_select_TestInt_double(Box_TestInt * first, Box_double * second)
 static inline Box_double box_select_TestInt_double(Box_TestInt * first, Box_double * second);
-#line 1417 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1409 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 176 "test/tmpl/result.tmpl.h"
 /// static inline Box_Tag box_make_Tag(Tag value)
 static inline Box_Tag box_make_Tag(Tag value);
-#line 1421 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1413 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 182 "test/tmpl/result.tmpl.h"
 /// static inline Tag box_get_Tag(Box_Tag * box)
 static inline Tag box_get_Tag(Box_Tag * box);
-#line 1425 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1417 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 187 "test/tmpl/result.tmpl.h"
 /// static inline Pair_Tag_double pair_make_Tag_double(Tag first, double second)
 static inline Pair_Tag_double pair_make_Tag_double(Tag first, double second);
-#line 1429 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1421 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 193 "test/tmpl/result.tmpl.h"
 /// static inline Pair_double_Tag pair_flip_Tag_double(Pair_Tag_double pair)
 static inline Pair_double_Tag pair_flip_Tag_double(Pair_Tag_double pair);
-#line 1433 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1425 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 205 "test/tmpl/result.tmpl.h"
 /// static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(ResultTag tag, InferredLong value, InferredError error)
 static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(ResultTag tag, InferredLong value, InferredError error);
 /// static inline Result_InferredDouble_ErrorCode result_make_InferredDouble_ErrorCode(ResultTag tag, InferredDouble value, ErrorCode error)
 static inline Result_InferredDouble_ErrorCode result_make_InferredDouble_ErrorCode(ResultTag tag, InferredDouble value, ErrorCode error);
-/// static inline Result_int_ErrorCode result_make_int_ErrorCode(ResultTag tag, int value, ErrorCode error)
-static inline Result_int_ErrorCode result_make_int_ErrorCode(ResultTag tag, int value, ErrorCode error);
+/// static inline Result_Dog_ErrorCode result_make_Dog_ErrorCode(ResultTag tag, Dog value, ErrorCode error)
+static inline Result_Dog_ErrorCode result_make_Dog_ErrorCode(ResultTag tag, Dog value, ErrorCode error);
+/// static inline Result_Dog_int result_make_Dog_int(ResultTag tag, Dog value, int error)
+static inline Result_Dog_int result_make_Dog_int(ResultTag tag, Dog value, int error);
 /// static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error)
 static inline Result_Tag_InferredError result_make_Tag_InferredError(ResultTag tag, Tag value, InferredError error);
-#line 1443 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+/// static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error)
+static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag tag, TestInt value, ErrorCode error);
+#line 1439 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 16 "test/tmpl/triple.tmpl.h"
 /// static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third)
 static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third);
@@ -1447,50 +1443,50 @@ static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredErro
 static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third);
 /// static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third)
 static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(double first, ErrorCode second, Tag third);
-#line 1451 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1447 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 23 "test/tmpl/triple.tmpl.h"
 /// static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value)
 static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value);
 /// static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value)
 static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value);
-#line 1457 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1453 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 22 "test/tmpl/vec.tmpl.h"
 /// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
 static inline void push_TestInt(Vec_TestInt * v, TestInt x);
-#line 1461 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1457 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
 #if defined(TMPLGEN_PHYSICS_H) && !defined(TMPLGEN_HAVE_TMPL_H_TMPLGEN_PHYSICS_H)
 #define TMPLGEN_HAVE_TMPL_H_TMPLGEN_PHYSICS_H
 #line 108 "test/tmpl/result.tmpl.h"
 /// static inline int physics_sum_PhysicsBody(PhysicsBody * value)
 static inline int physics_sum_PhysicsBody(PhysicsBody * value);
-#line 1468 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1464 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 111 "test/tmpl/result.tmpl.h"
 /// static inline int named_actor_id_NamedActor(NamedActor * value)
 static inline int named_actor_id_NamedActor(NamedActor * value);
-#line 1472 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1468 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 113 "test/tmpl/result.tmpl.h"
 /// static inline int structural_pair_PhysicsBody_NamedActor(PhysicsBody * physics, NamedActor * entity)
 static inline int structural_pair_PhysicsBody_NamedActor(PhysicsBody * physics, NamedActor * entity);
-#line 1476 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1472 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #line 125 "test/tmpl/result.tmpl.h"
 /// static inline int alignment_ok_PhysicsBody(PhysicsBody * value)
 static inline int alignment_ok_PhysicsBody(PhysicsBody * value);
-#line 1480 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1476 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
 #if defined(TMPLGEN_REFLECTION_H) && !defined(TMPLGEN_HAVE_TMPL_H_TMPLGEN_REFLECTION_H)
 #define TMPLGEN_HAVE_TMPL_H_TMPLGEN_REFLECTION_H
 #line 19 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_int(int * value, FILE * out)
 static inline uint32_t inspect_int(int * value, FILE * out);
-#line 1487 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1483 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
 #if defined(POINT_H) && defined(TMPLGEN_REFLECT_HAVE_POINT_H) && !defined(TMPLGEN_HAVE_TMPL_H_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H)
 #define TMPLGEN_HAVE_TMPL_H_POINT_H_AND_TMPLGEN_REFLECT_HAVE_POINT_H
 #line 19 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_Point(Point * value, FILE * out)
 static inline uint32_t inspect_Point(Point * value, FILE * out);
-#line 1494 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1490 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
 #if defined(REFLECT_TYPES_H) && defined(TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H
@@ -1501,12 +1497,12 @@ static inline uint32_t inspect_Hero(Hero * value, FILE * out);
 static inline uint32_t inspect_Item(Item * value, FILE * out);
 /// static inline uint32_t inspect_Number(Number * value, FILE * out)
 static inline uint32_t inspect_Number(Number * value, FILE * out);
-#line 1505 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1501 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
 #if defined(REFLECT_TYPES_H) && defined(TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H) && defined(TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H) && defined(TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H) && !defined(TMPLGEN_HAVE_TMPL_H_REFLECT_TYPES_H_AND_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H)
 #define TMPLGEN_HAVE_TMPL_H_REFLECT_TYPES_H_AND_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_REFLECT_TYPES_H_AND_TMPLGEN_REFLECT_HAVE_TMPLGEN_HAVE_TMPL_H_VEC_GEN_H_REFLECT_TYPES_H
 #line 19 "test/tmpl/inspect.tmpl.h"
 /// static inline uint32_t inspect_Vec_Item(Vec_Item * value, FILE * out)
 static inline uint32_t inspect_Vec_Item(Vec_Item * value, FILE * out);
-#line 1512 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
+#line 1508 "/home/elias/Projects/c-tmplgen/test/gen/all.gen.h"
 #endif
