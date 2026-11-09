@@ -1,0 +1,1 @@
+error: call to 'need_equal' requires 'T: Eq', but 'ordered_call' only guarantees 'T: Ord'

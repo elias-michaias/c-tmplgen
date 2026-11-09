@@ -71,28 +71,28 @@ static inline Option_int option_some_int(int value)
 /* ---- result: result_version ---- */
 static inline int result_version(void) { return 1; }
 #ifndef TMPLGEN_AGGREGATING
-#line 37 "test/tmpl/result.tmpl.h"
+#line 37 "tmpl/result.tmpl.h"
 #undef ResultPayload
 #define ResultPayload(type0, type1) ResultPayload_##type0##_##type1
-#line 43 "test/tmpl/result.tmpl.h"
+#line 43 "tmpl/result.tmpl.h"
 #undef Result
 #define Result(type0, type1) Result_##type0##_##type1
-#line 53 "test/tmpl/result.tmpl.h"
+#line 53 "tmpl/result.tmpl.h"
 #undef OptionPayload
 #define OptionPayload(type0) OptionPayload_##type0
-#line 59 "test/tmpl/result.tmpl.h"
+#line 59 "tmpl/result.tmpl.h"
 #undef Option
 #define Option(type0) Option_##type0
-#line 62 "test/tmpl/result.tmpl.h"
+#line 62 "tmpl/result.tmpl.h"
 #undef TaggedBox
 #define TaggedBox(type0) struct TaggedBox_##type0
-#line 67 "test/tmpl/result.tmpl.h"
+#line 67 "tmpl/result.tmpl.h"
 #undef TaggedChoice
 #define TaggedChoice(type0) union TaggedChoice_##type0
-#line 74 "test/tmpl/result.tmpl.h"
+#line 74 "tmpl/result.tmpl.h"
 #undef Box
 #define Box(type0) Box_##type0
-#line 80 "test/tmpl/result.tmpl.h"
+#line 80 "tmpl/result.tmpl.h"
 #undef Pair
 #define Pair(type0, type1) Pair_##type0##_##type1
 
@@ -109,7 +109,7 @@ static inline int result_version(void) { return 1; }
 #define GEN_ARG2_(arg0, arg1, arg2, ...) arg2
 #endif
 
-#line 83 "test/tmpl/result.tmpl.h"
+#line 83 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_result_is_ok_argument { int unused; };
@@ -123,14 +123,14 @@ extern void result_is_ok__no_match_for_argument_type(struct tmplgen_no_associati
 #undef result_is_ok
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline int result_is_ok(Result(T, E) * result)
-#line 83 "test/tmpl/result.tmpl.h"
+#line 83 "tmpl/result.tmpl.h"
 #define result_is_ok(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_result_is_ok_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: result_is_ok__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline int result_is_ok(Result(T, E) * result)
-#line 83 "test/tmpl/result.tmpl.h"
+#line 83 "tmpl/result.tmpl.h"
 #define result_is_ok(...) \
     TMPLGEN_GNU_result_is_ok_TEST_TYPES_H(result_is_ok__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -138,7 +138,7 @@ extern void result_is_ok__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 88 "test/tmpl/result.tmpl.h"
+#line 88 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_result_is_error_argument { int unused; };
@@ -152,14 +152,14 @@ extern void result_is_error__no_match_for_argument_type(struct tmplgen_no_associ
 #undef result_is_error
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline int result_is_error(Result(T, E) * result)
-#line 88 "test/tmpl/result.tmpl.h"
+#line 88 "tmpl/result.tmpl.h"
 #define result_is_error(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_result_is_error_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: result_is_error__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline int result_is_error(Result(T, E) * result)
-#line 88 "test/tmpl/result.tmpl.h"
+#line 88 "tmpl/result.tmpl.h"
 #define result_is_error(...) \
     TMPLGEN_GNU_result_is_error_TEST_TYPES_H(result_is_error__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -167,7 +167,7 @@ extern void result_is_error__no_match_for_argument_type(struct tmplgen_no_associ
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 93 "test/tmpl/result.tmpl.h"
+#line 93 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_result_value_argument { int unused; };
@@ -181,14 +181,14 @@ extern void result_value__no_match_for_argument_type(struct tmplgen_no_associati
 #undef result_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T result_value(Result(T, E) * result)
-#line 93 "test/tmpl/result.tmpl.h"
+#line 93 "tmpl/result.tmpl.h"
 #define result_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_result_value_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: result_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T result_value(Result(T, E) * result)
-#line 93 "test/tmpl/result.tmpl.h"
+#line 93 "tmpl/result.tmpl.h"
 #define result_value(...) \
     TMPLGEN_GNU_result_value_TEST_TYPES_H(result_value__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -196,7 +196,7 @@ extern void result_value__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 99 "test/tmpl/result.tmpl.h"
+#line 99 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_result_error_argument { int unused; };
@@ -210,14 +210,14 @@ extern void result_error__no_match_for_argument_type(struct tmplgen_no_associati
 #undef result_error
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline E result_error(Result(T, E) * result)
-#line 99 "test/tmpl/result.tmpl.h"
+#line 99 "tmpl/result.tmpl.h"
 #define result_error(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_result_error_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: result_error__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline E result_error(Result(T, E) * result)
-#line 99 "test/tmpl/result.tmpl.h"
+#line 99 "tmpl/result.tmpl.h"
 #define result_error(...) \
     TMPLGEN_GNU_result_error_TEST_TYPES_H(result_error__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -225,7 +225,7 @@ extern void result_error__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 105 "test/tmpl/result.tmpl.h"
+#line 105 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_result_identity_argument { int unused; };
@@ -239,14 +239,14 @@ extern void result_identity__no_match_for_argument_type(struct tmplgen_no_associ
 #undef result_identity
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T result_identity(T value)
-#line 105 "test/tmpl/result.tmpl.h"
+#line 105 "tmpl/result.tmpl.h"
 #define result_identity(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_result_identity_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: result_identity__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T result_identity(T value)
-#line 105 "test/tmpl/result.tmpl.h"
+#line 105 "tmpl/result.tmpl.h"
 #define result_identity(...) \
     TMPLGEN_GNU_result_identity_TEST_TYPES_H(result_identity__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -254,7 +254,7 @@ extern void result_identity__no_match_for_argument_type(struct tmplgen_no_associ
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 108 "test/tmpl/result.tmpl.h"
+#line 108 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_physics_sum_argument { int unused; };
@@ -268,14 +268,14 @@ extern void physics_sum__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef physics_sum
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline int physics_sum(TP * value)
-#line 108 "test/tmpl/result.tmpl.h"
+#line 108 "tmpl/result.tmpl.h"
 #define physics_sum(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_physics_sum_N0_TMPLGEN_PHYSICS_H(__VA_ARGS__) \
     default: physics_sum__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline int physics_sum(TP * value)
-#line 108 "test/tmpl/result.tmpl.h"
+#line 108 "tmpl/result.tmpl.h"
 #define physics_sum(...) \
     TMPLGEN_GNU_physics_sum_TMPLGEN_PHYSICS_H(physics_sum__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -283,7 +283,7 @@ extern void physics_sum__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 111 "test/tmpl/result.tmpl.h"
+#line 111 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_named_actor_id_argument { int unused; };
@@ -297,14 +297,14 @@ extern void named_actor_id__no_match_for_argument_type(struct tmplgen_no_associa
 #undef named_actor_id
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline int named_actor_id(UE * value)
-#line 111 "test/tmpl/result.tmpl.h"
+#line 111 "tmpl/result.tmpl.h"
 #define named_actor_id(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_named_actor_id_N0_TMPLGEN_PHYSICS_H(__VA_ARGS__) \
     default: named_actor_id__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline int named_actor_id(UE * value)
-#line 111 "test/tmpl/result.tmpl.h"
+#line 111 "tmpl/result.tmpl.h"
 #define named_actor_id(...) \
     TMPLGEN_GNU_named_actor_id_TMPLGEN_PHYSICS_H(named_actor_id__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -312,7 +312,7 @@ extern void named_actor_id__no_match_for_argument_type(struct tmplgen_no_associa
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 113 "test/tmpl/result.tmpl.h"
+#line 113 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_structural_pair_argument { int unused; };
@@ -326,14 +326,14 @@ extern void structural_pair__no_match_for_argument_type(struct tmplgen_no_associ
 #undef structural_pair
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline int structural_pair(TP * physics, UE * entity)
-#line 113 "test/tmpl/result.tmpl.h"
+#line 113 "tmpl/result.tmpl.h"
 #define structural_pair(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_structural_pair_N0_TMPLGEN_PHYSICS_H(__VA_ARGS__) \
     default: structural_pair__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline int structural_pair(TP * physics, UE * entity)
-#line 113 "test/tmpl/result.tmpl.h"
+#line 113 "tmpl/result.tmpl.h"
 #define structural_pair(...) \
     TMPLGEN_GNU_structural_pair_TMPLGEN_PHYSICS_H(structural_pair__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -341,7 +341,7 @@ extern void structural_pair__no_match_for_argument_type(struct tmplgen_no_associ
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 119 "test/tmpl/result.tmpl.h"
+#line 119 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_same_size_argument { int unused; };
@@ -355,14 +355,14 @@ extern void same_size__no_match_for_argument_type(struct tmplgen_no_association_
 #undef same_size
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline int same_size(T left, U right)
-#line 119 "test/tmpl/result.tmpl.h"
+#line 119 "tmpl/result.tmpl.h"
 #define same_size(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_same_size_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: same_size__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline int same_size(T left, U right)
-#line 119 "test/tmpl/result.tmpl.h"
+#line 119 "tmpl/result.tmpl.h"
 #define same_size(...) \
     TMPLGEN_GNU_same_size_TEST_TYPES_H(same_size__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -370,7 +370,7 @@ extern void same_size__no_match_for_argument_type(struct tmplgen_no_association_
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 125 "test/tmpl/result.tmpl.h"
+#line 125 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_alignment_ok_argument { int unused; };
@@ -384,14 +384,14 @@ extern void alignment_ok__no_match_for_argument_type(struct tmplgen_no_associati
 #undef alignment_ok
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline int alignment_ok(AI * value)
-#line 125 "test/tmpl/result.tmpl.h"
+#line 125 "tmpl/result.tmpl.h"
 #define alignment_ok(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_alignment_ok_N0_TMPLGEN_PHYSICS_H(__VA_ARGS__) \
     default: alignment_ok__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline int alignment_ok(AI * value)
-#line 125 "test/tmpl/result.tmpl.h"
+#line 125 "tmpl/result.tmpl.h"
 #define alignment_ok(...) \
     TMPLGEN_GNU_alignment_ok_TMPLGEN_PHYSICS_H(alignment_ok__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -399,7 +399,7 @@ extern void alignment_ok__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 133 "test/tmpl/result.tmpl.h"
+#line 133 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_result_pointer_argument { int unused; };
@@ -413,14 +413,14 @@ extern void result_pointer__no_match_for_argument_type(struct tmplgen_no_associa
 #undef result_pointer
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T result_pointer(T * value)
-#line 133 "test/tmpl/result.tmpl.h"
+#line 133 "tmpl/result.tmpl.h"
 #define result_pointer(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_result_pointer_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: result_pointer__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T result_pointer(T * value)
-#line 133 "test/tmpl/result.tmpl.h"
+#line 133 "tmpl/result.tmpl.h"
 #define result_pointer(...) \
     TMPLGEN_GNU_result_pointer_TEST_TYPES_H(result_pointer__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -428,7 +428,7 @@ extern void result_pointer__no_match_for_argument_type(struct tmplgen_no_associa
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 135 "test/tmpl/result.tmpl.h"
+#line 135 "tmpl/result.tmpl.h"
 /// static inline Option_double option_some_double(double value)
 static inline Option_double option_some_double(double value);
 /* No dispatch association yet: either the argument type is wrong,
@@ -444,7 +444,7 @@ extern void option_some__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef option_some
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Option(T) option_some(T value)
-#line 135 "test/tmpl/result.tmpl.h"
+#line 135 "tmpl/result.tmpl.h"
 #define option_some(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     double: option_some_double, \
     TMPLGEN_GENERIC_option_some_N0_TEST_TYPES_H(__VA_ARGS__) \
@@ -452,7 +452,7 @@ extern void option_some__no_match_for_argument_type(struct tmplgen_no_associatio
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Option(T) option_some(T value)
-#line 135 "test/tmpl/result.tmpl.h"
+#line 135 "tmpl/result.tmpl.h"
 #define option_some(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), double)), \
@@ -463,7 +463,7 @@ extern void option_some__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 143 "test/tmpl/result.tmpl.h"
+#line 143 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_option_none_argument { int unused; };
@@ -477,14 +477,14 @@ extern void option_none__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef option_none
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline void option_none(Option(T) * option)
-#line 143 "test/tmpl/result.tmpl.h"
+#line 143 "tmpl/result.tmpl.h"
 #define option_none(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_option_none_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: option_none__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline void option_none(Option(T) * option)
-#line 143 "test/tmpl/result.tmpl.h"
+#line 143 "tmpl/result.tmpl.h"
 #define option_none(...) \
     TMPLGEN_GNU_option_none_TEST_TYPES_H(option_none__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -492,7 +492,7 @@ extern void option_none__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 148 "test/tmpl/result.tmpl.h"
+#line 148 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_option_is_some_argument { int unused; };
@@ -506,14 +506,14 @@ extern void option_is_some__no_match_for_argument_type(struct tmplgen_no_associa
 #undef option_is_some
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline int option_is_some(Option(T) * option)
-#line 148 "test/tmpl/result.tmpl.h"
+#line 148 "tmpl/result.tmpl.h"
 #define option_is_some(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_option_is_some_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: option_is_some__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline int option_is_some(Option(T) * option)
-#line 148 "test/tmpl/result.tmpl.h"
+#line 148 "tmpl/result.tmpl.h"
 #define option_is_some(...) \
     TMPLGEN_GNU_option_is_some_TEST_TYPES_H(option_is_some__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -521,7 +521,7 @@ extern void option_is_some__no_match_for_argument_type(struct tmplgen_no_associa
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 153 "test/tmpl/result.tmpl.h"
+#line 153 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_option_value_argument { int unused; };
@@ -535,14 +535,14 @@ extern void option_value__no_match_for_argument_type(struct tmplgen_no_associati
 #undef option_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T option_value(Option(T) * option)
-#line 153 "test/tmpl/result.tmpl.h"
+#line 153 "tmpl/result.tmpl.h"
 #define option_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_option_value_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: option_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T option_value(Option(T) * option)
-#line 153 "test/tmpl/result.tmpl.h"
+#line 153 "tmpl/result.tmpl.h"
 #define option_value(...) \
     TMPLGEN_GNU_option_value_TEST_TYPES_H(option_value__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -550,7 +550,7 @@ extern void option_value__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 159 "test/tmpl/result.tmpl.h"
+#line 159 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_tagged_box_value_argument { int unused; };
@@ -564,14 +564,14 @@ extern void tagged_box_value__no_match_for_argument_type(struct tmplgen_no_assoc
 #undef tagged_box_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T tagged_box_value( TaggedBox(T) * box)
-#line 159 "test/tmpl/result.tmpl.h"
+#line 159 "tmpl/result.tmpl.h"
 #define tagged_box_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_tagged_box_value_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: tagged_box_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T tagged_box_value( TaggedBox(T) * box)
-#line 159 "test/tmpl/result.tmpl.h"
+#line 159 "tmpl/result.tmpl.h"
 #define tagged_box_value(...) \
     TMPLGEN_GNU_tagged_box_value_TEST_TYPES_H(tagged_box_value__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -579,7 +579,7 @@ extern void tagged_box_value__no_match_for_argument_type(struct tmplgen_no_assoc
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 161 "test/tmpl/result.tmpl.h"
+#line 161 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_tagged_choice_value_argument { int unused; };
@@ -593,14 +593,14 @@ extern void tagged_choice_value__no_match_for_argument_type(struct tmplgen_no_as
 #undef tagged_choice_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T tagged_choice_value( TaggedChoice(T) * choice)
-#line 161 "test/tmpl/result.tmpl.h"
+#line 161 "tmpl/result.tmpl.h"
 #define tagged_choice_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_tagged_choice_value_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: tagged_choice_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T tagged_choice_value( TaggedChoice(T) * choice)
-#line 161 "test/tmpl/result.tmpl.h"
+#line 161 "tmpl/result.tmpl.h"
 #define tagged_choice_value(...) \
     TMPLGEN_GNU_tagged_choice_value_TEST_TYPES_H(tagged_choice_value__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -608,7 +608,7 @@ extern void tagged_choice_value__no_match_for_argument_type(struct tmplgen_no_as
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 163 "test/tmpl/result.tmpl.h"
+#line 163 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_option_pair_argument { int unused; };
@@ -622,14 +622,14 @@ extern void option_pair__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef option_pair
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T option_pair(Option(T) * left, Option(T) * right)
-#line 163 "test/tmpl/result.tmpl.h"
+#line 163 "tmpl/result.tmpl.h"
 #define option_pair(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_option_pair_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: option_pair__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T option_pair(Option(T) * left, Option(T) * right)
-#line 163 "test/tmpl/result.tmpl.h"
+#line 163 "tmpl/result.tmpl.h"
 #define option_pair(...) \
     TMPLGEN_GNU_option_pair_TEST_TYPES_H(option_pair__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -637,7 +637,7 @@ extern void option_pair__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 170 "test/tmpl/result.tmpl.h"
+#line 170 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_box_select_argument { int unused; };
@@ -651,14 +651,14 @@ extern void box_select__no_match_for_argument_type(struct tmplgen_no_association
 #undef box_select
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Box(U) box_select(Box(T) * first, Box(U) * second)
-#line 170 "test/tmpl/result.tmpl.h"
+#line 170 "tmpl/result.tmpl.h"
 #define box_select(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_box_select_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: box_select__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Box(U) box_select(Box(T) * first, Box(U) * second)
-#line 170 "test/tmpl/result.tmpl.h"
+#line 170 "tmpl/result.tmpl.h"
 #define box_select(...) \
     TMPLGEN_GNU_box_select_TEST_TYPES_H(box_select__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -666,7 +666,7 @@ extern void box_select__no_match_for_argument_type(struct tmplgen_no_association
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 176 "test/tmpl/result.tmpl.h"
+#line 176 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_box_make_argument { int unused; };
@@ -680,14 +680,14 @@ extern void box_make__no_match_for_argument_type(struct tmplgen_no_association_f
 #undef box_make
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Box(T) box_make(T value)
-#line 176 "test/tmpl/result.tmpl.h"
+#line 176 "tmpl/result.tmpl.h"
 #define box_make(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_box_make_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: box_make__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Box(T) box_make(T value)
-#line 176 "test/tmpl/result.tmpl.h"
+#line 176 "tmpl/result.tmpl.h"
 #define box_make(...) \
     TMPLGEN_GNU_box_make_TEST_TYPES_H(box_make__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -695,7 +695,7 @@ extern void box_make__no_match_for_argument_type(struct tmplgen_no_association_f
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 182 "test/tmpl/result.tmpl.h"
+#line 182 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_box_get_argument { int unused; };
@@ -709,14 +709,14 @@ extern void box_get__no_match_for_argument_type(struct tmplgen_no_association_fo
 #undef box_get
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T box_get(Box(T) * box)
-#line 182 "test/tmpl/result.tmpl.h"
+#line 182 "tmpl/result.tmpl.h"
 #define box_get(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_box_get_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: box_get__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T box_get(Box(T) * box)
-#line 182 "test/tmpl/result.tmpl.h"
+#line 182 "tmpl/result.tmpl.h"
 #define box_get(...) \
     TMPLGEN_GNU_box_get_TEST_TYPES_H(box_get__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -724,7 +724,7 @@ extern void box_get__no_match_for_argument_type(struct tmplgen_no_association_fo
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 187 "test/tmpl/result.tmpl.h"
+#line 187 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_pair_make_argument { int unused; };
@@ -738,14 +738,14 @@ extern void pair_make__no_match_for_argument_type(struct tmplgen_no_association_
 #undef pair_make
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Pair(T, U) pair_make(T first, U second)
-#line 187 "test/tmpl/result.tmpl.h"
+#line 187 "tmpl/result.tmpl.h"
 #define pair_make(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_pair_make_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: pair_make__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Pair(T, U) pair_make(T first, U second)
-#line 187 "test/tmpl/result.tmpl.h"
+#line 187 "tmpl/result.tmpl.h"
 #define pair_make(...) \
     TMPLGEN_GNU_pair_make_TEST_TYPES_H(pair_make__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -753,7 +753,7 @@ extern void pair_make__no_match_for_argument_type(struct tmplgen_no_association_
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 193 "test/tmpl/result.tmpl.h"
+#line 193 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_pair_flip_argument { int unused; };
@@ -767,14 +767,14 @@ extern void pair_flip__no_match_for_argument_type(struct tmplgen_no_association_
 #undef pair_flip
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Pair(U, T) pair_flip(Pair(T, U) pair)
-#line 193 "test/tmpl/result.tmpl.h"
+#line 193 "tmpl/result.tmpl.h"
 #define pair_flip(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_pair_flip_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: pair_flip__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Pair(U, T) pair_flip(Pair(T, U) pair)
-#line 193 "test/tmpl/result.tmpl.h"
+#line 193 "tmpl/result.tmpl.h"
 #define pair_flip(...) \
     TMPLGEN_GNU_pair_flip_TEST_TYPES_H(pair_flip__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -782,7 +782,7 @@ extern void pair_flip__no_match_for_argument_type(struct tmplgen_no_association_
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 205 "test/tmpl/result.tmpl.h"
+#line 205 "tmpl/result.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_result_make_argument { int unused; };
@@ -796,14 +796,14 @@ extern void result_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef result_make
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Result(T, E) result_make(ResultTag tag, T value, E error)
-#line 205 "test/tmpl/result.tmpl.h"
+#line 205 "tmpl/result.tmpl.h"
 #define result_make(...) _Generic((GEN_ARG1(__VA_ARGS__)), \
     TMPLGEN_GENERIC_result_make_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: result_make__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Result(T, E) result_make(ResultTag tag, T value, E error)
-#line 205 "test/tmpl/result.tmpl.h"
+#line 205 "tmpl/result.tmpl.h"
 #define result_make(...) \
     TMPLGEN_GNU_result_make_TEST_TYPES_H(result_make__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -1182,7 +1182,7 @@ static inline Result_TestInt_ErrorCode result_make_TestInt_ErrorCode(ResultTag t
     else result.payload.error = error;
     return result;
 }
-#line 83 "test/tmpl/result.tmpl.h"
+#line 83 "tmpl/result.tmpl.h"
 /// static inline int result_is_ok_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline int result_is_ok_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 #line 1189 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1197,7 +1197,7 @@ static inline int result_is_ok_TestInt_ErrorCode(Result_TestInt_ErrorCode * resu
         result_is_ok_TestInt_ErrorCode, \
         next) \
 
-#line 88 "test/tmpl/result.tmpl.h"
+#line 88 "tmpl/result.tmpl.h"
 /// static inline int result_is_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
 static inline int result_is_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result);
 #line 1204 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1212,7 +1212,7 @@ static inline int result_is_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * r
         result_is_error_TestInt_ErrorCode, \
         next) \
 
-#line 93 "test/tmpl/result.tmpl.h"
+#line 93 "tmpl/result.tmpl.h"
 /// static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError * result)
 static inline InferredLong result_value_InferredLong_InferredError(Result_InferredLong_InferredError * result);
 /// static inline Tag result_value_Tag_InferredError(Result_Tag_InferredError * result)
@@ -1239,7 +1239,7 @@ static inline TestInt result_value_TestInt_ErrorCode(Result_TestInt_ErrorCode * 
                 result_value_TestInt_ErrorCode, \
                 next))) \
 
-#line 99 "test/tmpl/result.tmpl.h"
+#line 99 "tmpl/result.tmpl.h"
 /// static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode * result)
 static inline ErrorCode result_error_InferredDouble_ErrorCode(Result_InferredDouble_ErrorCode * result);
 /// static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode * result)
@@ -1260,7 +1260,7 @@ static inline ErrorCode result_error_TestInt_ErrorCode(Result_TestInt_ErrorCode 
             result_error_TestInt_ErrorCode, \
             next)) \
 
-#line 105 "test/tmpl/result.tmpl.h"
+#line 105 "tmpl/result.tmpl.h"
 /// static inline TestInt result_identity_TestInt(TestInt value)
 static inline TestInt result_identity_TestInt(TestInt value);
 #line 1267 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1275,7 +1275,7 @@ static inline TestInt result_identity_TestInt(TestInt value);
         result_identity_TestInt, \
         next) \
 
-#line 119 "test/tmpl/result.tmpl.h"
+#line 119 "tmpl/result.tmpl.h"
 /// static inline int same_size_TestInt_TestInt(TestInt left, TestInt right)
 static inline int same_size_TestInt_TestInt(TestInt left, TestInt right);
 #line 1282 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1292,7 +1292,7 @@ static inline int same_size_TestInt_TestInt(TestInt left, TestInt right);
         same_size_TestInt_TestInt, \
         next) \
 
-#line 133 "test/tmpl/result.tmpl.h"
+#line 133 "tmpl/result.tmpl.h"
 /// static inline TestInt result_pointer_TestInt(TestInt * value)
 static inline TestInt result_pointer_TestInt(TestInt * value);
 #line 1299 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1307,7 +1307,7 @@ static inline TestInt result_pointer_TestInt(TestInt * value);
         result_pointer_TestInt, \
         next) \
 
-#line 135 "test/tmpl/result.tmpl.h"
+#line 135 "tmpl/result.tmpl.h"
 /// static inline Option_TestInt option_some_TestInt(TestInt value)
 static inline Option_TestInt option_some_TestInt(TestInt value);
 #line 1314 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1322,7 +1322,7 @@ static inline Option_TestInt option_some_TestInt(TestInt value);
         option_some_TestInt, \
         next) \
 
-#line 143 "test/tmpl/result.tmpl.h"
+#line 143 "tmpl/result.tmpl.h"
 /// static inline void option_none_TestInt(Option_TestInt * option)
 static inline void option_none_TestInt(Option_TestInt * option);
 #line 1329 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1337,7 +1337,7 @@ static inline void option_none_TestInt(Option_TestInt * option);
         option_none_TestInt, \
         next) \
 
-#line 148 "test/tmpl/result.tmpl.h"
+#line 148 "tmpl/result.tmpl.h"
 /// static inline int option_is_some_TestInt(Option_TestInt * option)
 static inline int option_is_some_TestInt(Option_TestInt * option);
 #line 1344 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1352,7 +1352,7 @@ static inline int option_is_some_TestInt(Option_TestInt * option);
         option_is_some_TestInt, \
         next) \
 
-#line 153 "test/tmpl/result.tmpl.h"
+#line 153 "tmpl/result.tmpl.h"
 /// static inline TestInt option_value_TestInt(Option_TestInt * option)
 static inline TestInt option_value_TestInt(Option_TestInt * option);
 #line 1359 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1367,7 +1367,7 @@ static inline TestInt option_value_TestInt(Option_TestInt * option);
         option_value_TestInt, \
         next) \
 
-#line 159 "test/tmpl/result.tmpl.h"
+#line 159 "tmpl/result.tmpl.h"
 /// static inline TestInt tagged_box_value_TestInt(struct TaggedBox_TestInt * box)
 static inline TestInt tagged_box_value_TestInt(struct TaggedBox_TestInt * box);
 #line 1374 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1382,7 +1382,7 @@ static inline TestInt tagged_box_value_TestInt(struct TaggedBox_TestInt * box);
         tagged_box_value_TestInt, \
         next) \
 
-#line 161 "test/tmpl/result.tmpl.h"
+#line 161 "tmpl/result.tmpl.h"
 /// static inline TestInt tagged_choice_value_TestInt(union TaggedChoice_TestInt * choice)
 static inline TestInt tagged_choice_value_TestInt(union TaggedChoice_TestInt * choice);
 #line 1389 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1397,7 +1397,7 @@ static inline TestInt tagged_choice_value_TestInt(union TaggedChoice_TestInt * c
         tagged_choice_value_TestInt, \
         next) \
 
-#line 163 "test/tmpl/result.tmpl.h"
+#line 163 "tmpl/result.tmpl.h"
 /// static inline TestInt option_pair_TestInt(Option_TestInt * left, Option_TestInt * right)
 static inline TestInt option_pair_TestInt(Option_TestInt * left, Option_TestInt * right);
 #line 1404 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1412,7 +1412,7 @@ static inline TestInt option_pair_TestInt(Option_TestInt * left, Option_TestInt 
         option_pair_TestInt, \
         next) \
 
-#line 170 "test/tmpl/result.tmpl.h"
+#line 170 "tmpl/result.tmpl.h"
 /// static inline Box_double box_select_TestInt_double(Box_TestInt * first, Box_double * second)
 static inline Box_double box_select_TestInt_double(Box_TestInt * first, Box_double * second);
 #line 1419 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1429,7 +1429,7 @@ static inline Box_double box_select_TestInt_double(Box_TestInt * first, Box_doub
         box_select_TestInt_double, \
         next) \
 
-#line 176 "test/tmpl/result.tmpl.h"
+#line 176 "tmpl/result.tmpl.h"
 /// static inline Box_Tag box_make_Tag(Tag value)
 static inline Box_Tag box_make_Tag(Tag value);
 #line 1436 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1444,7 +1444,7 @@ static inline Box_Tag box_make_Tag(Tag value);
         box_make_Tag, \
         next) \
 
-#line 182 "test/tmpl/result.tmpl.h"
+#line 182 "tmpl/result.tmpl.h"
 /// static inline Tag box_get_Tag(Box_Tag * box)
 static inline Tag box_get_Tag(Box_Tag * box);
 #line 1451 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1459,7 +1459,7 @@ static inline Tag box_get_Tag(Box_Tag * box);
         box_get_Tag, \
         next) \
 
-#line 187 "test/tmpl/result.tmpl.h"
+#line 187 "tmpl/result.tmpl.h"
 /// static inline Pair_Tag_double pair_make_Tag_double(Tag first, double second)
 static inline Pair_Tag_double pair_make_Tag_double(Tag first, double second);
 #line 1466 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1476,7 +1476,7 @@ static inline Pair_Tag_double pair_make_Tag_double(Tag first, double second);
         pair_make_Tag_double, \
         next) \
 
-#line 193 "test/tmpl/result.tmpl.h"
+#line 193 "tmpl/result.tmpl.h"
 /// static inline Pair_double_Tag pair_flip_Tag_double(Pair_Tag_double pair)
 static inline Pair_double_Tag pair_flip_Tag_double(Pair_Tag_double pair);
 #line 1483 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1491,7 +1491,7 @@ static inline Pair_double_Tag pair_flip_Tag_double(Pair_Tag_double pair);
         pair_flip_Tag_double, \
         next) \
 
-#line 205 "test/tmpl/result.tmpl.h"
+#line 205 "tmpl/result.tmpl.h"
 /// static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(ResultTag tag, InferredLong value, InferredError error)
 static inline Result_InferredLong_InferredError result_make_InferredLong_InferredError(ResultTag tag, InferredLong value, InferredError error);
 /// static inline Result_InferredDouble_ErrorCode result_make_InferredDouble_ErrorCode(ResultTag tag, InferredDouble value, ErrorCode error)
@@ -1669,7 +1669,7 @@ static inline int alignment_ok_PhysicsBody(PhysicsBody *value)
 #line 24 "/home/elias/Projects/c-tmplgen/test/cases/tagged_struct.c"
 }
 #line 1672 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
-#line 108 "test/tmpl/result.tmpl.h"
+#line 108 "tmpl/result.tmpl.h"
 /// static inline int physics_sum_PhysicsBody(PhysicsBody * value)
 static inline int physics_sum_PhysicsBody(PhysicsBody * value);
 #line 1676 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1684,7 +1684,7 @@ static inline int physics_sum_PhysicsBody(PhysicsBody * value);
         physics_sum_PhysicsBody, \
         next) \
 
-#line 111 "test/tmpl/result.tmpl.h"
+#line 111 "tmpl/result.tmpl.h"
 /// static inline int named_actor_id_NamedActor(NamedActor * value)
 static inline int named_actor_id_NamedActor(NamedActor * value);
 #line 1691 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1699,7 +1699,7 @@ static inline int named_actor_id_NamedActor(NamedActor * value);
         named_actor_id_NamedActor, \
         next) \
 
-#line 113 "test/tmpl/result.tmpl.h"
+#line 113 "tmpl/result.tmpl.h"
 /// static inline int structural_pair_PhysicsBody_NamedActor(PhysicsBody * physics, NamedActor * entity)
 static inline int structural_pair_PhysicsBody_NamedActor(PhysicsBody * physics, NamedActor * entity);
 #line 1706 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"
@@ -1716,7 +1716,7 @@ static inline int structural_pair_PhysicsBody_NamedActor(PhysicsBody * physics, 
         structural_pair_PhysicsBody_NamedActor, \
         next) \
 
-#line 125 "test/tmpl/result.tmpl.h"
+#line 125 "tmpl/result.tmpl.h"
 /// static inline int alignment_ok_PhysicsBody(PhysicsBody * value)
 static inline int alignment_ok_PhysicsBody(PhysicsBody * value);
 #line 1723 "/home/elias/Projects/c-tmplgen/test/gen/result.gen.h"

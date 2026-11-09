@@ -1,0 +1,10 @@
+// clang-format off
+#ifndef TMPLGEN
+typedef int T;
+#endif
+
+// @template T: Bogus
+static inline T pick(T lhs, T rhs)
+{
+    return lhs;
+}

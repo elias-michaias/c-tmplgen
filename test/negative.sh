@@ -107,6 +107,29 @@ else
     printf '%s\n' 'Expected compile failure for type_variable_mismatch.c.in (diagnostics above).'
 fi
 
+printf '\n===== type_variable_mismatch.c.in (reflection) =====\n'
+if (CDPATH= cd -- "$TYPEVAR" && "$BUILD/tmplgen" \
+    --source-root "$TYPEVAR" --template-dir "$TYPEVAR/tmpl" \
+    --output "$TYPEVAR/gen/all.gen.h" --reflect=project \
+    --clang-arg=-std=c11 >"$BUILD/type-variable-reflect.log" 2>&1); then
+    cat "$BUILD/type-variable-reflect.log" >&2
+    printf '%s\n' 'ERROR: reflection accepted type_variable_mismatch.c.in' >&2
+    failed=1
+else
+    cat "$BUILD/type-variable-reflect.log" >&2
+    if ! grep -Fq 'main.c:12:' "$BUILD/type-variable-reflect.log" ||
+       ! grep -Fq 'main.c:14:' "$BUILD/type-variable-reflect.log" ||
+       ! grep -Fq 'main.c:15:' "$BUILD/type-variable-reflect.log"; then
+        printf '%s\n' 'reflection type-variable diagnostics were not mapped to their callsites' >&2
+        failed=1
+    fi
+    if grep -Fq 'all.gen.h:' "$BUILD/type-variable-reflect.log"; then
+        printf '%s\n' 'reflection diagnostics exposed generated-header locations' >&2
+        failed=1
+    fi
+    printf '%s\n' 'Expected reflection failure for type_variable_mismatch.c.in (diagnostics above).'
+fi
+
 VALUEARG="$BUILD/value-argument"
 mkdir -p "$VALUEARG/tmpl" "$VALUEARG/gen" "$VALUEARG/test/cases"
 cp -R "$ROOT/test/tmpl/." "$VALUEARG/tmpl/"
@@ -127,6 +150,34 @@ elif ! grep -Fq "Array() requires a single-token value argument for 'N'" \
 else
     cat "$BUILD/value-argument.log" >&2
     printf '%s\n' 'Expected tmplgen failure for value_argument.c.in (diagnostics above).'
+fi
+
+MALFORMED="$BUILD/malformed-constructor"
+mkdir -p "$MALFORMED/tmpl" "$MALFORMED/gen" "$MALFORMED/test/cases"
+cp -R "$ROOT/test/tmpl/." "$MALFORMED/tmpl/"
+cp "$ROOT/test/cases/test_types.h" "$MALFORMED/test/cases/test_types.h"
+printf '#include "test/cases/test_types.h"\n#include "gen/all.gen.h"\n\nint main(void)\n{\n    Pair(int,) value = {0};\n    (void)value;\n    return 0;\n}\n' \
+    > "$MALFORMED/main.c"
+printf '\n===== malformed_constructor =====\n'
+if "$BUILD/tmplgen" --source-root "$MALFORMED" \
+    --template-dir "$MALFORMED/tmpl" --output "$MALFORMED/gen/all.gen.h" \
+    --clang-arg=-std=c11 >"$BUILD/malformed-constructor.log" 2>&1; then
+    cat "$BUILD/malformed-constructor.log" >&2
+    printf '%s\n' 'ERROR: malformed constructor use unexpectedly generated' >&2
+    failed=1
+else
+    cat "$BUILD/malformed-constructor.log" >&2
+    if grep -Fq 'double free' "$BUILD/malformed-constructor.log" ||
+       grep -Fq 'free():' "$BUILD/malformed-constructor.log"; then
+        printf '%s\n' 'malformed constructor use crashed the generator' >&2
+        failed=1
+    elif ! grep -Fq 'Pair() requires 2 type or value arguments' \
+        "$BUILD/malformed-constructor.log"; then
+        printf '%s\n' 'malformed constructor use was not diagnosed clearly' >&2
+        failed=1
+    else
+        printf '%s\n' 'Expected tmplgen failure for malformed_constructor (diagnostics above).'
+    fi
 fi
 
 MIXED="$BUILD/explicit-mixed"
@@ -172,5 +223,34 @@ else
     cat "$BUILD/hkt-mismatch.log" >&2
     printf '%s\n' 'Expected tmplgen failure for hkt_mismatch.c.in (diagnostics above).'
 fi
+
+for variant in missing-bound missing-impl missing-impl-call unknown-bound \
+               bad-signature unknown-impl ambiguous-impl unsatisfied-bound \
+               expression-bound function-bound; do
+    TRAITS="$BUILD/traits-$variant"
+    mkdir -p "$TRAITS/tmpl" "$TRAITS/gen"
+    cp "$ROOT/test/negative/traits/$variant/traits.tmpl.h.in" \
+        "$TRAITS/tmpl/traits.tmpl.h"
+    cp "$ROOT/test/negative/traits/$variant/main.c.in" "$TRAITS/main.c"
+    printf '\n===== traits/%s.tmpl.h =====\n' "$variant"
+    if "$BUILD/tmplgen" --source-root "$TRAITS" \
+        --template-dir "$TRAITS/tmpl" --output "$TRAITS/gen/all.gen.h" \
+        --clang-arg=-std=c11 >"$BUILD/traits-$variant.log" 2>&1; then
+        cat "$BUILD/traits-$variant.log" >&2
+        printf 'ERROR: traits/%s.tmpl.h unexpectedly generated\n' "$variant" >&2
+        failed=1
+        continue
+    fi
+    cat "$BUILD/traits-$variant.log" >&2
+    while IFS= read -r expected; do
+        if ! grep -Fq "$expected" "$BUILD/traits-$variant.log"; then
+            printf 'missing diagnostic for traits/%s: %s\n' \
+                "$variant" "$expected" >&2
+            failed=1
+        fi
+    done < "$ROOT/test/negative/traits/$variant/expected"
+    printf 'Expected tmplgen failure for traits/%s.tmpl.h (diagnostics above).\n' \
+        "$variant"
+done
 
 exit "$failed"

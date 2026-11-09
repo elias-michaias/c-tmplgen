@@ -51,7 +51,7 @@ static inline int array_pair_sum_int(Array_int_2 * v) {
   return v->data[0] + v->data[1];
 }
 #ifndef TMPLGEN_AGGREGATING
-#line 14 "test/tmpl/array.tmpl.h"
+#line 14 "tmpl/array.tmpl.h"
 #undef Array
 #define Array(type0, type1) Array_##type0##_##type1
 
@@ -64,7 +64,7 @@ static inline int array_pair_sum_int(Array_int_2 * v) {
 #define GEN_ARG1_(arg0, arg1, ...) arg1
 #endif
 
-#line 17 "test/tmpl/array.tmpl.h"
+#line 17 "tmpl/array.tmpl.h"
 /// static inline size_t array_capacity_int_4(Array_int_4 * v)
 static inline size_t array_capacity_int_4(Array_int_4 * v);
 /* No dispatch association yet: either the argument type is wrong,
@@ -74,14 +74,14 @@ extern void array_capacity__no_match_for_argument_type(struct tmplgen_no_associa
 #undef array_capacity
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline size_t array_capacity(Array(T, N) * v)
-#line 17 "test/tmpl/array.tmpl.h"
+#line 17 "tmpl/array.tmpl.h"
 #define array_capacity(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Array_int_4 *: array_capacity_int_4, \
     default: array_capacity__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline size_t array_capacity(Array(T, N) * v)
-#line 17 "test/tmpl/array.tmpl.h"
+#line 17 "tmpl/array.tmpl.h"
 #define array_capacity(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Array_int_4 *)), \
@@ -92,7 +92,7 @@ extern void array_capacity__no_match_for_argument_type(struct tmplgen_no_associa
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 23 "test/tmpl/array.tmpl.h"
+#line 23 "tmpl/array.tmpl.h"
 /// static inline int array_get_int_4(Array_int_4 * v, size_t i)
 static inline int array_get_int_4(Array_int_4 * v, size_t i);
 /* No dispatch association yet: either the argument type is wrong,
@@ -102,14 +102,14 @@ extern void array_get__no_match_for_argument_type(struct tmplgen_no_association_
 #undef array_get
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T array_get(Array(T, N) * v, size_t i)
-#line 23 "test/tmpl/array.tmpl.h"
+#line 23 "tmpl/array.tmpl.h"
 #define array_get(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Array_int_4 *: array_get_int_4, \
     default: array_get__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T array_get(Array(T, N) * v, size_t i)
-#line 23 "test/tmpl/array.tmpl.h"
+#line 23 "tmpl/array.tmpl.h"
 #define array_get(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Array_int_4 *)), \
@@ -120,7 +120,7 @@ extern void array_get__no_match_for_argument_type(struct tmplgen_no_association_
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 27 "test/tmpl/array.tmpl.h"
+#line 27 "tmpl/array.tmpl.h"
 /// static inline int array_pair_sum_int(Array_int_2 * v)
 static inline int array_pair_sum_int(Array_int_2 * v);
 /* No dispatch association yet: either the argument type is wrong,
@@ -130,14 +130,14 @@ extern void array_pair_sum__no_match_for_argument_type(struct tmplgen_no_associa
 #undef array_pair_sum
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T array_pair_sum(Array(T, 1 + 1) * v)
-#line 27 "test/tmpl/array.tmpl.h"
+#line 27 "tmpl/array.tmpl.h"
 #define array_pair_sum(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Array_int_2 *: array_pair_sum_int, \
     default: array_pair_sum__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T array_pair_sum(Array(T, 1 + 1) * v)
-#line 27 "test/tmpl/array.tmpl.h"
+#line 27 "tmpl/array.tmpl.h"
 #define array_pair_sum(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Array_int_2 *)), \

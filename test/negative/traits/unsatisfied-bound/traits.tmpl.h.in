@@ -1,0 +1,17 @@
+// clang-format off
+#ifndef TMPLGEN
+typedef int T;
+#endif
+
+// @trait Eq(T)
+int equal(T lhs, T rhs);
+// @end
+
+// @trait Show(T)
+int show(T value);
+// @end
+
+// @template T: Eq
+// @impl Show(T)
+static inline int show(T value) { return Eq_equal(value, value); }
+// @end

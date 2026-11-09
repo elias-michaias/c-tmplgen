@@ -239,6 +239,8 @@ typedef struct {
     size_t required_type_count, required_type_cap;
     char **expressions;
     size_t expression_count, expression_cap;
+    char **bound_traits;
+    size_t bound_trait_count, bound_trait_cap;
     size_t line;
 } TemplateConstraint;
 
@@ -282,6 +284,11 @@ typedef struct {
     int is_static;
     int is_inline;
     int has_template_annotation;
+    /* Trait methods are registered under their public name (Ord_cmp) while
+     * their template declaration uses the short method name (cmp). */
+    char *source_name;
+    char *trait_name;
+    int is_trait_method;
 } TemplateFunction;
 
 typedef struct {
@@ -299,6 +306,35 @@ typedef struct {
 } TemplateType;
 
 typedef struct {
+    char *name;
+    char **parameters;
+    size_t parameter_count, parameter_cap;
+    size_t *method_indices;
+    size_t method_count, method_cap;
+    size_t line;
+    unsigned start_offset, end_offset;
+} TraitInfo;
+
+/* One `@impl Trait(args)` block. Method bodies belong to this template's
+ * source text, but are emitted by the module that declares the trait. */
+typedef struct {
+    char *trait_name;
+    char **arguments;
+    size_t argument_count, argument_cap;
+    /* Free type variables bound by this impl (declared by a preceding
+     * `@template` line). */
+    char **type_parameters;
+    size_t type_parameter_count, type_parameter_cap;
+    TemplateConstraint *constraints;
+    size_t constraint_count, constraint_cap;
+    TemplateFunction *methods;
+    size_t method_count, method_cap;
+    size_t line;
+    unsigned start_offset, end_offset;
+    size_t template_index;
+} TraitImpl;
+
+typedef struct {
     TemplateAnnotation *annotations;
     size_t annotation_count, annotation_cap, next_annotation;
     char **parameter_names;
@@ -308,6 +344,10 @@ typedef struct {
     size_t function_count, function_cap;
     TemplateType *constructors;
     size_t constructor_count, constructor_cap;
+    TraitInfo *traits;
+    size_t trait_count, trait_cap;
+    TraitImpl *trait_impls;
+    size_t trait_impl_count, trait_impl_cap;
     size_t template_index;
     char **includes;
     size_t include_count, include_cap;
@@ -727,6 +767,12 @@ void template_constraint_add_expression(TemplateConstraint **constraints,
                                               const char *parameter_name,
                                               const char *expression,
                                               size_t line);
+void template_constraint_add_bound(TemplateConstraint **constraints,
+                                          size_t *constraint_count,
+                                          size_t *constraint_cap,
+                                          const char *parameter_name,
+                                          const char *trait_name,
+                                          size_t line);
 void template_parameter_kind_clear(TemplateParameterKind *kind);
 void template_parameter_kind_copy(TemplateParameterKind *target,
                                          const TemplateParameterKind *source);
@@ -832,6 +878,33 @@ void emit_template_module(Buf *out, size_t template_index,
 void emit_aggregate_header(Buf *out, const TemplateInfo *infos,
                                   size_t template_count);
 int validate_template_info(const TemplateInfo *infos, size_t count);
+int validate_trait_info(const TemplateInfo *infos, size_t count);
+int validate_generic_call_bounds(const TemplateInfo *infos, size_t count);
+int validate_trait_instances(const TemplateInfo *infos, size_t count);
+/* Binding of an impl's free type variables to concrete type spellings. */
+typedef struct {
+    char *name;
+    char *type;
+} TraitBinding;
+int trait_impl_bind_instance(const TraitImpl *impl, const TraitInfo *trait,
+                             const TemplateInfo *trait_ti,
+                             const GenInstance *instance,
+                             TraitBinding **bindings_out,
+                             size_t *binding_count_out);
+void trait_bindings_free(TraitBinding *bindings, size_t count);
+int trait_impl_more_specific(const TraitImpl *left, const TraitImpl *right,
+                             const TraitInfo *trait);
+const TraitImpl *trait_select_impl(const TraitImpl *const *candidates,
+                                   size_t count, const TraitInfo *trait,
+                                   int *ambiguous);
+const TraitInfo *find_trait_named(const TemplateInfo *infos, size_t count,
+                                  const char *name, size_t *owner_index);
+const TemplateFunction *find_trait_method(const TemplateInfo *infos,
+                                          size_t count, const char *trait_name,
+                                          const char *source_name,
+                                          size_t *owner_index);
+void add_trait_method_index(TraitInfo *trait, size_t function_index);
+void add_trait_impl_method(TraitImpl *impl, TemplateFunction *function);
 void build_template_path(Buf *path, const char *stem);
 char *template_include_target(const char *header, const char *current_stem);
 char *relative_module_include(const char *current_stem,
@@ -939,6 +1012,10 @@ int source_facts_save(const SourceFile *source,
 #if GEN_ENABLE_WATCH
 void sleep_ms(unsigned ms);
 #endif
+void tmplgen_plugin_reset_captured_diagnostic(void);
+const char *tmplgen_plugin_captured_diagnostic_message(void);
+const char *tmplgen_plugin_captured_diagnostic_path(void);
+size_t tmplgen_plugin_captured_diagnostic_line(void);
 #if defined(CLANGPLUGIN)
 int tmplgen_plugin_main(int argc, char **argv);
 #endif

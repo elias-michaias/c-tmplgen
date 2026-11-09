@@ -1,0 +1,8 @@
+// clang-format off
+#ifndef TMPLGEN
+typedef int T;
+#endif
+
+// @impl Bogus(int)
+static inline int compare(int lhs, int rhs) { return 0; }
+// @end

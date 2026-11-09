@@ -102,6 +102,39 @@ if ! grep -q '^} Array_int_4;$' test/gen/array.gen.h ||
 fi
 
 "$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/traits.c -o "$BUILD/traits"
+"$BUILD/traits"
+if ! grep -q '^static inline int Ord_compare_int(int lhs, int rhs);$' test/gen/traits.gen.h ||
+   ! grep -q '^static inline int Ord_compare_int(int lhs, int rhs) { return (lhs > rhs) - (lhs < rhs); }$' \
+        test/gen/traits.gen.h ||
+   ! grep -q '^static inline int Ord_compare_double(double lhs, double rhs)$' \
+        test/gen/traits.gen.h ||
+   ! grep -q 'return Ord_compare_int(lhs, rhs) >= 0 ? lhs : rhs;' test/gen/traits.gen.h ||
+   ! grep -q '^#define Ord_compare(...) ' test/gen/traits.gen.h ||
+   ! grep -q '^#define Eq_equal(...) ' test/gen/traits.gen.h; then
+    printf '%s\n' 'trait impls, bounds, or dispatch macros were not generated correctly' >&2
+    exit 1
+fi
+
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
+    test/cases/traits_free.c -o "$BUILD/traits-free"
+"$BUILD/traits-free"
+if ! grep -q '^static inline int Label_label_Crate_double(Crate_double value) { return 10 + Label_label_double(value.value); }$' \
+        test/gen/traits_free.gen.h ||
+   ! grep -q '^static inline int Label_label_Crate_int(Crate_int value) { return 100 + value.value; }$' \
+        test/gen/traits_free.gen.h ||
+   grep -q 'Label_label_Crate_int(Crate_int value) { return 10 +' \
+        test/gen/traits_free.gen.h; then
+    printf '%s\n' 'free-variable impls or most-specific impl selection were not generated correctly' >&2
+    exit 1
+fi
+if ! grep -q 'Add_add_double(lhs.second, rhs.second)' test/gen/traits_free.gen.h ||
+   grep -q 'Add_add_int(lhs.second, rhs.second)' test/gen/traits_free.gen.h; then
+    printf '%s\n' 'multi-parameter impl bodies did not dispatch each field independently' >&2
+    exit 1
+fi
+
+"$CC" -std=c11 -Wall -Wextra -pedantic -Wconversion -Wshadow \
     test/cases/explicit_type.c -o "$BUILD/explicit-type"
 "$BUILD/explicit-type"
 if ! grep -q '^#define zero_value(type0) zero_value_##type0()$' test/gen/convert.gen.h ||

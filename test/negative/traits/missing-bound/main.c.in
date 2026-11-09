@@ -1,0 +1,6 @@
+#include "gen/all.gen.h"
+
+int main(void)
+{
+    return max_ord_int(1, 2);
+}

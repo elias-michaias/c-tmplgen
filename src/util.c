@@ -83,6 +83,57 @@ void buf_free(Buf *b)
     buf_init(b);
 }
 
+static char *g_captured_error_message;
+static char *g_captured_error_path;
+static size_t g_captured_error_line;
+static int g_capture_errors;
+
+void tmplgen_plugin_reset_captured_diagnostic(void)
+{
+    free(g_captured_error_message);
+    free(g_captured_error_path);
+    g_captured_error_message = NULL;
+    g_captured_error_path = NULL;
+    g_captured_error_line = 0U;
+    g_capture_errors = 1;
+}
+
+const char *tmplgen_plugin_captured_diagnostic_message(void)
+{
+    return g_captured_error_message != NULL ? g_captured_error_message : "";
+}
+
+const char *tmplgen_plugin_captured_diagnostic_path(void)
+{
+    return g_captured_error_path != NULL ? g_captured_error_path : "";
+}
+
+size_t tmplgen_plugin_captured_diagnostic_line(void)
+{
+    return g_captured_error_line;
+}
+
+static void capture_error(const char *path, size_t line, const char *fmt,
+                          va_list ap)
+{
+    va_list copy;
+    int length;
+    char *message;
+    if (!g_capture_errors || g_captured_error_message != NULL) return;
+    va_copy(copy, ap);
+    length = vsnprintf(NULL, 0, fmt, copy);
+    va_end(copy);
+    if (length < 0) return;
+    message = (char *)malloc((size_t)length + 1U);
+    if (message == NULL) return;
+    va_copy(copy, ap);
+    (void)vsnprintf(message, (size_t)length + 1U, fmt, copy);
+    va_end(copy);
+    g_captured_error_path = copy_string(path != NULL ? path : "");
+    g_captured_error_line = line;
+    g_captured_error_message = message;
+}
+
 void report_error(const char *path, size_t line, const char *fmt, ...)
 {
     va_list ap;
@@ -91,6 +142,7 @@ void report_error(const char *path, size_t line, const char *fmt, ...)
     if (line != 0U) fprintf(stderr, ":%lu", (unsigned long)line);
     fputs(path != NULL ? ": error: " : "error: ", stderr);
     va_start(ap, fmt);
+    capture_error(path, line, fmt, ap);
     vfprintf(stderr, fmt, ap);
     va_end(ap);
     fputc('\n', stderr);

@@ -1,0 +1,1 @@
+error: type 'double' does not implement trait 'Ord' (needed by 'Ord_compare')

@@ -18,6 +18,7 @@
   <a href="#highlights">Features</a> ·
   <a href="doc/usage.md">Usage</a> ·
   <a href="doc/constraints.md">Constraints</a> ·
+  <a href="doc/traits.md">Traits</a> ·
   <a href="doc/reflection.md">Reflection</a> ·
   <a href="doc/plugins.md">Plugins</a> ·
   <a href="doc/paradigm.md">How It Works</a> ·
@@ -95,6 +96,7 @@ types](doc/usage.md#include-generated-headers-after-your-types).
 | **Concrete C output** | Emit real specialized structs and functions that ordinary C tools can inspect. |
 | **Compile-time dispatch** | Select observed specializations through `_Generic` or GNU builtins, with no runtime type lookup. |
 | **Expressive constraints** | Require structural fields with `<:` or assert compile-time properties with satisfaction annotations and `@where`. |
+| **Traits & bounds** | Declare named method interfaces with `@trait`, provide `@impl` bodies for concrete or free-variable types with most-specific selection, and require them on template parameters with `T: Ord` bounds checked while authoring ([Traits](doc/traits.md)). |
 | **Reflection** | `--reflect=project` adds type ids, layout tables, `typetag_of`/`enumtag_of`/`any_of`, and compile-time checks of sizes, offsets, and enumerator values (all but bit-field positions) for every project type ([Reflection](doc/reflection.md)). |
 | **Two output modes** | Use convenient header-only output, or move implementations into `.gen.c` files with `--compiled`. |
 | **Incremental analysis** | Reuse validated whole-project and per-source facts; check generated files with `--check`. |
@@ -114,6 +116,7 @@ backend must be supported by the application compiler; see
 | --- | --- |
 | [Usage & template syntax](doc/usage.md) | Annotations, type inference, value and constructor parameters, CLI options, and output modes |
 | [Constraints](doc/constraints.md) | Structural subtyping, compile-time satisfaction, examples, and diagnostics |
+| [Traits](doc/traits.md) | `@trait` interfaces, concrete and free-variable `@impl` implementations, most-specific selection, prefixed dispatch, and `T: Trait` bounds |
 | [Reflection](doc/reflection.md) | Type ids, layout tables, `Any`, enum tags, field metadata, and reflection inside templates |
 | [Tooling & integration](doc/tooling.md) | libclang, compiler flags, clangd, diagnostics and `#line` mapping, caches, and tests |
 | [Plugin modes](doc/plugins.md) | Build and load the optional Clang frontend and clangd feature-module plugins |

@@ -7,10 +7,10 @@
 
 
 #ifndef TMPLGEN_AGGREGATING
-#line 9 "test/tmpl/convert.tmpl.h"
+#line 9 "tmpl/convert.tmpl.h"
 #undef zero_value
 #define zero_value(type0) zero_value_##type0()
-#line 15 "test/tmpl/convert.tmpl.h"
+#line 15 "tmpl/convert.tmpl.h"
 #undef read_as
 #define read_as(type0, ...) read_as_##type0(__VA_ARGS__)
 #endif /* TMPLGEN_AGGREGATING */

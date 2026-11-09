@@ -225,13 +225,19 @@ static TemplateAnnotation *take_template_annotation(TemplateAnalysis *analysis,
                                                      unsigned declaration_offset)
 {
     TemplateInfo *ti = analysis->info;
-    TemplateAnnotation *annotation;
-    if (ti->next_annotation >= ti->annotation_count) return NULL;
-    annotation = &ti->annotations[ti->next_annotation];
-    if (annotation->offset >= declaration_offset) return NULL;
-    ++ti->next_annotation;
-    annotation->used = 1;
-    return annotation;
+    while (ti->next_annotation < ti->annotation_count) {
+        TemplateAnnotation *annotation =
+            &ti->annotations[ti->next_annotation];
+        if (annotation->used) {
+            ++ti->next_annotation;
+            continue;
+        }
+        if (annotation->offset >= declaration_offset) return NULL;
+        ++ti->next_annotation;
+        annotation->used = 1;
+        return annotation;
+    }
+    return NULL;
 }
 
 static int declaration_parameters_are_listed(TemplateAnalysis *analysis,
@@ -302,6 +308,99 @@ static void copy_declared_parameters(char ***target, size_t *target_count,
         list_add(target, target_count, target_cap,
                  annotation->parameter_names[i]);
     }
+}
+
+static TemplateAnnotation *append_template_annotation(TemplateInfo *ti,
+                                                      size_t line_number);
+
+static TraitInfo *trait_at_offset(TemplateInfo *ti, unsigned offset)
+{
+    size_t i;
+    for (i = 0U; i < ti->trait_count; ++i) {
+        TraitInfo *trait = &ti->traits[i];
+        if (offset >= trait->start_offset && offset <= trait->end_offset) {
+            return trait;
+        }
+    }
+    return NULL;
+}
+
+static TraitImpl *trait_impl_at_offset(TemplateInfo *ti, unsigned offset)
+{
+    size_t i;
+    for (i = 0U; i < ti->trait_impl_count; ++i) {
+        TraitImpl *impl = &ti->trait_impls[i];
+        if (offset >= impl->start_offset && offset <= impl->end_offset) {
+            return impl;
+        }
+    }
+    return NULL;
+}
+
+static TemplateAnnotation *trait_method_annotation(TemplateInfo *ti,
+                                                   const TraitInfo *trait,
+                                                   size_t line_number)
+{
+    TemplateAnnotation *annotation = append_template_annotation(ti, line_number);
+    size_t i;
+    annotation->parameter_names = (char **)calloc(trait->parameter_count,
+                                                  sizeof(char *));
+    annotation->parameter_kinds = (TemplateParameterKind *)calloc(
+        trait->parameter_count, sizeof(TemplateParameterKind));
+    if (trait->parameter_count != 0U &&
+        (annotation->parameter_names == NULL ||
+         annotation->parameter_kinds == NULL)) {
+        die("out of memory");
+    }
+    for (i = 0U; i < trait->parameter_count; ++i) {
+        annotation->parameter_names[i] = copy_string(trait->parameters[i]);
+    }
+    annotation->parameter_count = trait->parameter_count;
+    annotation->parameter_cap = trait->parameter_count;
+    annotation->used = 1;
+    return annotation;
+}
+
+/* Builds the implicit annotation for a method declared inside an `@impl`
+ * block from the impl's free type variables and their bounds. */
+static TemplateAnnotation *trait_impl_method_annotation(TemplateInfo *ti,
+                                                        const TraitImpl *impl,
+                                                        size_t line_number)
+{
+    TemplateAnnotation *annotation = append_template_annotation(ti, line_number);
+    size_t i;
+    annotation->parameter_names = (char **)calloc(impl->type_parameter_count,
+                                                  sizeof(char *));
+    annotation->parameter_kinds = (TemplateParameterKind *)calloc(
+        impl->type_parameter_count, sizeof(TemplateParameterKind));
+    if (impl->type_parameter_count != 0U &&
+        (annotation->parameter_names == NULL ||
+         annotation->parameter_kinds == NULL)) {
+        die("out of memory");
+    }
+    for (i = 0U; i < impl->type_parameter_count; ++i) {
+        annotation->parameter_names[i] = copy_string(impl->type_parameters[i]);
+    }
+    annotation->parameter_count = impl->type_parameter_count;
+    annotation->parameter_cap = impl->type_parameter_count;
+    copy_template_constraints(&annotation->constraints,
+                              &annotation->constraint_count,
+                              &annotation->constraint_cap,
+                              impl->constraints, impl->constraint_count);
+    annotation->used = 1;
+    return annotation;
+}
+
+static char *trait_method_name(const char *trait, const char *method)
+{
+    size_t trait_length = strlen(trait);
+    size_t method_length = strlen(method);
+    char *name = (char *)malloc(trait_length + 1U + method_length + 1U);
+    if (name == NULL) die("out of memory");
+    memcpy(name, trait, trait_length);
+    name[trait_length] = '_';
+    memcpy(name + trait_length + 1U, method, method_length + 1U);
+    return name;
 }
 
 static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
@@ -478,26 +577,31 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
                 declaration_start -= analysis->offset_bias;
             }
             declaration_line = template_line_at_offset(ti, declaration_start);
-            annotation = take_template_annotation(analysis, declaration_start);
-            collect_cursor_template_parameters(analysis->tu, cursor, ti,
-                                               &parameters, &parameter_count,
-                                               &parameter_cap);
-            if (annotation == NULL && parameter_count != 0U) {
-                report_error(ti->path, declaration_line,
-                             "dependent function declaration '%s' needs a preceding // @template directive",
-                             name);
-                analysis->failed = 1;
-            } else if (annotation != NULL) {
-                (void)declaration_parameters_are_listed(analysis, name,
-                    declaration_line, annotation->parameter_names,
-                    annotation->parameter_count, parameters, parameter_count);
-                validate_where_constraint_bindings(analysis, name,
-                    declaration_line, annotation, parameters, parameter_count);
+            /* Trait methods are bodyless declarations; they are registered by
+             * the definition path below with the trait as their annotation. */
+            if (trait_at_offset(ti, declaration_start) == NULL) {
+                annotation = take_template_annotation(analysis, declaration_start);
+                collect_cursor_template_parameters(analysis->tu, cursor, ti,
+                                                   &parameters, &parameter_count,
+                                                   &parameter_cap);
+                if (annotation == NULL && parameter_count != 0U) {
+                    report_error(ti->path, declaration_line,
+                                 "dependent function declaration '%s' needs a preceding // @template directive",
+                                 name);
+                    analysis->failed = 1;
+                } else if (annotation != NULL) {
+                    (void)declaration_parameters_are_listed(analysis, name,
+                        declaration_line, annotation->parameter_names,
+                        annotation->parameter_count, parameters, parameter_count);
+                    validate_where_constraint_bindings(analysis, name,
+                        declaration_line, annotation, parameters, parameter_count);
+                }
+                list_free(parameters, parameter_count);
+                free(name);
+                free(path);
+                return CXChildVisit_Recurse;
             }
-            list_free(parameters, parameter_count);
             free(name);
-            free(path);
-            return CXChildVisit_Recurse;
         }
         TemplateFunction function;
         CXType function_type = clang_getCursorType(cursor);
@@ -506,6 +610,9 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
         char **all_parameters = NULL;
         size_t all_parameter_count = 0U, all_parameter_cap = 0U;
         TemplateAnnotation *annotation;
+        TraitInfo *trait_block;
+        TraitImpl *impl_block;
+        int function_moved = 0;
         memset(&function, 0, sizeof(function));
         function.name = copy_cx_string(clang_getCursorSpelling(cursor));
         function.is_static = clang_Cursor_getStorageClass(cursor) == CX_SC_Static;
@@ -519,7 +626,26 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
             function.end_offset -= analysis->offset_bias;
         }
         function.start_line = template_line_at_offset(ti, function.start_offset);
-        annotation = take_template_annotation(analysis, function.start_offset);
+        trait_block = trait_at_offset(ti, function.start_offset);
+        impl_block = trait_block == NULL ?
+            trait_impl_at_offset(ti, function.start_offset) : NULL;
+        if (trait_block != NULL) {
+            function.source_name = function.name;
+            function.name = trait_method_name(trait_block->name,
+                                              function.source_name);
+            function.trait_name = copy_string(trait_block->name);
+            function.is_trait_method = 1;
+            function.is_static = 1;
+            function.is_inline = 1;
+            annotation = trait_method_annotation(ti, trait_block,
+                                                  function.start_line);
+        } else if (impl_block != NULL) {
+            function.source_name = copy_string(function.name);
+            annotation = trait_impl_method_annotation(ti, impl_block,
+                                                      function.start_line);
+        } else {
+            annotation = take_template_annotation(analysis, function.start_offset);
+        }
         function.has_template_annotation = annotation != NULL;
         if (annotation != NULL) {
             copy_declared_parameters(&function.declared_parameters,
@@ -798,23 +924,37 @@ static enum CXChildVisitResult collect_template_declarations(CXCursor cursor,
             function.type_parameter_cap = all_parameter_cap;
             all_parameters = NULL;
             all_parameter_count = 0U;
-            add_template_function(ti, &function);
+            if (impl_block != NULL) {
+                add_trait_impl_method(impl_block, &function);
+                function_moved = 1;
+            } else {
+                add_template_function(ti, &function);
+                if (trait_block != NULL) {
+                    add_trait_method_index(trait_block,
+                                           ti->function_count - 1U);
+                }
+            }
         }
         list_free(all_parameters, all_parameter_count);
-        free(function.name);
-        list_free(function.declared_parameters,
-                  function.declared_parameter_count);
-        free(function.return_type);
-        for (i = 0; i < (int)function.parameter_count; ++i) {
-            free(function.parameters[i].type);
-            free(function.parameters[i].name);
-            list_free(function.parameters[i].type_parameters,
-                      function.parameters[i].type_parameter_count);
-            template_application_free(&function.parameters[i].application);
+        if (!function_moved) {
+            free(function.name);
+            free(function.source_name);
+            free(function.trait_name);
+            list_free(function.declared_parameters,
+                      function.declared_parameter_count);
+            free(function.return_type);
+            for (i = 0; i < (int)function.parameter_count; ++i) {
+                free(function.parameters[i].type);
+                free(function.parameters[i].name);
+                list_free(function.parameters[i].type_parameters,
+                          function.parameters[i].type_parameter_count);
+                template_application_free(&function.parameters[i].application);
+            }
+            free(function.parameters);
+            list_free(function.return_parameters,
+                      function.return_parameter_count);
+            template_application_free(&function.return_application);
         }
-        free(function.parameters);
-        list_free(function.return_parameters, function.return_parameter_count);
-        template_application_free(&function.return_application);
     }
     free(path);
     (void)line;
@@ -1103,6 +1243,138 @@ static int parse_constructor_signature_parameter(const char *text,
     return 1;
 }
 
+static int trait_add_parameter(TemplateInfo *ti, const char *name,
+                               size_t line_number)
+{
+    size_t i;
+    for (i = 0U; i < ti->parameter_count; ++i) {
+        if (!str_eq(ti->parameter_names[i], name)) continue;
+        if (template_parameter_is_value(ti, i) ||
+            template_parameter_is_constructor(ti, i)) {
+            report_error(ti->path, line_number,
+                         "trait parameter '%s' conflicts with a non-type template parameter",
+                         name);
+            return 0;
+        }
+        return 1;
+    }
+    if (ti->parameter_count == ti->parameter_cap) {
+        size_t new_cap = ti->parameter_cap == 0U ? 4U : ti->parameter_cap * 2U;
+        char **next_names = (char **)realloc(ti->parameter_names,
+            new_cap * sizeof(*next_names));
+        TemplateParameterKind *next_kinds =
+            (TemplateParameterKind *)realloc(ti->parameter_kinds,
+            new_cap * sizeof(*next_kinds));
+        if (next_names == NULL || next_kinds == NULL) die("out of memory");
+        ti->parameter_names = next_names;
+        ti->parameter_kinds = next_kinds;
+        ti->parameter_cap = new_cap;
+    }
+    ti->parameter_names[ti->parameter_count] = copy_string(name);
+    memset(&ti->parameter_kinds[ti->parameter_count], 0,
+           sizeof(ti->parameter_kinds[ti->parameter_count]));
+    ++ti->parameter_count;
+    return 1;
+}
+
+/* Parses "Name" or "Name(item, item)" from a @trait/@impl directive. Items
+ * are kept as written; @trait validates them as identifiers separately. */
+static int parse_trait_header(TemplateInfo *ti, size_t line_number,
+                              const char *command, const char *p,
+                              char **name_out, char ***items_out,
+                              size_t *count_out, size_t *cap_out)
+{
+    char *name = NULL;
+    char **items = NULL;
+    size_t count = 0U, cap = 0U;
+    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+    if (!is_ident_start(*p)) {
+        report_error(ti->path, line_number,
+                     "@%s requires a trait name", command);
+        return 0;
+    }
+    {
+        const char *start = p++;
+        while (is_ident_char(*p)) ++p;
+        name = copy_range(start, (size_t)(p - start));
+    }
+    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+    if (*p == '(') {
+        ++p;
+        for (;;) {
+            const char *start;
+            const char *end;
+            size_t depth = 0U;
+            char quote = '\0';
+            while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+            start = p;
+            while (*p != '\0') {
+                if (quote != '\0') {
+                    if (*p == '\\' && p[1] != '\0') p += 2;
+                    else if (*p == quote) {
+                        quote = '\0';
+                        ++p;
+                    } else ++p;
+                    continue;
+                }
+                if (*p == '"' || *p == '\'') {
+                    quote = *p++;
+                } else if (*p == '(' || *p == '[' || *p == '{') {
+                    ++depth;
+                    ++p;
+                } else if (*p == ')' || *p == ']' || *p == '}') {
+                    if (depth == 0U) break;
+                    --depth;
+                    ++p;
+                } else if (*p == ',' && depth == 0U) {
+                    break;
+                } else {
+                    ++p;
+                }
+            }
+            end = p;
+            while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+            while (start < end && isspace((unsigned char)*start)) ++start;
+            while (end > start && isspace((unsigned char)end[-1])) --end;
+            if (start == end) {
+                report_error(ti->path, line_number,
+                             "@%s has an empty argument", command);
+                free(name);
+                list_free(items, count);
+                return 0;
+            }
+            list_add(&items, &count, &cap,
+                     copy_range(start, (size_t)(end - start)));
+            if (*p == ',') {
+                ++p;
+                continue;
+            }
+            if (*p == ')') {
+                ++p;
+                break;
+            }
+            report_error(ti->path, line_number,
+                         "@%s arguments must be separated by ','", command);
+            free(name);
+            list_free(items, count);
+            return 0;
+        }
+    }
+    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+    if (*p != '\0') {
+        report_error(ti->path, line_number,
+                     "unexpected text after @%s header", command);
+        free(name);
+        list_free(items, count);
+        return 0;
+    }
+    *name_out = name;
+    *items_out = items;
+    *count_out = count;
+    *cap_out = cap;
+    return 1;
+}
+
 static int parse_directive(TemplateInfo *ti, const char *line_text,
                            size_t line_number)
 {
@@ -1124,6 +1396,109 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
     if (str_eq(command, "meta")) {
         free(command);
         return 0;
+    }
+    if (str_eq(command, "trait")) {
+        char *name = NULL;
+        char **parameters = NULL;
+        size_t parameter_count = 0U, parameter_cap = 0U;
+        size_t i;
+        TraitInfo *trait;
+        if (!parse_trait_header(ti, line_number, "trait", p, &name,
+                                &parameters, &parameter_count,
+                                &parameter_cap)) {
+            free(command);
+            return -1;
+        }
+        for (i = 0U; i < parameter_count; ++i) {
+            if (!valid_identifier(parameters[i])) {
+                report_error(ti->path, line_number,
+                             "invalid @trait parameter '%s'", parameters[i]);
+                free(name);
+                list_free(parameters, parameter_count);
+                free(command);
+                return -1;
+            }
+            if (list_contains(parameters, i, parameters[i])) {
+                report_error(ti->path, line_number,
+                             "duplicate @trait parameter '%s'", parameters[i]);
+                free(name);
+                list_free(parameters, parameter_count);
+                free(command);
+                return -1;
+            }
+            if (!trait_add_parameter(ti, parameters[i], line_number)) {
+                free(name);
+                list_free(parameters, parameter_count);
+                free(command);
+                return -1;
+            }
+        }
+        if (ti->trait_count == ti->trait_cap) {
+            size_t new_cap = ti->trait_cap == 0U ? 4U : ti->trait_cap * 2U;
+            TraitInfo *next = (TraitInfo *)realloc(ti->traits,
+                new_cap * sizeof(*next));
+            if (next == NULL) die("out of memory");
+            ti->traits = next;
+            ti->trait_cap = new_cap;
+        }
+        trait = &ti->traits[ti->trait_count++];
+        memset(trait, 0, sizeof(*trait));
+        trait->name = name;
+        trait->parameters = parameters;
+        trait->parameter_count = parameter_count;
+        trait->parameter_cap = parameter_cap;
+        trait->line = line_number;
+        free(command);
+        return 3;
+    }
+    if (str_eq(command, "impl")) {
+        char *name = NULL;
+        char **arguments = NULL;
+        size_t argument_count = 0U, argument_cap = 0U;
+        TraitImpl *impl;
+        if (!parse_trait_header(ti, line_number, "impl", p, &name,
+                                &arguments, &argument_count,
+                                &argument_cap)) {
+            free(command);
+            return -1;
+        }
+        if (argument_count == 0U) {
+            report_error(ti->path, line_number,
+                         "@impl requires at least one trait argument");
+            free(name);
+            free(command);
+            return -1;
+        }
+        if (ti->trait_impl_count == ti->trait_impl_cap) {
+            size_t new_cap = ti->trait_impl_cap == 0U ? 4U :
+                             ti->trait_impl_cap * 2U;
+            TraitImpl *next = (TraitImpl *)realloc(ti->trait_impls,
+                new_cap * sizeof(*next));
+            if (next == NULL) die("out of memory");
+            ti->trait_impls = next;
+            ti->trait_impl_cap = new_cap;
+        }
+        impl = &ti->trait_impls[ti->trait_impl_count++];
+        memset(impl, 0, sizeof(*impl));
+        impl->trait_name = name;
+        impl->arguments = arguments;
+        impl->argument_count = argument_count;
+        impl->argument_cap = argument_cap;
+        impl->line = line_number;
+        impl->template_index = ti->template_index;
+        free(command);
+        return 4;
+    }
+    if (str_eq(command, "end")) {
+        while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+        if (*p != '\0') {
+            report_error(ti->path, line_number,
+                         "unexpected text after @end");
+            free(command);
+            return -1;
+        }
+        free(command);
+        return 5;
     }
     if (str_eq(command, "template")) {
         int expect_name = 1;
@@ -1439,6 +1814,47 @@ static int parse_directive(TemplateInfo *ti, const char *line_text,
                     ++p;
                 }
                 while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+            } else if (*p == ':') {
+                if (kind.is_value || kind.is_constructor) {
+                    report_error(ti->path, line_number,
+                                 "%s parameter '%s' cannot have a trait bound",
+                                 kind.is_value ? "value" : "constructor", name);
+                    free(name);
+                    list_free(names, name_count);
+                    template_parameter_kinds_free(kinds, kind_count);
+                    template_constraint_array_free(constraints, constraint_count);
+                    free(command);
+                    return -1;
+                }
+                ++p;
+                for (;;) {
+                    const char *trait_start;
+                    char *trait_name;
+                    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+                    if (!is_ident_start(*p)) {
+                        report_error(ti->path, line_number,
+                                     "expected a trait name after ':' or '+'");
+                        free(name);
+                        list_free(names, name_count);
+                        template_parameter_kinds_free(kinds, kind_count);
+                        template_constraint_array_free(constraints,
+                                                       constraint_count);
+                        free(command);
+                        return -1;
+                    }
+                    trait_start = p++;
+                    while (is_ident_char(*p)) ++p;
+                    trait_name = copy_range(trait_start,
+                                            (size_t)(p - trait_start));
+                    template_constraint_add_bound(&constraints,
+                        &constraint_count, &constraint_cap, name, trait_name,
+                        line_number);
+                    free(trait_name);
+                    while (*p != '\0' && isspace((unsigned char)*p)) ++p;
+                    if (*p != '+') break;
+                    ++p;
+                }
+                while (*p != '\0' && isspace((unsigned char)*p)) ++p;
             }
             free(name);
             if (*p != '\0' && *p != ',') {
@@ -1676,12 +2092,58 @@ static void merge_template_annotations(TemplateInfo *ti, size_t target_index,
                 constraint->parameter_name, constraint->expressions[j],
                 constraint->line);
         }
+        for (j = 0U; j < constraint->bound_trait_count; ++j) {
+            template_constraint_add_bound(&target->constraints,
+                &target->constraint_count, &target->constraint_cap,
+                constraint->parameter_name, constraint->bound_traits[j],
+                constraint->line);
+        }
     }
     list_free(source->parameter_names, source->parameter_count);
     template_parameter_kinds_free(source->parameter_kinds, source->parameter_count);
     template_constraint_array_free(source->constraints, source->constraint_count);
     memset(source, 0, sizeof(*source));
     --ti->annotation_count;
+}
+
+/* Copies a `@template` annotation into an `@impl` block, turning its
+ * declared parameters into free type variables and its bounds into impl
+ * constraints. The annotation itself is left in place to be freed normally. */
+static void trait_impl_take_annotation(TraitImpl *impl,
+                                       TemplateAnnotation *annotation)
+{
+    size_t i;
+    annotation->used = 1;
+    for (i = 0U; i < annotation->parameter_count; ++i) {
+        if (!list_contains(impl->type_parameters, impl->type_parameter_count,
+                           annotation->parameter_names[i])) {
+            list_add(&impl->type_parameters, &impl->type_parameter_count,
+                     &impl->type_parameter_cap,
+                     copy_string(annotation->parameter_names[i]));
+        }
+    }
+    for (i = 0U; i < annotation->constraint_count; ++i) {
+        const TemplateConstraint *constraint = &annotation->constraints[i];
+        size_t j;
+        for (j = 0U; j < constraint->required_type_count; ++j) {
+            template_constraint_add(&impl->constraints,
+                &impl->constraint_count, &impl->constraint_cap,
+                constraint->parameter_name, constraint->required_types[j],
+                constraint->line);
+        }
+        for (j = 0U; j < constraint->expression_count; ++j) {
+            template_constraint_add_expression(&impl->constraints,
+                &impl->constraint_count, &impl->constraint_cap,
+                constraint->parameter_name, constraint->expressions[j],
+                constraint->line);
+        }
+        for (j = 0U; j < constraint->bound_trait_count; ++j) {
+            template_constraint_add_bound(&impl->constraints,
+                &impl->constraint_count, &impl->constraint_cap,
+                constraint->parameter_name, constraint->bound_traits[j],
+                constraint->line);
+        }
+    }
 }
 
 size_t identifier_line_in_code(const char *src, const char *name)
@@ -1825,6 +2287,15 @@ static void update_block_comment_state(const char *line, int *in_block_comment)
     }
 }
 
+static int line_is_blank(const char *line)
+{
+    size_t i;
+    for (i = 0U; line[i] != '\0'; ++i) {
+        if (!isspace((unsigned char)line[i])) return 0;
+    }
+    return 1;
+}
+
 int parse_template(TemplateInfo *ti, const char *path)
 {
     Buf source;
@@ -1834,6 +2305,8 @@ int parse_template(TemplateInfo *ti, const char *path)
     size_t lsp_fallback_depth = 0U;
     size_t pending_annotation_index = 0U;
     int pending_annotation = 0;
+    int block_kind = 0;
+    size_t block_index = 0U;
     buf_init(&source);
     ti->path = copy_string(path);
     if (!read_file(path, &source)) {
@@ -1874,9 +2347,20 @@ int parse_template(TemplateInfo *ti, const char *path)
             buf_put_blanked_source(&ti->body, source.p, offset, next);
         } else {
             size_t body_offset = ti->body.len;
-            char *continuation = pending_annotation ?
+            char *continuation;
+            const char *directive_line;
+            if (block_kind != 0 && line_is_blank(line)) {
+                if (block_kind == 1) {
+                    ti->traits[block_index].end_offset = (unsigned)body_offset;
+                } else {
+                    ti->trait_impls[block_index].end_offset =
+                        (unsigned)body_offset;
+                }
+                block_kind = 0;
+            }
+            continuation = pending_annotation ?
                 template_continuation_as_directive(line) : NULL;
-            const char *directive_line = continuation != NULL ? continuation : line;
+            directive_line = continuation != NULL ? continuation : line;
             directive = in_block_comment ? 0 :
                         parse_directive(ti, directive_line, line_number);
             free(continuation);
@@ -1884,6 +2368,53 @@ int parse_template(TemplateInfo *ti, const char *path)
                 free(line);
                 buf_free(&source);
                 return 0;
+            }
+            if ((directive == 3 || directive == 4) && block_kind != 0) {
+                report_error(ti->path, line_number,
+                             "@trait and @impl blocks cannot be nested");
+                free(line);
+                buf_free(&source);
+                return 0;
+            }
+            if ((directive == 1 || directive == 2) && block_kind != 0) {
+                report_error(ti->path, line_number,
+                             "@template and @where are not allowed inside a trait or impl block");
+                free(line);
+                buf_free(&source);
+                return 0;
+            }
+            if (directive == 5) {
+                if (block_kind == 0) {
+                    report_error(ti->path, line_number,
+                                 "@end without an open @trait or @impl block");
+                    free(line);
+                    buf_free(&source);
+                    return 0;
+                }
+                if (block_kind == 1) {
+                    ti->traits[block_index].end_offset = (unsigned)body_offset;
+                } else {
+                    ti->trait_impls[block_index].end_offset =
+                        (unsigned)body_offset;
+                }
+                block_kind = 0;
+            }
+            if (directive == 3 || directive == 4) {
+                block_kind = directive == 3 ? 1 : 2;
+                block_index = directive == 3 ? ti->trait_count - 1U :
+                                               ti->trait_impl_count - 1U;
+                if (block_kind == 1) {
+                    ti->traits[block_index].start_offset = (unsigned)body_offset;
+                } else {
+                    if (pending_annotation) {
+                        trait_impl_take_annotation(
+                            &ti->trait_impls[block_index],
+                            &ti->annotations[pending_annotation_index]);
+                    }
+                    ti->trait_impls[block_index].start_offset =
+                        (unsigned)body_offset;
+                }
+                pending_annotation = 0;
             }
             if (directive == 2 && !pending_annotation) {
                 TemplateAnnotation *orphan =
@@ -1899,7 +2430,7 @@ int parse_template(TemplateInfo *ti, const char *path)
                 buf_free(&source);
                 return 0;
             }
-            if (directive > 0) {
+            if (directive == 1 || directive == 2) {
                 size_t added_index = ti->annotation_count - 1U;
                 ti->annotations[added_index].offset = (unsigned)body_offset;
                 if (pending_annotation) {
@@ -1932,6 +2463,16 @@ int parse_template(TemplateInfo *ti, const char *path)
         free(line);
         offset = next;
         ++line_number;
+    }
+    if (block_kind != 0) {
+        if (ti->body.p == NULL && ti->body.len == 0U) {
+            /* keep the empty body initialized below */
+        }
+        if (block_kind == 1) {
+            ti->traits[block_index].end_offset = (unsigned)ti->body.len;
+        } else {
+            ti->trait_impls[block_index].end_offset = (unsigned)ti->body.len;
+        }
     }
     if (lsp_fallback_depth != 0U) {
         report_error(ti->path, line_number, "unterminated LSP fallback block");
@@ -2010,6 +2551,933 @@ int validate_template_info(const TemplateInfo *infos, size_t count)
     string_set_free(&function_names);
     string_set_free(&constructor_names);
     return 1;
+}
+
+static void trait_instance_init(GenInstance *instance, size_t template_index,
+                                const TraitInfo *trait,
+                                const TemplateInfo *trait_ti,
+                                const TraitImpl *impl)
+{
+    size_t i;
+    memset(instance, 0, sizeof(*instance));
+    instance->template_index = template_index;
+    instance->argument_count = impl->argument_count;
+    instance->parameter_indices = (size_t *)malloc(
+        impl->argument_count * sizeof(*instance->parameter_indices));
+    instance->arguments = (TypeArgument *)calloc(
+        impl->argument_count, sizeof(*instance->arguments));
+    if (impl->argument_count != 0U &&
+        (instance->parameter_indices == NULL ||
+         instance->arguments == NULL)) {
+        die("out of memory");
+    }
+    for (i = 0U; i < impl->argument_count; ++i) {
+        int parameter = template_parameter_index(trait_ti,
+                                                 trait->parameters[i]);
+        instance->parameter_indices[i] = parameter < 0 ? 0U : (size_t)parameter;
+        instance->arguments[i].c_type = impl->arguments[i];
+    }
+}
+
+static void trait_instance_free(GenInstance *instance)
+{
+    free(instance->parameter_indices);
+    free(instance->arguments);
+    memset(instance, 0, sizeof(*instance));
+}
+
+static char *trait_rewrite_type(const char *type, const TemplateInfo *ti,
+                                const GenInstance *instance)
+{
+    Buf rewritten;
+    char *normalized;
+    buf_init(&rewritten);
+    rewrite_c_type(type, ti, instance, NULL, &rewritten);
+    normalized = normalize_spaces(rewritten.p != NULL ? rewritten.p : "");
+    buf_free(&rewritten);
+    return normalized;
+}
+
+static const TemplateFunction *trait_impl_method_named(const TraitImpl *impl,
+                                                       const char *name)
+{
+    size_t i;
+    for (i = 0U; i < impl->method_count; ++i) {
+        const TemplateFunction *method = &impl->methods[i];
+        const char *source = method->source_name != NULL ?
+            method->source_name : method->name;
+        if (str_eq(source, name)) return method;
+    }
+    return NULL;
+}
+
+static char *trait_impl_type_text(const char *type,
+                                  const TemplateApplication *application)
+{
+    Buf rendered;
+    char *normalized;
+    buf_init(&rendered);
+    emit_template_type_pattern(&rendered, type != NULL ? type : "",
+                               application);
+    normalized = normalize_spaces(rendered.p != NULL ? rendered.p : "");
+    buf_free(&rendered);
+    return normalized;
+}
+
+static char *trait_expected_type_text(const char *type,
+                                      const TemplateApplication *application,
+                                      const TemplateInfo *ti,
+                                      const GenInstance *instance)
+{
+    Buf pattern;
+    char *rewritten;
+    buf_init(&pattern);
+    emit_template_type_pattern(&pattern, type != NULL ? type : "",
+                               application);
+    rewritten = trait_rewrite_type(pattern.p != NULL ? pattern.p : "", ti,
+                                   instance);
+    buf_free(&pattern);
+    return rewritten;
+}
+
+static int trait_method_signature_matches(const TemplateFunction *trait_method,
+                                          const TemplateFunction *impl_method,
+                                          const TemplateInfo *trait_ti,
+                                          const GenInstance *instance)
+{
+    size_t i;
+    char *expected;
+    char *actual;
+    int matches = 1;
+    expected = trait_expected_type_text(trait_method->return_type,
+                                        &trait_method->return_application,
+                                        trait_ti, instance);
+    actual = trait_impl_type_text(impl_method->return_type,
+                                  &impl_method->return_application);
+    if (!str_eq(expected, actual)) matches = 0;
+    free(expected);
+    free(actual);
+    if (trait_method->parameter_count != impl_method->parameter_count) {
+        return 0;
+    }
+    for (i = 0U; i < trait_method->parameter_count && matches; ++i) {
+        expected = trait_expected_type_text(
+            trait_method->parameters[i].type,
+            &trait_method->parameters[i].application, trait_ti, instance);
+        actual = trait_impl_type_text(impl_method->parameters[i].type,
+                                      &impl_method->parameters[i].application);
+        if (!str_eq(expected, actual)) matches = 0;
+        free(expected);
+        free(actual);
+    }
+    return matches;
+}
+
+/* ================= IMPL PATTERN MATCHING ================== */
+
+/* A parsed impl argument: either a bare name (possibly a free type variable)
+ * or a type-constructor application such as `Vec(T)`. */
+typedef struct {
+    int is_application;
+    char *name;
+    char **arguments;
+    size_t argument_count;
+} TraitPattern;
+
+static const char *skip_type_qualifiers(const char *text)
+{
+    static const char *const qualifiers[] = {"const", "volatile", "struct",
+                                             "union"};
+    for (;;) {
+        size_t i;
+        int matched = 0;
+        while (*text != '\0' && isspace((unsigned char)*text)) ++text;
+        for (i = 0U; i < sizeof(qualifiers) / sizeof(qualifiers[0]); ++i) {
+            size_t length = strlen(qualifiers[i]);
+            if (strncmp(text, qualifiers[i], length) == 0 &&
+                !is_ident_char(text[length])) {
+                text += length;
+                matched = 1;
+                break;
+            }
+        }
+        if (!matched) return text;
+    }
+}
+
+static void trait_pattern_free(TraitPattern *pattern)
+{
+    list_free(pattern->arguments, pattern->argument_count);
+    free(pattern->name);
+    memset(pattern, 0, sizeof(*pattern));
+}
+
+static void trait_pattern_parse(const char *text, TraitPattern *pattern)
+{
+    char *normalized = normalize_spaces(skip_type_qualifiers(
+        text != NULL ? text : ""));
+    size_t length = strlen(normalized);
+    size_t i = 0U;
+    memset(pattern, 0, sizeof(*pattern));
+    if (!is_ident_start(normalized[0])) {
+        pattern->name = normalized;
+        return;
+    }
+    while (is_ident_char(normalized[i])) ++i;
+    pattern->name = copy_range(normalized, i);
+    while (i < length && isspace((unsigned char)normalized[i])) ++i;
+    if (normalized[i] == '(') {
+        char **arguments = NULL;
+        size_t count = 0U, end = 0U;
+        if (parse_text_type_arguments(normalized, i, &arguments, &count, &end) &&
+            end == length) {
+            pattern->is_application = 1;
+            pattern->arguments = arguments;
+            pattern->argument_count = count;
+            free(normalized);
+            return;
+        }
+        list_free(arguments, count);
+    }
+    free(pattern->name);
+    pattern->name = normalized;
+}
+
+static int trait_binding_lookup(const TraitBinding *bindings, size_t count,
+                                const char *name, const char **type_out)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) {
+        if (str_eq(bindings[i].name, name)) {
+            if (type_out != NULL) *type_out = bindings[i].type;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void trait_binding_add(TraitBinding **bindings, size_t *count,
+                              size_t *capacity, const char *name,
+                              const char *type)
+{
+    if (*count == *capacity) {
+        size_t new_cap = *capacity == 0U ? 4U : *capacity * 2U;
+        TraitBinding *next = (TraitBinding *)realloc(*bindings,
+            new_cap * sizeof(*next));
+        if (next == NULL) die("out of memory");
+        *bindings = next;
+        *capacity = new_cap;
+    }
+    (*bindings)[*count].name = copy_string(name);
+    (*bindings)[*count].type = copy_string(type);
+    ++*count;
+}
+
+void trait_bindings_free(TraitBinding *bindings, size_t count)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) {
+        free(bindings[i].name);
+        free(bindings[i].type);
+    }
+    free(bindings);
+}
+
+static int trait_pattern_match(const char *pattern_text,
+                               const TraitImpl *impl,
+                               const char *concrete_text,
+                               TraitBinding **bindings, size_t *binding_count,
+                               size_t *binding_capacity)
+{
+    TraitPattern pattern;
+    char *concrete;
+    int matched = 0;
+    trait_pattern_parse(pattern_text, &pattern);
+    if (!pattern.is_application &&
+        list_contains(impl->type_parameters, impl->type_parameter_count,
+                      pattern.name)) {
+        const char *existing = NULL;
+        concrete = normalize_spaces(skip_type_qualifiers(concrete_text));
+        if (trait_binding_lookup(*bindings, *binding_count, pattern.name,
+                                 &existing)) {
+            matched = str_eq(existing, concrete);
+        } else {
+            trait_binding_add(bindings, binding_count, binding_capacity,
+                              pattern.name, concrete);
+            matched = 1;
+        }
+        free(concrete);
+        trait_pattern_free(&pattern);
+        return matched;
+    }
+    concrete = normalize_spaces(skip_type_qualifiers(concrete_text));
+    if (!pattern.is_application) {
+        matched = str_eq(pattern.name, concrete);
+        free(concrete);
+        trait_pattern_free(&pattern);
+        return matched;
+    }
+    {
+        size_t constructor_index = 0U;
+        const TemplateType *constructor = find_template_constructor_any(
+            g_all_template_infos, g_all_template_info_count, pattern.name,
+            &constructor_index);
+        if (constructor != NULL) {
+            size_t i;
+            for (i = 0U; i < g_instance_count && !matched; ++i) {
+                const GenInstance *instance = &g_instances[i];
+                char *spelling;
+                size_t j;
+                if (instance->template_index != constructor_index) continue;
+                spelling = join_suffix(constructor->name, instance->name);
+                if (!str_eq(spelling, concrete) ||
+                    instance->argument_count != pattern.argument_count) {
+                    free(spelling);
+                    continue;
+                }
+                free(spelling);
+                matched = 1;
+                for (j = 0U; j < pattern.argument_count; ++j) {
+                    if (!trait_pattern_match(pattern.arguments[j], impl,
+                                             instance->arguments[j].c_type,
+                                             bindings, binding_count,
+                                             binding_capacity)) {
+                        matched = 0;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!matched) {
+            TraitPattern concrete_pattern;
+            trait_pattern_parse(concrete, &concrete_pattern);
+            if (concrete_pattern.is_application &&
+                str_eq(concrete_pattern.name, pattern.name) &&
+                concrete_pattern.argument_count == pattern.argument_count) {
+                size_t j;
+                matched = 1;
+                for (j = 0U; j < pattern.argument_count; ++j) {
+                    if (!trait_pattern_match(pattern.arguments[j], impl,
+                                             concrete_pattern.arguments[j],
+                                             bindings, binding_count,
+                                             binding_capacity)) {
+                        matched = 0;
+                        break;
+                    }
+                }
+            }
+            trait_pattern_free(&concrete_pattern);
+        }
+    }
+    free(concrete);
+    trait_pattern_free(&pattern);
+    return matched;
+}
+
+static int trait_impl_bind_patterns(const TraitImpl *impl,
+                                    const char *const *concretes,
+                                    size_t concrete_count,
+                                    TraitBinding **bindings_out,
+                                    size_t *binding_count_out)
+{
+    TraitBinding *bindings = NULL;
+    size_t count = 0U, capacity = 0U;
+    size_t i;
+    if (concrete_count != impl->argument_count) return 0;
+    for (i = 0U; i < impl->argument_count; ++i) {
+        if (concretes[i] == NULL) continue;
+        if (!trait_pattern_match(impl->arguments[i], impl, concretes[i],
+                                 &bindings, &count, &capacity)) {
+            trait_bindings_free(bindings, count);
+            return 0;
+        }
+    }
+    *bindings_out = bindings;
+    *binding_count_out = count;
+    return 1;
+}
+
+int trait_impl_bind_instance(const TraitImpl *impl, const TraitInfo *trait,
+                             const TemplateInfo *trait_ti,
+                             const GenInstance *instance,
+                             TraitBinding **bindings_out,
+                             size_t *binding_count_out)
+{
+    const char **concretes;
+    size_t i;
+    int matched;
+    if (impl->argument_count == 0U) {
+        *bindings_out = NULL;
+        *binding_count_out = 0U;
+        return 1;
+    }
+    concretes = (const char **)calloc(impl->argument_count, sizeof(*concretes));
+    if (concretes == NULL) die("out of memory");
+    for (i = 0U; i < impl->argument_count && i < trait->parameter_count; ++i) {
+        int parameter = template_parameter_index(trait_ti,
+                                                 trait->parameters[i]);
+        int position = parameter < 0 ? -1 :
+            instance_parameter_position(instance, (size_t)parameter);
+        if (position >= 0) {
+            concretes[i] = instance->arguments[position].c_type;
+        }
+    }
+    matched = trait_impl_bind_patterns(impl, concretes, impl->argument_count,
+                                       bindings_out, binding_count_out);
+    free(concretes);
+    return matched;
+}
+
+static int trait_pattern_at_least_as_specific(const char *left_text,
+                                              const TraitImpl *left_impl,
+                                              const char *right_text,
+                                              const TraitImpl *right_impl)
+{
+    TraitPattern left;
+    TraitPattern right;
+    int result = 0;
+    trait_pattern_parse(left_text, &left);
+    trait_pattern_parse(right_text, &right);
+    if (!right.is_application &&
+        list_contains(right_impl->type_parameters,
+                      right_impl->type_parameter_count, right.name)) {
+        result = 1;
+    } else if (!left.is_application &&
+               list_contains(left_impl->type_parameters,
+                             left_impl->type_parameter_count, left.name)) {
+        result = !right.is_application && str_eq(left.name, right.name);
+    } else if (left.is_application && right.is_application) {
+        if (str_eq(left.name, right.name) &&
+            left.argument_count == right.argument_count) {
+            size_t i;
+            result = 1;
+            for (i = 0U; i < left.argument_count; ++i) {
+                if (!trait_pattern_at_least_as_specific(
+                        left.arguments[i], left_impl, right.arguments[i],
+                        right_impl)) {
+                    result = 0;
+                    break;
+                }
+            }
+        }
+    } else if (!left.is_application && !right.is_application) {
+        result = str_eq(left.name, right.name);
+    }
+    trait_pattern_free(&left);
+    trait_pattern_free(&right);
+    return result;
+}
+
+int trait_impl_more_specific(const TraitImpl *left, const TraitImpl *right,
+                             const TraitInfo *trait)
+{
+    size_t count = left->argument_count < right->argument_count ?
+        left->argument_count : right->argument_count;
+    size_t i;
+    int left_at_least = 1;
+    int right_at_least = 1;
+    if (count > trait->parameter_count) count = trait->parameter_count;
+    for (i = 0U; i < count; ++i) {
+        if (!trait_pattern_at_least_as_specific(left->arguments[i], left,
+                                                right->arguments[i], right)) {
+            left_at_least = 0;
+        }
+        if (!trait_pattern_at_least_as_specific(right->arguments[i], right,
+                                                left->arguments[i], left)) {
+            right_at_least = 0;
+        }
+    }
+    return left_at_least && !right_at_least;
+}
+
+const TraitImpl *trait_select_impl(const TraitImpl *const *candidates,
+                                   size_t count, const TraitInfo *trait,
+                                   int *ambiguous)
+{
+    size_t i;
+    const TraitImpl *selected = NULL;
+    size_t selected_count = 0U;
+    if (ambiguous != NULL) *ambiguous = 0;
+    for (i = 0U; i < count; ++i) {
+        size_t j;
+        int dominated = 0;
+        for (j = 0U; j < count; ++j) {
+            if (i == j) continue;
+            if (trait_impl_more_specific(candidates[j], candidates[i], trait)) {
+                dominated = 1;
+                break;
+            }
+        }
+        if (!dominated) {
+            selected = candidates[i];
+            ++selected_count;
+        }
+    }
+    if (selected_count == 1U) return selected;
+    if (selected_count > 1U && ambiguous != NULL) *ambiguous = 1;
+    return NULL;
+}
+
+static char *trait_impl_key(const TraitImpl *impl)
+{
+    Buf key;
+    size_t i;
+    buf_init(&key);
+    buf_puts(&key, impl->trait_name);
+    buf_putc(&key, '(');
+    for (i = 0U; i < impl->argument_count; ++i) {
+        char *argument = normalize_spaces(impl->arguments[i]);
+        if (i != 0U) buf_putc(&key, ',');
+        buf_puts(&key, argument);
+        free(argument);
+    }
+    buf_putc(&key, ')');
+    return key.p != NULL ? key.p : copy_string("");
+}
+
+int validate_trait_info(const TemplateInfo *infos, size_t count)
+{
+    StringSet impl_keys;
+    size_t i;
+    int okay = 1;
+    memset(&impl_keys, 0, sizeof(impl_keys));
+    for (i = 0U; i < count; ++i) {
+        size_t j;
+        for (j = 0U; j < infos[i].trait_count; ++j) {
+            const TraitInfo *trait = &infos[i].traits[j];
+            size_t owner = 0U;
+            size_t k;
+            if (find_trait_named(infos, count, trait->name, &owner) != trait) {
+                report_error(infos[i].path, trait->line,
+                             "trait '%s' is declared by more than one template",
+                             trait->name);
+                okay = 0;
+            }
+            if (trait->method_count == 0U) {
+                report_error(infos[i].path, trait->line,
+                             "trait '%s' declares no methods", trait->name);
+                okay = 0;
+            }
+            for (k = 0U; k < trait->method_count; ++k) {
+                const TemplateFunction *method =
+                    &infos[i].functions[trait->method_indices[k]];
+                size_t other;
+                for (other = 0U; other < k; ++other) {
+                    const TemplateFunction *previous =
+                        &infos[i].functions[trait->method_indices[other]];
+                    if (str_eq(method->source_name, previous->source_name)) {
+                        report_error(infos[i].path, method->start_line,
+                                     "trait '%s' declares method '%s' more than once",
+                                     trait->name, method->source_name);
+                        okay = 0;
+                    }
+                }
+            }
+        }
+        for (j = 0U; j < infos[i].trait_impl_count; ++j) {
+            const TraitImpl *impl = &infos[i].trait_impls[j];
+            const TraitInfo *trait;
+            size_t trait_owner = 0U;
+            size_t k;
+            char *key;
+            trait = find_trait_named(infos, count, impl->trait_name,
+                                     &trait_owner);
+            if (trait == NULL) {
+                report_error(infos[i].path, impl->line,
+                             "@impl names unknown trait '%s'",
+                             impl->trait_name);
+                okay = 0;
+                continue;
+            }
+            if (impl->argument_count != trait->parameter_count) {
+                report_error(infos[i].path, impl->line,
+                             trait->parameter_count == 1U ?
+                             "@impl %s expects 1 argument, got %lu" :
+                             "@impl %s expects %lu arguments, got %lu",
+                             impl->trait_name,
+                             (unsigned long)trait->parameter_count,
+                             (unsigned long)impl->argument_count);
+                okay = 0;
+                continue;
+            }
+            key = trait_impl_key(impl);
+            if (string_set_has(&impl_keys, key)) {
+                report_error(infos[i].path, impl->line,
+                             "duplicate @impl for %s", key);
+                free(key);
+                okay = 0;
+                continue;
+            }
+            string_set_add(&impl_keys, key);
+            {
+                GenInstance instance;
+                trait_instance_init(&instance, trait_owner, trait,
+                                    &infos[trait_owner], impl);
+                for (k = 0U; k < trait->method_count; ++k) {
+                    const TemplateFunction *method =
+                        &infos[trait_owner].functions[trait->method_indices[k]];
+                    const TemplateFunction *definition =
+                        trait_impl_method_named(impl, method->source_name);
+                    if (definition == NULL) {
+                        report_error(infos[i].path, impl->line,
+                            "@impl %s is missing method '%s'",
+                            impl->trait_name, method->source_name);
+                        okay = 0;
+                    } else if (!trait_method_signature_matches(method, definition,
+                                                               &infos[trait_owner],
+                                                               &instance)) {
+                        report_error(infos[i].path, definition->start_line,
+                            "method '%s' in @impl %s does not match the trait signature",
+                            method->source_name, impl->trait_name);
+                        okay = 0;
+                    }
+                }
+                for (k = 0U; k < impl->method_count; ++k) {
+                    const TemplateFunction *definition = &impl->methods[k];
+                    const char *source = definition->source_name != NULL ?
+                        definition->source_name : definition->name;
+                    size_t other;
+                    if (trait_impl_method_named(impl, source) != definition) {
+                        continue;
+                    }
+                    for (other = 0U; other < k; ++other) {
+                        const TemplateFunction *previous = &impl->methods[other];
+                        const char *previous_source =
+                            previous->source_name != NULL ?
+                            previous->source_name : previous->name;
+                        if (str_eq(source, previous_source)) {
+                            report_error(infos[i].path,
+                                         definition->start_line,
+                                "@impl %s declares method '%s' more than once",
+                                impl->trait_name, source);
+                            okay = 0;
+                        }
+                    }
+                    {
+                        const TemplateFunction *trait_method = NULL;
+                        size_t trait_index;
+                        for (trait_index = 0U;
+                             trait_index < trait->method_count; ++trait_index) {
+                            const TemplateFunction *candidate =
+                                &infos[trait_owner].functions[
+                                    trait->method_indices[trait_index]];
+                            if (str_eq(candidate->source_name, source)) {
+                                trait_method = candidate;
+                                break;
+                            }
+                        }
+                        if (trait_method == NULL) {
+                            report_error(infos[i].path,
+                                         definition->start_line,
+                                "@impl %s declares unknown method '%s'",
+                                impl->trait_name, source);
+                            okay = 0;
+                        }
+                    }
+                }
+                trait_instance_free(&instance);
+            }
+        }
+        for (j = 0U; j < infos[i].function_count; ++j) {
+            const TemplateFunction *function = &infos[i].functions[j];
+            size_t k;
+            for (k = 0U; k < function->constraint_count; ++k) {
+                const TemplateConstraint *constraint =
+                    &function->constraints[k];
+                size_t b;
+                for (b = 0U; b < constraint->bound_trait_count; ++b) {
+                    if (find_trait_named(infos, count,
+                                         constraint->bound_traits[b],
+                                         NULL) == NULL) {
+                        report_error(infos[i].path, constraint->line,
+                                     "bound on '%s' names unknown trait '%s'",
+                                     constraint->parameter_name,
+                                     constraint->bound_traits[b]);
+                        okay = 0;
+                    }
+                }
+            }
+        }
+    }
+    string_set_free(&impl_keys);
+    return okay;
+}
+
+/* Whether the trait bound `trait_name` is satisfied for `concrete`, by
+ * finding a matching impl (possibly generic itself) and discharging its own
+ * bounds recursively. Returns 1 when undecidable so we do not report false
+ * errors for traits we cannot reason about. */
+static int trait_bound_satisfied(const char *trait_name, const char *concrete,
+                                 int depth)
+{
+    const TraitInfo *trait;
+    size_t i;
+    if (depth >= 32) return 0;
+    trait = find_trait_named(g_all_template_infos, g_all_template_info_count,
+                             trait_name, NULL);
+    if (trait == NULL || trait->parameter_count != 1U) return 1;
+    for (i = 0U; i < g_all_template_info_count; ++i) {
+        const TemplateInfo *impl_ti = &g_all_template_infos[i];
+        size_t j;
+        for (j = 0U; j < impl_ti->trait_impl_count; ++j) {
+            const TraitImpl *impl = &impl_ti->trait_impls[j];
+            const char *concretes[1];
+            TraitBinding *bindings = NULL;
+            size_t binding_count = 0U;
+            size_t k;
+            int satisfied = 1;
+            if (!str_eq(impl->trait_name, trait_name)) continue;
+            if (impl->argument_count != 1U) continue;
+            concretes[0] = concrete;
+            if (!trait_impl_bind_patterns(impl, concretes, 1U, &bindings,
+                                          &binding_count)) {
+                continue;
+            }
+            for (k = 0U; k < impl->constraint_count && satisfied; ++k) {
+                const TemplateConstraint *constraint = &impl->constraints[k];
+                const char *bound_type = NULL;
+                size_t b;
+                if (!trait_binding_lookup(bindings, binding_count,
+                                          constraint->parameter_name,
+                                          &bound_type)) {
+                    continue;
+                }
+                for (b = 0U; b < constraint->bound_trait_count; ++b) {
+                    if (!trait_bound_satisfied(constraint->bound_traits[b],
+                                               bound_type, depth + 1)) {
+                        satisfied = 0;
+                        break;
+                    }
+                }
+            }
+            trait_bindings_free(bindings, binding_count);
+            if (satisfied) return 1;
+        }
+    }
+    return 0;
+}
+
+static void trait_bound_failure_key(Buf *key, const char *path, size_t line,
+                                    const char *trait, const char *type)
+{
+    char line_text[32];
+    buf_init(key);
+    buf_puts(key, path != NULL ? path : "");
+    buf_putc(key, '\n');
+    (void)snprintf(line_text, sizeof(line_text), "%lu", (unsigned long)line);
+    buf_puts(key, line_text);
+    buf_putc(key, '\n');
+    buf_puts(key, trait);
+    buf_putc(key, '\n');
+    buf_puts(key, type);
+}
+
+int validate_trait_instances(const TemplateInfo *infos, size_t count)
+{
+    typedef struct {
+        const char *path;
+        size_t line;
+        const TraitInfo *trait;
+        const TemplateFunction *function;
+        size_t instance_index;
+    } PendingMissingImpl;
+    StringSet failed_bounds;
+    PendingMissingImpl *pending = NULL;
+    size_t pending_count = 0U, pending_cap = 0U;
+    size_t i;
+    int okay = 1;
+    memset(&failed_bounds, 0, sizeof(failed_bounds));
+    for (i = 0U; i < count; ++i) {
+        size_t trait_index;
+        for (trait_index = 0U; trait_index < infos[i].trait_count;
+             ++trait_index) {
+            const TraitInfo *trait = &infos[i].traits[trait_index];
+            size_t method_index;
+            for (method_index = 0U; method_index < trait->method_count;
+                 ++method_index) {
+                const TemplateFunction *function =
+                    &infos[i].functions[trait->method_indices[method_index]];
+                size_t instance_index;
+                for (instance_index = 0U; instance_index < g_instance_count;
+                     ++instance_index) {
+                    const GenInstance *instance = &g_instances[instance_index];
+                    const TraitImpl **candidates = NULL;
+                    size_t candidate_count = 0U, candidate_cap = 0U;
+                    const TraitImpl *winner;
+                    int ambiguous = 0;
+                    Buf arguments;
+                    size_t j, k;
+                    if (instance->template_index != i ||
+                        !instance_matches_parameters(&infos[i], instance,
+                            function->type_parameters,
+                            function->type_parameter_count) ||
+                        !generic_use_matches(function->name, instance->name, 0)) {
+                        continue;
+                    }
+                    buf_init(&arguments);
+                    for (k = 0U; k < instance->argument_count; ++k) {
+                        if (k != 0U) buf_puts(&arguments, ", ");
+                        buf_puts(&arguments, instance->arguments[k].c_type);
+                    }
+                    for (j = 0U; j < count; ++j) {
+                        for (k = 0U; k < infos[j].trait_impl_count; ++k) {
+                            const TraitImpl *impl = &infos[j].trait_impls[k];
+                            TraitBinding *probe = NULL;
+                            size_t probe_count = 0U;
+                            if (!str_eq(impl->trait_name,
+                                        function->trait_name)) {
+                                continue;
+                            }
+                            if (!trait_impl_bind_instance(impl, trait,
+                                    &infos[i], instance, &probe, &probe_count)) {
+                                continue;
+                            }
+                            trait_bindings_free(probe, probe_count);
+                            if (candidate_count == candidate_cap) {
+                                size_t new_cap = candidate_cap == 0U ? 4U :
+                                                 candidate_cap * 2U;
+                                const TraitImpl **next =
+                                    (const TraitImpl **)realloc(candidates,
+                                        new_cap * sizeof(*next));
+                                if (next == NULL) die("out of memory");
+                                candidates = next;
+                                candidate_cap = new_cap;
+                            }
+                            candidates[candidate_count++] = impl;
+                        }
+                    }
+                    winner = candidate_count != 0U ?
+                        trait_select_impl(candidates, candidate_count, trait,
+                                          &ambiguous) : NULL;
+                    if (candidate_count == 0U) {
+                        if (pending_count == pending_cap) {
+                            size_t new_cap = pending_cap == 0U ? 4U :
+                                             pending_cap * 2U;
+                            PendingMissingImpl *next =
+                                (PendingMissingImpl *)realloc(pending,
+                                    new_cap * sizeof(*next));
+                            if (next == NULL) die("out of memory");
+                            pending = next;
+                            pending_cap = new_cap;
+                        }
+                        pending[pending_count].path = instance->origin_path;
+                        pending[pending_count].line = instance->origin_line;
+                        pending[pending_count].trait = trait;
+                        pending[pending_count].function = function;
+                        pending[pending_count].instance_index = instance_index;
+                        ++pending_count;
+                        okay = 0;
+                    } else if (ambiguous) {
+                        Buf listing;
+                        buf_init(&listing);
+                        for (k = 0U; k < candidate_count; ++k) {
+                            char *key = trait_impl_key(candidates[k]);
+                            if (k != 0U) buf_puts(&listing, ", ");
+                            buf_puts(&listing, key);
+                            free(key);
+                        }
+                        report_error(instance->origin_path,
+                                     instance->origin_line,
+                                     "ambiguous @impl for %s(%s); candidates: %s",
+                                     function->trait_name,
+                                     arguments.p != NULL ? arguments.p : "",
+                                     listing.p != NULL ? listing.p : "");
+                        buf_free(&listing);
+                        okay = 0;
+                    } else if (winner != NULL) {
+                        TraitBinding *bindings = NULL;
+                        size_t binding_count = 0U;
+                        (void)trait_impl_bind_instance(winner, trait, &infos[i],
+                                                       instance, &bindings,
+                                                       &binding_count);
+                        for (k = 0U; k < winner->type_parameter_count; ++k) {
+                            if (!trait_binding_lookup(bindings, binding_count,
+                                    winner->type_parameters[k], NULL)) {
+                                report_error(instance->origin_path,
+                                    instance->origin_line,
+                                    "cannot infer type variable '%s' for @impl %s(%s)",
+                                    winner->type_parameters[k],
+                                    winner->trait_name,
+                                    arguments.p != NULL ? arguments.p : "");
+                                okay = 0;
+                            }
+                        }
+                        for (k = 0U; k < winner->constraint_count; ++k) {
+                            const TemplateConstraint *constraint =
+                                &winner->constraints[k];
+                            const char *bound_type = NULL;
+                            size_t b;
+                            if (!trait_binding_lookup(bindings, binding_count,
+                                    constraint->parameter_name, &bound_type)) {
+                                continue;
+                            }
+                            for (b = 0U; b < constraint->bound_trait_count;
+                                 ++b) {
+                                char *impl_key;
+                                if (trait_bound_satisfied(
+                                        constraint->bound_traits[b],
+                                        bound_type, 0)) {
+                                    continue;
+                                }
+                                Buf failure_key;
+                                impl_key = trait_impl_key(winner);
+                                report_error(instance->origin_path,
+                                    instance->origin_line,
+                                    "type '%s' does not implement trait '%s' (required by @impl %s)",
+                                    bound_type,
+                                    constraint->bound_traits[b], impl_key);
+                                trait_bound_failure_key(&failure_key,
+                                    instance->origin_path,
+                                    instance->origin_line,
+                                    constraint->bound_traits[b], bound_type);
+                                string_set_add(&failed_bounds,
+                                    failure_key.p != NULL ?
+                                    failure_key.p : "");
+                                buf_free(&failure_key);
+                                free(impl_key);
+                                okay = 0;
+                            }
+                        }
+                        trait_bindings_free(bindings, binding_count);
+                    }
+                    free(candidates);
+                    buf_free(&arguments);
+                }
+            }
+        }
+    }
+    for (i = 0U; i < pending_count; ++i) {
+        const GenInstance *instance = &g_instances[pending[i].instance_index];
+        Buf arguments;
+        size_t k;
+        int covered = 0;
+        if (instance->argument_count == 1U) {
+            Buf key;
+            trait_bound_failure_key(&key, pending[i].path, pending[i].line,
+                                    pending[i].trait->name,
+                                    instance->arguments[0].c_type);
+            covered = string_set_has(&failed_bounds,
+                                     key.p != NULL ? key.p : "");
+            buf_free(&key);
+        }
+        if (covered) continue;
+        buf_init(&arguments);
+        for (k = 0U; k < instance->argument_count; ++k) {
+            if (k != 0U) buf_puts(&arguments, ", ");
+            buf_puts(&arguments, instance->arguments[k].c_type);
+        }
+        report_error(pending[i].path, pending[i].line,
+                     instance->argument_count == 1U ?
+                     "type '%s' does not implement trait '%s' (needed by '%s')" :
+                     "types '%s' do not implement trait '%s' (needed by '%s')",
+                     arguments.p != NULL ? arguments.p : "",
+                     pending[i].function->trait_name,
+                     pending[i].function->name);
+        buf_free(&arguments);
+    }
+    free(pending);
+    string_set_free(&failed_bounds);
+    return okay;
 }
 
 int validate_structural_constraints(const TemplateInfo *infos,

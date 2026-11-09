@@ -1,0 +1,6 @@
+#include "gen/all.gen.h"
+
+int main(void)
+{
+    return Ord_compare(1.5, 2.5);
+}

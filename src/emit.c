@@ -526,6 +526,264 @@ static int externalize_function_definition(Buf *definition,
     return 1;
 }
 
+static int rename_definition(Buf *definition, const char *source_name,
+                             const char *new_name)
+{
+    const char *source = definition->p != NULL ? definition->p : "";
+    size_t offset = 0U;
+    size_t name_length = strlen(source_name);
+    while (source[offset] != '\0') {
+        if (source[offset] == '/' &&
+            (source[offset + 1U] == '/' || source[offset + 1U] == '*')) {
+            offset = skip_c_trivia(source, offset);
+        } else if (source[offset] == '"' || source[offset] == '\'') {
+            offset = skip_c_literal(source, offset);
+        } else if (is_ident_start(source[offset])) {
+            size_t start = offset++;
+            size_t end;
+            size_t after;
+            while (is_ident_char(source[offset])) ++offset;
+            end = offset;
+            if (end - start != name_length ||
+                memcmp(source + start, source_name, name_length) != 0) continue;
+            after = skip_c_trivia(source, end);
+            if (source[after] == '(') {
+                Buf renamed;
+                buf_init(&renamed);
+                buf_putn(&renamed, source, start);
+                buf_puts(&renamed, new_name);
+                buf_puts(&renamed, source + end);
+                buf_free(definition);
+                *definition = renamed;
+                return 1;
+            }
+        } else {
+            ++offset;
+        }
+    }
+    return 0;
+}
+
+/* Whether `impl` is the most specific impl matching `instance` for `trait`.
+ * Ambiguous candidates are rejected during validation, so emission may use
+ * this to select exactly one implementation. */
+static int trait_impl_is_selected(const TraitImpl *impl,
+                                  const TraitInfo *trait,
+                                  const TemplateInfo *trait_ti,
+                                  const GenInstance *instance)
+{
+    const TraitImpl **candidates = NULL;
+    size_t count = 0U, capacity = 0U;
+    size_t i, j;
+    int ambiguous = 0;
+    int selected;
+    for (i = 0U; i < gen_template_count(); ++i) {
+        const TemplateInfo *impl_ti = &g_all_template_infos[i];
+        for (j = 0U; j < impl_ti->trait_impl_count; ++j) {
+            const TraitImpl *candidate = &impl_ti->trait_impls[j];
+            TraitBinding *bindings = NULL;
+            size_t binding_count = 0U;
+            if (!str_eq(candidate->trait_name, trait->name)) continue;
+            if (!trait_impl_bind_instance(candidate, trait, trait_ti, instance,
+                                          &bindings, &binding_count)) {
+                continue;
+            }
+            trait_bindings_free(bindings, binding_count);
+            if (count == capacity) {
+                size_t new_cap = capacity == 0U ? 4U : capacity * 2U;
+                const TraitImpl **next = (const TraitImpl **)realloc(
+                    candidates, new_cap * sizeof(*next));
+                if (next == NULL) die("out of memory");
+                candidates = next;
+                capacity = new_cap;
+            }
+            candidates[count++] = candidate;
+        }
+    }
+    selected = trait_select_impl(candidates, count, trait, &ambiguous) == impl;
+    free(candidates);
+    return selected;
+}
+
+static void trait_instance_from_bindings(GenInstance *instance,
+                                         const TraitImpl *impl,
+                                         const TemplateInfo *impl_ti,
+                                         const TraitBinding *bindings,
+                                         size_t binding_count)
+{
+    const char **spellings = NULL;
+    size_t i;
+    memset(instance, 0, sizeof(*instance));
+    instance->template_index = impl->template_index;
+    if (binding_count == 0U) {
+        instance->name = copy_string("");
+        return;
+    }
+    instance->argument_count = binding_count;
+    instance->parameter_indices = (size_t *)malloc(
+        binding_count * sizeof(*instance->parameter_indices));
+    instance->arguments = (TypeArgument *)calloc(binding_count,
+                                                 sizeof(*instance->arguments));
+    spellings = (const char **)malloc(binding_count * sizeof(*spellings));
+    if (instance->parameter_indices == NULL || instance->arguments == NULL ||
+        spellings == NULL) die("out of memory");
+    for (i = 0U; i < binding_count; ++i) {
+        int parameter = template_parameter_index(impl_ti, bindings[i].name);
+        instance->parameter_indices[i] = parameter < 0 ? 0U : (size_t)parameter;
+        instance->arguments[i].c_type = copy_string(bindings[i].type);
+        instance->arguments[i].canonical = copy_string(bindings[i].type);
+        spellings[i] = instance->arguments[i].c_type;
+    }
+    instance->name = instance_suffix(spellings, binding_count);
+    free(spellings);
+}
+
+static void trait_instance_from_bindings_free(GenInstance *instance)
+{
+    size_t i;
+    for (i = 0U; i < instance->argument_count; ++i) {
+        free(instance->arguments[i].c_type);
+        free(instance->arguments[i].canonical);
+    }
+    free(instance->arguments);
+    free(instance->parameter_indices);
+    free(instance->name);
+    memset(instance, 0, sizeof(*instance));
+}
+
+static void emit_trait_impls(Buf *out, size_t template_index,
+                             const TemplateInfo *ti, const char *stem,
+                             Buf *implementation, const char *requirement)
+{
+    size_t trait_index;
+    for (trait_index = 0U; trait_index < ti->trait_count; ++trait_index) {
+        const TraitInfo *trait = &ti->traits[trait_index];
+        size_t owner;
+        for (owner = 0U; owner < gen_template_count(); ++owner) {
+            const TemplateInfo *impl_ti = &g_all_template_infos[owner];
+            size_t impl_index;
+            for (impl_index = 0U; impl_index < impl_ti->trait_impl_count;
+                 ++impl_index) {
+                const TraitImpl *impl = &impl_ti->trait_impls[impl_index];
+                size_t method_index;
+                if (!str_eq(impl->trait_name, trait->name)) continue;
+                for (method_index = 0U; method_index < trait->method_count;
+                     ++method_index) {
+                    const TemplateFunction *trait_method =
+                        &ti->functions[trait->method_indices[method_index]];
+                    const TemplateFunction *definition = NULL;
+                    size_t definition_index;
+                    size_t instance_index;
+                    for (definition_index = 0U;
+                         definition_index < impl->method_count;
+                         ++definition_index) {
+                        const TemplateFunction *candidate =
+                            &impl->methods[definition_index];
+                        const char *source = candidate->source_name != NULL ?
+                            candidate->source_name : candidate->name;
+                        if (str_eq(source, trait_method->source_name)) {
+                            definition = candidate;
+                            break;
+                        }
+                    }
+                    if (definition == NULL) continue;
+                    for (instance_index = 0U;
+                         instance_index < g_instance_count; ++instance_index) {
+                        const GenInstance *instance =
+                            &g_instances[instance_index];
+                        const TemplateInfo *emit_ti;
+                        Buf rewritten;
+                        GenInstance impl_instance;
+                        TraitBinding *bindings = NULL;
+                        size_t binding_count = 0U;
+                        char *public_name;
+                        char *symbol;
+                        if (instance->template_index != template_index ||
+                            !instance_matches_parameters(ti, instance,
+                                trait_method->type_parameters,
+                                trait_method->type_parameter_count) ||
+                            !generic_use_matches(trait_method->name,
+                                                 instance->name, 0) ||
+                            !str_eq(instance_requirement(instance),
+                                    requirement) ||
+                            !trait_impl_bind_instance(impl, trait, ti, instance,
+                                                      &bindings,
+                                                      &binding_count) ||
+                            !trait_impl_is_selected(impl, trait, ti,
+                                                    instance)) {
+                            trait_bindings_free(bindings, binding_count);
+                            continue;
+                        }
+                        public_name = join_suffix(trait_method->name,
+                                                  instance->name);
+                        symbol = copy_string(public_name);
+                        trait_instance_from_bindings(&impl_instance, impl,
+                                                     impl_ti, bindings,
+                                                     binding_count);
+                        buf_init(&rewritten);
+                        {
+                            char *fragment = copy_range(
+                                impl_ti->body.p + definition->start_offset,
+                                (size_t)(definition->end_offset -
+                                         definition->start_offset));
+                            char *specialized = specialize_function_calls(
+                                fragment, impl_ti, &impl_instance, definition,
+                                0, 0);
+                            rewrite(specialized != NULL ? specialized : fragment,
+                                    impl_ti, &impl_instance, &rewritten);
+                            free(specialized);
+                            free(fragment);
+                        }
+                        trait_instance_from_bindings_free(&impl_instance);
+                        trait_bindings_free(bindings, binding_count);
+                        if (!rename_definition(&rewritten,
+                                definition->source_name != NULL ?
+                                definition->source_name : definition->name,
+                                public_name)) {
+                            die("cannot rename trait implementation '%s'",
+                                symbol);
+                        }
+                        if (implementation != NULL) {
+                            externalize_function_definition(&rewritten,
+                                                            public_name);
+                        }
+                        emit_ti = impl_ti;
+                        buf_puts(implementation != NULL ? implementation : out,
+                                 "\n/* ---- ");
+                        buf_puts(implementation != NULL ? implementation : out,
+                                 stem);
+                        buf_puts(implementation != NULL ? implementation : out,
+                                 ": ");
+                        buf_puts(implementation != NULL ? implementation : out,
+                                 symbol);
+                        buf_puts(implementation != NULL ? implementation : out,
+                                 " ---- */\n");
+                        if (g_emit_line) {
+                            char *impl_path = copy_string(emit_ti->path);
+                            emit_line_directive(
+                                implementation != NULL ? implementation : out,
+                                (unsigned long)definition->start_line,
+                                impl_path);
+                            free(impl_path);
+                        }
+                        buf_putn(implementation != NULL ? implementation : out,
+                                 rewritten.p, rewritten.len);
+                        if ((implementation != NULL ? implementation : out)->len == 0U ||
+                            (implementation != NULL ? implementation : out)->
+                                p[(implementation != NULL ? implementation : out)->len - 1U] != '\n') {
+                            buf_putc(implementation != NULL ? implementation : out,
+                                     '\n');
+                        }
+                        buf_free(&rewritten);
+                        free(public_name);
+                        free(symbol);
+                    }
+                }
+            }
+        }
+    }
+}
+
 static void emit_instance(Buf *out, const TemplateInfo *ti, const GenInstance *instance,
                           const char *output_path, const char *stem, const char *symbol,
                           unsigned start_offset, unsigned end_offset,
@@ -1616,6 +1874,7 @@ static void emit_module_part(Buf *out, size_t template_index,
     for (i = 0U; i < ti->function_count; ++i) {
         const TemplateFunction *function = &ti->functions[i];
         size_t j;
+        if (function->is_trait_method) continue;
         if (function->type_parameter_count == 0U) {
             if (core) {
                 emit_instance(out, ti, &empty_instance, output_path, stem,
@@ -1644,6 +1903,8 @@ static void emit_module_part(Buf *out, size_t template_index,
             }
         }
     }
+    emit_trait_impls(out, template_index, ti, stem, implementation,
+                     requirement);
 }
 
 void buf_put_section_open(Buf *out, const char *have_prefix,
@@ -2076,6 +2337,7 @@ int macro_type_arguments(CXTranslationUnit tu, CXCursor cursor,
     clang_disposeTokens(tu, tokens, count);
     if (!okay) {
         list_free(*arguments, *argument_count);
+        *arguments = NULL;
         *argument_count = 0U;
         free(counts);
         counts = NULL;

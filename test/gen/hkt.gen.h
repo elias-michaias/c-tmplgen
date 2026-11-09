@@ -24,10 +24,10 @@ typedef struct {
 } PlainBox_Plain;
 
 #ifndef TMPLGEN_AGGREGATING
-#line 24 "test/tmpl/hkt.tmpl.h"
+#line 24 "tmpl/hkt.tmpl.h"
 #undef Boxed
 #define Boxed(type0) Boxed_##type0
-#line 55 "test/tmpl/hkt.tmpl.h"
+#line 55 "tmpl/hkt.tmpl.h"
 #undef PlainBox
 #define PlainBox(type0) PlainBox_##type0
 
@@ -36,7 +36,7 @@ typedef struct {
 #define GEN_ARG0_(arg0, ...) arg0
 #endif
 
-#line 27 "test/tmpl/hkt.tmpl.h"
+#line 27 "tmpl/hkt.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_container_unwrap_argument { int unused; };
@@ -50,14 +50,14 @@ extern void container_unwrap__no_match_for_argument_type(struct tmplgen_no_assoc
 #undef container_unwrap
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T container_unwrap(F(T) * box)
-#line 27 "test/tmpl/hkt.tmpl.h"
+#line 27 "tmpl/hkt.tmpl.h"
 #define container_unwrap(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_container_unwrap_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: container_unwrap__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T container_unwrap(F(T) * box)
-#line 27 "test/tmpl/hkt.tmpl.h"
+#line 27 "tmpl/hkt.tmpl.h"
 #define container_unwrap(...) \
     TMPLGEN_GNU_container_unwrap_TEST_TYPES_H(container_unwrap__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -65,7 +65,7 @@ extern void container_unwrap__no_match_for_argument_type(struct tmplgen_no_assoc
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 34 "test/tmpl/hkt.tmpl.h"
+#line 34 "tmpl/hkt.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_sized_unwrap_argument { int unused; };
@@ -79,14 +79,14 @@ extern void sized_unwrap__no_match_for_argument_type(struct tmplgen_no_associati
 #undef sized_unwrap
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T sized_unwrap(G(T, N) * box)
-#line 34 "test/tmpl/hkt.tmpl.h"
+#line 34 "tmpl/hkt.tmpl.h"
 #define sized_unwrap(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_sized_unwrap_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: sized_unwrap__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T sized_unwrap(G(T, N) * box)
-#line 34 "test/tmpl/hkt.tmpl.h"
+#line 34 "tmpl/hkt.tmpl.h"
 #define sized_unwrap(...) \
     TMPLGEN_GNU_sized_unwrap_TEST_TYPES_H(sized_unwrap__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -94,7 +94,7 @@ extern void sized_unwrap__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 41 "test/tmpl/hkt.tmpl.h"
+#line 41 "tmpl/hkt.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_triple_wrapped_argument { int unused; };
@@ -108,14 +108,14 @@ extern void triple_wrapped__no_match_for_argument_type(struct tmplgen_no_associa
 #undef triple_wrapped
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline A triple_wrapped(H(A, A, A) * value)
-#line 41 "test/tmpl/hkt.tmpl.h"
+#line 41 "tmpl/hkt.tmpl.h"
 #define triple_wrapped(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_triple_wrapped_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: triple_wrapped__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline A triple_wrapped(H(A, A, A) * value)
-#line 41 "test/tmpl/hkt.tmpl.h"
+#line 41 "tmpl/hkt.tmpl.h"
 #define triple_wrapped(...) \
     TMPLGEN_GNU_triple_wrapped_TEST_TYPES_H(triple_wrapped__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -164,7 +164,7 @@ static inline TestInt triple_wrapped_Triple_TestInt(Triple_TestInt_TestInt_TestI
     (void)value;
     return (TestInt){0};
 }
-#line 27 "test/tmpl/hkt.tmpl.h"
+#line 27 "tmpl/hkt.tmpl.h"
 /// static inline TestInt container_unwrap_Option_TestInt(Option_TestInt * box)
 static inline TestInt container_unwrap_Option_TestInt(Option_TestInt * box);
 #line 171 "/home/elias/Projects/c-tmplgen/test/gen/hkt.gen.h"
@@ -179,7 +179,7 @@ static inline TestInt container_unwrap_Option_TestInt(Option_TestInt * box);
         container_unwrap_Option_TestInt, \
         next) \
 
-#line 34 "test/tmpl/hkt.tmpl.h"
+#line 34 "tmpl/hkt.tmpl.h"
 /// static inline TestInt sized_unwrap_TestInt_Array_4(Array_TestInt_4 * box)
 static inline TestInt sized_unwrap_TestInt_Array_4(Array_TestInt_4 * box);
 #line 186 "/home/elias/Projects/c-tmplgen/test/gen/hkt.gen.h"
@@ -194,7 +194,7 @@ static inline TestInt sized_unwrap_TestInt_Array_4(Array_TestInt_4 * box);
         sized_unwrap_TestInt_Array_4, \
         next) \
 
-#line 41 "test/tmpl/hkt.tmpl.h"
+#line 41 "tmpl/hkt.tmpl.h"
 /// static inline TestInt triple_wrapped_Triple_TestInt(Triple_TestInt_TestInt_TestInt * value)
 static inline TestInt triple_wrapped_Triple_TestInt(Triple_TestInt_TestInt_TestInt * value);
 #line 201 "/home/elias/Projects/c-tmplgen/test/gen/hkt.gen.h"

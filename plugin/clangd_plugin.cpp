@@ -226,6 +226,23 @@ bool parseTemplateAnnotationLine(llvm::StringRef Line,
         } else if (Satisfaction != llvm::StringRef::npos) {
             Left = Part.take_front(Satisfaction);
         }
+        // A `T: Ord + Eq` bound follows the parameter name; it is not part
+        // of the name. (`<:` was handled above, so a top-level `:` left in
+        // the text is always a trait bound.)
+        {
+            int Depth = 0;
+            for (size_t I = 0U; I < Left.size(); ++I) {
+                char Character = Left[I];
+                if (Character == '(' || Character == '[') {
+                    ++Depth;
+                } else if (Character == ')' || Character == ']') {
+                    if (Depth > 0) --Depth;
+                } else if (Character == ':' && Depth == 0) {
+                    Left = Left.take_front(I);
+                    break;
+                }
+            }
+        }
         // The parameter name is the trailing identifier: `T`, `typename T`,
         // `size_t N`, and `template(typename, size_t) G` all end in it.
         llvm::StringRef Parameter;
@@ -322,9 +339,23 @@ struct TemplateDeclaration {
     std::unordered_map<std::string, std::vector<std::string>> StructuralTypes;
 };
 
+struct TraitMethodSite {
+    size_t Line = 0U;
+    size_t Column = 0U;
+    std::string SourceName;
+    std::string TraitName;
+};
+
 struct TemplateModel {
     std::vector<TemplateLineRange> FallbackRanges;
     std::vector<TemplateDeclaration> Declarations;
+    // Lines of `@trait`/`@impl` blocks (headers, bodies, and `@end`). The
+    // short method names inside collide with each other and with the trait
+    // prototypes until the generator prefixes them, so diagnostics inside
+    // are noise, exactly like fallback definitions.
+    std::vector<TemplateLineRange> TraitRanges;
+    // Public name (`Ord_compare`) of each trait method to its declaration.
+    std::unordered_map<std::string, TraitMethodSite> TraitMethods;
 
     bool inFallback(size_t Line) const
     {
@@ -332,6 +363,20 @@ struct TemplateModel {
             if (Range.contains(Line)) return true;
         }
         return false;
+    }
+
+    bool inTraitBlock(size_t Line) const
+    {
+        for (const TemplateLineRange &Range : TraitRanges) {
+            if (Range.contains(Line)) return true;
+        }
+        return false;
+    }
+
+    const TraitMethodSite *traitMethod(llvm::StringRef PublicName) const
+    {
+        auto Found = TraitMethods.find(PublicName.str());
+        return Found == TraitMethods.end() ? nullptr : &Found->second;
     }
 
     // Fallback definitions only exist so that the template parses as plain
@@ -572,6 +617,78 @@ TemplateModel parseTemplateModel(llvm::StringRef Code)
         }
     }
 
+    {
+        bool InBlock = false;
+        bool BlockIsTrait = false;
+        size_t BlockStart = 0U;
+        std::string BlockTrait;
+        for (size_t I = 0U; I < Lines.size(); ++I) {
+            llvm::StringRef Text = Lines[I].Text;
+            llvm::StringRef Trimmed = Text.trim();
+            if (!InBlock) {
+                if (!Trimmed.starts_with("//")) continue;
+                llvm::StringRef Annotation =
+                    Trimmed.drop_front(2U).ltrim();
+                llvm::StringRef Trait = "@trait";
+                llvm::StringRef Impl = "@impl";
+                llvm::StringRef Directive;
+                bool IsTraitHeader;
+                if (Annotation.starts_with(Trait) &&
+                    (Annotation.size() == Trait.size() ||
+                     !isIdentifierChar(Annotation[Trait.size()]))) {
+                    Directive = Trait;
+                    IsTraitHeader = true;
+                } else if (Annotation.starts_with(Impl) &&
+                           (Annotation.size() == Impl.size() ||
+                            !isIdentifierChar(Annotation[Impl.size()]))) {
+                    Directive = Impl;
+                    IsTraitHeader = false;
+                } else {
+                    continue;
+                }
+                llvm::StringRef Name =
+                    Annotation.drop_front(Directive.size()).ltrim()
+                        .take_while(isIdentifierChar);
+                if (Name.empty()) continue;
+                InBlock = true;
+                BlockIsTrait = IsTraitHeader;
+                BlockStart = I;
+                BlockTrait = Name.str();
+                continue;
+            }
+            if (Trimmed.starts_with("//")) {
+                llvm::StringRef Annotation =
+                    Trimmed.drop_front(2U).ltrim();
+                llvm::StringRef End = "@end";
+                if (Annotation.starts_with(End) &&
+                    (Annotation.size() == End.size() ||
+                     !isIdentifierChar(Annotation[End.size()]))) {
+                    Model.TraitRanges.push_back(
+                        TemplateLineRange{BlockStart, I});
+                    InBlock = false;
+                }
+                continue;
+            }
+            if (Trimmed.empty()) {
+                Model.TraitRanges.push_back(TemplateLineRange{BlockStart, I});
+                InBlock = false;
+                continue;
+            }
+            if (!BlockIsTrait) continue;
+            size_t Open = Text.find('(');
+            if (Open == llvm::StringRef::npos) continue;
+            auto Name = lastIdentifier(Text.take_front(Open).rtrim());
+            if (!Name) continue;
+            std::string Public = BlockTrait + "_" + Name->first.str();
+            Model.TraitMethods[Public] = TraitMethodSite{
+                I, Name->second, Name->first.str(), BlockTrait};
+        }
+        if (InBlock) {
+            Model.TraitRanges.push_back(
+                TemplateLineRange{BlockStart, Lines.size() - 1U});
+        }
+    }
+
     for (size_t I = 0U; I < Lines.size();) {
         ParsedAnnotationLine First;
         if (!parseTemplateAnnotationLine(Lines[I].Text, First)) {
@@ -702,6 +819,14 @@ bool TemplateModel::shouldSuppressDiagnostic(size_t Line,
 {
     if (Message.starts_with("tmplgen:")) return false;
     if (inFallback(Line)) return true;
+    if (inTraitBlock(Line)) return true;
+    // Trait calls inside template bodies use the prefixed public name
+    // (`Ord_compare`), which only exists after generation.
+    if (Message.contains("undeclared") || Message.contains("implicit")) {
+        for (const auto &Entry : TraitMethods) {
+            if (messageQuotesIdentifier(Message, Entry.first)) return true;
+        }
+    }
     const TemplateDeclaration *Declaration = declarationAt(Line);
     if (Declaration == nullptr) return false;
     for (const std::string &Parameter : Declaration->Parameters) {
@@ -1979,7 +2104,21 @@ std::optional<Location> templateFunctionLocation(
     if (TemplateLine > TemplateLines.size()) return std::nullopt;
     llvm::StringRef Head = TemplateLines[TemplateLine - 1U];
     size_t NameStart = Head.find(Symbol.Name);
-    if (NameStart == llvm::StringRef::npos) return std::nullopt;
+    if (NameStart == llvm::StringRef::npos) {
+        // Trait methods are declared under their short name (`compare`) but
+        // called under the prefixed public name (`Ord_compare`).
+        TemplateModel TraitModel =
+            parseTemplateModel(TemplateBuffer->getBuffer());
+        const TraitMethodSite *Site = TraitModel.traitMethod(Symbol.Name);
+        if (Site == nullptr) return std::nullopt;
+        int Line = static_cast<int>(Site->Line);
+        int Column = static_cast<int>(Site->Column);
+        return Location{
+            URIForFile::canonicalize(*TemplatePath, MainPath),
+            Range{{Line, Column},
+                  {Line, Column +
+                            static_cast<int>(Site->SourceName.size())}}};
+    }
     size_t NameEnd = NameStart + Symbol.Name.size();
     if ((NameStart > 0U &&
          (std::isalnum(static_cast<unsigned char>(Head[NameStart - 1U])) ||
@@ -2134,11 +2273,31 @@ void addParameterTokens(std::vector<SemanticHighlight> &Tokens,
 {
     unsigned ParameterToken =
         static_cast<unsigned>(HighlightingKind::TemplateParameter);
+    unsigned OperatorToken =
+        static_cast<unsigned>(HighlightingKind::Operator);
     End = std::min(End, Line.size());
     // Each comma-separated parameter ends in its name. Preceding words are
     // the `typename`/`template` specifiers or a value parameter's type.
-    for (llvm::StringRef Part : splitTopLevel(Line.slice(Begin, End), ',')) {
-        size_t PartStart = static_cast<size_t>(Part.data() - Line.data());
+    for (llvm::StringRef FullPart : splitTopLevel(Line.slice(Begin, End), ',')) {
+        size_t FullStart = static_cast<size_t>(FullPart.data() - Line.data());
+        // A `T: Ord + Eq` bound follows the parameter: the bound trait names
+        // are types, `:` and `+` are operators.
+        size_t Colon = llvm::StringRef::npos;
+        int Depth = 0;
+        for (size_t I = 0U; I < FullPart.size(); ++I) {
+            char Character = FullPart[I];
+            if (Character == '(' || Character == '[') {
+                ++Depth;
+            } else if (Character == ')' || Character == ']') {
+                if (Depth > 0) --Depth;
+            } else if (Character == ':' && Depth == 0) {
+                Colon = I;
+                break;
+            }
+        }
+        llvm::StringRef Part = Colon == llvm::StringRef::npos
+            ? FullPart : FullPart.take_front(Colon);
+        size_t PartStart = FullStart;
         std::optional<std::pair<llvm::StringRef, size_t>> Last =
             lastIdentifier(Part);
         for (size_t I = 0; I < Part.size();) {
@@ -2161,6 +2320,27 @@ void addParameterTokens(std::vector<SemanticHighlight> &Tokens,
                     Tokens, LineNumber, Line, LineStart, PartStart + I,
                     classifyAnnotationIdentifier(AST, Word, KeywordTokenType));
             }
+        }
+        if (Colon == llvm::StringRef::npos) continue;
+        addAnnotationToken(Tokens, LineNumber, Line, FullStart + Colon,
+                           FullStart + Colon + 1U, OperatorToken);
+        for (size_t I = Colon + 1U; I < FullPart.size();) {
+            if (FullPart[I] == '+') {
+                addAnnotationToken(Tokens, LineNumber, Line, FullStart + I,
+                                   FullStart + I + 1U, OperatorToken);
+                ++I;
+                continue;
+            }
+            if (!isIdentifierChar(FullPart[I])) {
+                ++I;
+                continue;
+            }
+            size_t Start = I++;
+            while (I < FullPart.size() && isIdentifierChar(FullPart[I])) ++I;
+            addAnnotationToken(
+                Tokens, LineNumber, Line, FullStart + Start, FullStart + I,
+                classifyAnnotationIdentifier(
+                    AST, FullPart.slice(Start, I), KeywordTokenType));
         }
     }
 }
@@ -2358,6 +2538,64 @@ void highlightAnnotationLine(std::vector<SemanticHighlight> &Tokens,
         return;
     }
 
+    // `// @trait Ord(T)` and `// @impl Ord(int)`: keyword, trait name as a
+    // type, then parameter or argument tokens inside the parentheses.
+    for (llvm::StringRef Kind : {"@trait", "@impl"}) {
+        if (!Directive.starts_with(Kind) ||
+            (Directive.size() != Kind.size() &&
+             isIdentifierChar(Directive[Kind.size()]))) {
+            continue;
+        }
+        addAnnotationToken(Tokens, LineNumber, Line, DirectiveStart,
+                           DirectiveStart + Kind.size(), KeywordTokenType);
+        size_t Position = DirectiveStart + Kind.size();
+        while (Position < Line.size() &&
+               std::isspace(static_cast<unsigned char>(Line[Position]))) {
+            ++Position;
+        }
+        size_t NameStart = Position;
+        while (Position < Line.size() && isIdentifierChar(Line[Position])) {
+            ++Position;
+        }
+        if (NameStart < Position) {
+            addAnnotationToken(Tokens, LineNumber, Line, NameStart, Position,
+                               static_cast<unsigned>(HighlightingKind::Type));
+        }
+        while (Position < Line.size() &&
+               std::isspace(static_cast<unsigned char>(Line[Position]))) {
+            ++Position;
+        }
+        if (Position >= Line.size() || Line[Position] != '(') return;
+        int Depth = 0;
+        size_t Close = llvm::StringRef::npos;
+        for (size_t I = Position; I < Line.size(); ++I) {
+            if (Line[I] == '(') {
+                ++Depth;
+            } else if (Line[I] == ')' && --Depth == 0) {
+                Close = I;
+                break;
+            }
+        }
+        if (Close == llvm::StringRef::npos) return;
+        if (Kind == "@trait") {
+            addParameterTokens(Tokens, AST, LineNumber, Line, Position + 1U,
+                               Close, KeywordTokenType);
+        } else {
+            addExpressionTokens(Tokens, AST, LineNumber, Line,
+                                Position + 1U, Close, KeywordTokenType);
+        }
+        return;
+    }
+
+    llvm::StringRef End = "@end";
+    if (Directive.starts_with(End) &&
+        (Directive.size() == End.size() ||
+         !isIdentifierChar(Directive[End.size()]))) {
+        addAnnotationToken(Tokens, LineNumber, Line, DirectiveStart,
+                           DirectiveStart + End.size(), KeywordTokenType);
+        return;
+    }
+
     llvm::StringRef Where = "@where";
     if (Directive.starts_with(Where) &&
         (Directive.size() == Where.size() ||
@@ -2537,6 +2775,324 @@ CompletionList renderCompletions(const CodeCompleteResult &Result,
     return List;
 }
 
+struct DispatchHelper {
+    std::string Name;
+    std::string Signature;
+    std::string ReturnType;
+};
+
+struct GeneratedDispatchHeader {
+    std::string Path;
+    std::vector<DispatchHelper> Helpers;
+    std::set<std::string> RedundantNames;
+};
+
+std::string resolveQuotedInclude(llvm::StringRef Header,
+                                llvm::StringRef BaseDirectory)
+{
+    Header = Header.trim();
+    if (Header.size() >= 2U && Header.front() == '"' &&
+        Header.back() == '"') {
+        Header = Header.drop_front().drop_back();
+    } else if (Header.starts_with("<") || Header.empty()) {
+        return {};
+    }
+    llvm::SmallString<256> Path(Header);
+    if (llvm::sys::path::is_relative(Path)) {
+        llvm::SmallString<256> Base(BaseDirectory);
+        llvm::sys::path::append(Base, Path);
+        Path = Base;
+    }
+    llvm::sys::path::remove_dots(Path, true);
+    return Path.str().str();
+}
+
+std::vector<std::string> quotedIncludes(llvm::StringRef Code)
+{
+    std::vector<std::string> Includes;
+    for (const SourceLineRecord &Line : splitSourceLines(Code)) {
+        llvm::StringRef Text = Line.Text.trim();
+        if (!Text.consume_front("#")) continue;
+        Text = Text.ltrim();
+        if (!Text.consume_front("include")) continue;
+        Text = Text.ltrim();
+        if (!Text.consume_front("\"")) continue;
+        llvm::StringRef Include = Text.take_until(
+            [](char Character) { return Character == '"'; });
+        if (!Include.empty()) Includes.push_back(Include.str());
+    }
+    return Includes;
+}
+
+std::string dispatchSignature(llvm::StringRef Text,
+                              llvm::StringRef Name)
+{
+    size_t Pos = Text.find(Name);
+    while (Pos != llvm::StringRef::npos) {
+        size_t Open = Pos + Name.size();
+        if ((Pos == 0U || !isIdentifierChar(Text[Pos - 1U])) &&
+            Open < Text.size() && Text[Open] == '(') {
+            size_t Close = Text.find(')', Open);
+            if (Close != llvm::StringRef::npos) {
+                return Text.slice(Open, Close + 1U).str();
+            }
+        }
+        Pos = Text.find(Name, Pos + 1U);
+    }
+    return {};
+}
+
+void scanGeneratedDispatchHeader(llvm::StringRef Code,
+                                 GeneratedDispatchHeader &Header)
+{
+    std::vector<SourceLineRecord> Lines = splitSourceLines(Code);
+    for (size_t I = 0U; I < Lines.size(); ++I) {
+        llvm::StringRef Trimmed = Lines[I].Text.ltrim();
+        if (!Trimmed.starts_with("#define ")) continue;
+        llvm::StringRef Rest = Trimmed.drop_front(8U).ltrim();
+        size_t NameLength = 0U;
+        while (NameLength < Rest.size() &&
+               isIdentifierChar(Rest[NameLength])) {
+            ++NameLength;
+        }
+        if (NameLength == 0U) continue;
+        llvm::StringRef Name = Rest.take_front(NameLength);
+        llvm::StringRef After = Rest.drop_front(NameLength);
+        if (!After.starts_with("(") ||
+            Name.starts_with("GEN_ARG") || Name.starts_with("TMPLGEN") ||
+            Name.starts_with("TMPL_")) {
+            continue;
+        }
+        std::string Body = Lines[I].Text.str();
+        size_t Last = I;
+        while (Lines[Last].Text.rtrim().ends_with("\\") &&
+               Last + 1U < Lines.size()) {
+            ++Last;
+            Body += "\n";
+            Body += Lines[Last].Text.str();
+        }
+        std::string Prefix = Name.str() + "_";
+        if (Body.find(Prefix) == std::string::npos ||
+            (Body.find("_Generic") == std::string::npos &&
+             Body.find("__builtin_choose_expr") == std::string::npos &&
+             Body.find("##") == std::string::npos)) {
+            I = Last;
+            continue;
+        }
+
+        DispatchHelper Helper;
+        Helper.Name = Name.str();
+        for (size_t K = I; K > 0U && I - K < 10U; --K) {
+            llvm::StringRef Comment = Lines[K - 1U].Text.trim();
+            if (!Comment.starts_with("///")) continue;
+            llvm::StringRef Signature = Comment.drop_front(3U).trim();
+            std::string Found = dispatchSignature(Signature, Name);
+            if (Found.empty()) continue;
+            Helper.Signature = std::move(Found);
+            size_t Pos = Signature.find(Name);
+            llvm::StringRef Before = Signature.take_front(Pos).trim();
+            Before.consume_front("static ");
+            Before = Before.trim();
+            Before.consume_front("inline ");
+            Helper.ReturnType = Before.trim().str();
+            break;
+        }
+        if (Helper.Signature.empty()) {
+            size_t Close = After.find(')');
+            if (Close != llvm::StringRef::npos) {
+                Helper.Signature = After.take_front(Close + 1U).str();
+            }
+        }
+        Header.Helpers.push_back(std::move(Helper));
+        I = Last;
+    }
+
+    if (Header.Helpers.empty()) return;
+    size_t Pos = 0U;
+    while (Pos < Code.size()) {
+        if (!isIdentifierChar(Code[Pos])) {
+            ++Pos;
+            continue;
+        }
+        size_t End = Pos + 1U;
+        while (End < Code.size() && isIdentifierChar(Code[End])) ++End;
+        llvm::StringRef Identifier = Code.slice(Pos, End);
+        for (const DispatchHelper &Helper : Header.Helpers) {
+            if (Identifier.starts_with(Helper.Name + "_")) {
+                Header.RedundantNames.insert(Identifier.str());
+                break;
+            }
+        }
+        Pos = End;
+    }
+    for (const DispatchHelper &Helper : Header.Helpers) {
+        Header.RedundantNames.insert(
+            "tmplgen_no_association_for_" + Helper.Name + "_argument");
+    }
+}
+
+void collectGeneratedDispatchHeader(llvm::StringRef Include,
+                                    llvm::StringRef BaseDirectory,
+                                    std::set<std::string> &Visited,
+                                    std::vector<GeneratedDispatchHeader> &Out)
+{
+    std::string Path = resolveQuotedInclude(Include, BaseDirectory);
+    if (Path.empty() || !Visited.insert(Path).second) return;
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> Buffer =
+        llvm::MemoryBuffer::getFile(Path);
+    if (!Buffer) return;
+    llvm::StringRef Code = (*Buffer)->getBuffer();
+    if (!Code.contains("AUTO-GENERATED")) return;
+
+    GeneratedDispatchHeader Header;
+    Header.Path = Path;
+    scanGeneratedDispatchHeader(Code, Header);
+    if (!Header.Helpers.empty()) Out.push_back(std::move(Header));
+
+    std::string Directory = llvm::sys::path::parent_path(Path).str();
+    for (const std::string &Nested : quotedIncludes(Code)) {
+        if (llvm::StringRef(Nested).ends_with(".gen.h") ||
+            llvm::StringRef(Nested).ends_with(".gen.c")) {
+            collectGeneratedDispatchHeader(Nested, Directory, Visited, Out);
+        }
+    }
+}
+
+void preferDispatchHelpers(CodeCompleteResult &Result, llvm::StringRef File,
+                           llvm::StringRef Code, Position Position,
+                           llvm::StringRef CompileDirectory)
+{
+    llvm::Expected<size_t> Cursor = positionToOffset(Code, Position, false);
+    if (!Cursor) {
+        llvm::consumeError(Cursor.takeError());
+        return;
+    }
+    size_t PrefixStart = *Cursor;
+    while (PrefixStart > 0U && isIdentifierChar(Code[PrefixStart - 1U])) {
+        --PrefixStart;
+    }
+    if (PrefixStart > 0U) {
+        char Before = Code[PrefixStart - 1U];
+        if (Before == '.' ||
+            (Before == '>' && PrefixStart > 1U &&
+             Code[PrefixStart - 2U] == '-')) {
+            return;
+        }
+    }
+    llvm::StringRef Prefix = Code.slice(PrefixStart, *Cursor);
+
+    std::set<std::string> Visited;
+    std::vector<GeneratedDispatchHeader> Headers;
+    std::string Directory = CompileDirectory.str();
+    if (Directory.empty()) {
+        Directory = llvm::sys::path::parent_path(File).str();
+    }
+    for (const std::string &Include : quotedIncludes(Code)) {
+        if (llvm::StringRef(Include).ends_with(".gen.h") ||
+            llvm::StringRef(Include).ends_with(".gen.c")) {
+            collectGeneratedDispatchHeader(Include, Directory, Visited,
+                                           Headers);
+        }
+    }
+    for (const CodeCompletion &Completion : Result.Completions) {
+        for (const CodeCompletion::IncludeCandidate &Include :
+             Completion.Includes) {
+            collectGeneratedDispatchHeader(Include.Header, Directory, Visited,
+                                           Headers);
+        }
+    }
+    if (Headers.empty()) return;
+
+    std::set<std::string> HelperNames;
+    std::set<std::string> RedundantNames;
+    bool PreferHelpers = Prefix.empty();
+    for (const GeneratedDispatchHeader &Header : Headers) {
+        for (const DispatchHelper &Helper : Header.Helpers) {
+            HelperNames.insert(Helper.Name);
+            if (!Prefix.empty() &&
+                llvm::StringRef(Helper.Name).starts_with(Prefix)) {
+                PreferHelpers = true;
+            }
+        }
+    }
+    if (PreferHelpers) {
+        for (const GeneratedDispatchHeader &Header : Headers) {
+            RedundantNames.insert(Header.RedundantNames.begin(),
+                                  Header.RedundantNames.end());
+        }
+    }
+
+    Range InsertRange;
+    if (Result.InsertRange) {
+        InsertRange = *Result.InsertRange;
+    } else if (!Result.Completions.empty()) {
+        InsertRange = Result.Completions.front().CompletionInsertRange;
+    } else {
+        InsertRange = Range{offsetToPosition(Code, PrefixStart), Position};
+    }
+
+    using IncludeList = llvm::SmallVector<CodeCompletion::IncludeCandidate, 1>;
+    std::map<std::string, IncludeList> IncludesForHelper;
+    for (const GeneratedDispatchHeader &Header : Headers) {
+        for (const DispatchHelper &Helper : Header.Helpers) {
+            for (const CodeCompletion &Completion : Result.Completions) {
+                if (Completion.Includes.empty()) continue;
+                if (Completion.Name == Helper.Name ||
+                    llvm::StringRef(Completion.Name).starts_with(
+                        Helper.Name + "_")) {
+                    IncludesForHelper[Helper.Name] = Completion.Includes;
+                    break;
+                }
+            }
+        }
+    }
+
+    std::vector<CodeCompletion> Kept;
+    Kept.reserve(Result.Completions.size() + Headers.size());
+    std::set<std::string> PresentHelpers;
+    for (CodeCompletion &Completion : Result.Completions) {
+        if (RedundantNames.count(Completion.Name) != 0U) continue;
+        if (HelperNames.count(Completion.Name) != 0U) {
+            Completion.Score.Total = 1000.0f;
+            Completion.Score.ExcludingName = 1000.0f;
+            PresentHelpers.insert(Completion.Name);
+        }
+        Kept.push_back(std::move(Completion));
+    }
+    Result.Completions = std::move(Kept);
+
+    for (const GeneratedDispatchHeader &Header : Headers) {
+        for (const DispatchHelper &Helper : Header.Helpers) {
+            if (PresentHelpers.count(Helper.Name) != 0U) continue;
+            if (!Prefix.empty() &&
+                !llvm::StringRef(Helper.Name).starts_with(Prefix)) {
+                continue;
+            }
+            CodeCompletion Completion;
+            Completion.Name = Helper.Name;
+            Completion.FilterText = Helper.Name;
+            Completion.Kind = CompletionItemKind::Function;
+            Completion.Signature = Helper.Signature;
+            Completion.ReturnType = Helper.ReturnType;
+            Completion.CompletionInsertRange = InsertRange;
+            Completion.Score.Total = 1000.0f;
+            Completion.Score.ExcludingName = 1000.0f;
+            auto Found = IncludesForHelper.find(Helper.Name);
+            if (Found != IncludesForHelper.end()) {
+                Completion.Includes = Found->second;
+            }
+            Result.Completions.push_back(std::move(Completion));
+            PresentHelpers.insert(Helper.Name);
+        }
+    }
+
+    std::stable_sort(
+        Result.Completions.begin(), Result.Completions.end(),
+        [](const CodeCompletion &Left, const CodeCompletion &Right) {
+            return Left.Score.Total > Right.Score.Total;
+        });
+}
+
 // Completion for `variable->` / `variable.` on a structurally constrained
 // template parameter. The fallback type is meaningless here, so only the
 // fields guaranteed by the structural rows are offered.
@@ -2620,6 +3176,7 @@ public:
         {
             std::lock_guard<std::mutex> lock(GeneratorMutex);
             using tmplgen_plugin_support::MainFileText;
+            tmplgen_plugin_reset_captured_diagnostic();
             int result = !preambleBuild
                 ? tmplgen_plugin_support::runTmplgen(compiler, {})
                 : lastContents
@@ -2627,13 +3184,51 @@ public:
                       compiler, {}, MainFileText::Override, *lastContents)
                 : tmplgen_plugin_support::runTmplgen(
                       compiler, {}, MainFileText::Disk);
-            if (result != 0) {
-                unsigned diagnostic =
-                    compiler.getDiagnostics().getCustomDiagID(
+            if (!preambleBuild) GenerationFailed = result != 0;
+            if (result != 0 && !preambleBuild) {
+                clang::DiagnosticsEngine &diagnostics =
+                    compiler.getDiagnostics();
+                const char *captured =
+                    tmplgen_plugin_captured_diagnostic_message();
+                if (captured[0] == '\0' || !mainFile.isValid()) {
+                    unsigned diagnostic = diagnostics.getCustomDiagID(
                         clang::DiagnosticsEngine::Error,
                         "tmplgen could not update generated files; see the "
                         "clangd log");
-                compiler.getDiagnostics().Report(diagnostic);
+                    diagnostics.Report(diagnostic);
+                } else {
+                    const char *errorPath =
+                        tmplgen_plugin_captured_diagnostic_path();
+                    size_t errorLine =
+                        tmplgen_plugin_captured_diagnostic_line();
+                    std::string message = captured;
+                    clang::SourceLocation location =
+                        sourceManager.getLocForStartOfFile(mainFile);
+                    bool mapped = false;
+                    if (!preambleBuild && !invalid &&
+                        errorPath[0] != '\0' && path == errorPath &&
+                        errorLine != 0U) {
+                        std::vector<SourceLineRecord> lines =
+                            splitSourceLines(contents);
+                        if (errorLine <= lines.size()) {
+                            location = location.getLocWithOffset(
+                                static_cast<int>(
+                                    lines[errorLine - 1U].Start));
+                            mapped = true;
+                        }
+                    }
+                    if (!mapped && errorPath[0] != '\0') {
+                        message = "tmplgen: ";
+                        message += errorPath;
+                        if (errorLine != 0U) {
+                            message += ":" + std::to_string(errorLine);
+                        }
+                        message += ": " + std::string(captured);
+                    }
+                    unsigned diagnostic = diagnostics.getCustomDiagID(
+                        clang::DiagnosticsEngine::Error, "%0");
+                    diagnostics.Report(location, diagnostic) << message;
+                }
             }
         }
 
@@ -2705,6 +3300,12 @@ public:
     void sawDiagnostic(const clang::Diagnostic &diagnostic,
                        clangd::Diag &diag) override
     {
+        if (GenerationFailed &&
+            diag.Message.find("tmplgen_no_association_for_") !=
+                std::string::npos) {
+            diag.Severity = clang::DiagnosticsEngine::Ignored;
+            return;
+        }
         const clang::SourceManager &sourceManager =
             diagnostic.getSourceManager();
         clang::PresumedLoc presumed = sourceManager.getPresumedLoc(
@@ -2773,7 +3374,10 @@ private:
             llvm::StringRef contents =
                 sourceManager.getBufferData(file, &invalid);
             if (!invalid && isTemplateSourcePath(name)) {
-                ranges = parseTemplateModel(contents).FallbackRanges;
+                TemplateModel Included = parseTemplateModel(contents);
+                ranges = std::move(Included.FallbackRanges);
+                ranges.insert(ranges.end(), Included.TraitRanges.begin(),
+                              Included.TraitRanges.end());
             }
             cached = IncludedFallbacks.emplace(file, std::move(ranges)).first;
         }
@@ -2812,6 +3416,7 @@ private:
     }
 
     bool HasTemplateModel = false;
+    bool GenerationFailed = false;
     std::optional<TemplateModel> Model;
     std::string Masked;
     std::set<unsigned> ClangDiagnosticOffsets;
@@ -2874,6 +3479,9 @@ private:
                 Options.MainFileSignals = In->Signals;
                 CodeCompleteResult Base = codeComplete(
                     File, Params.position, In->Preamble, Inputs, Options);
+                preferDispatchHelpers(Base, File, In->Contents,
+                                      Params.position,
+                                      In->Command.Directory);
                 Reply(renderCompletions(Base, Options));
             });
     }

@@ -1,0 +1,12 @@
+// clang-format off
+#ifndef TMPLGEN
+typedef int T;
+#endif
+
+// @trait Ord(T)
+int compare(T lhs, T rhs);
+// @end
+
+// @impl Ord(int)
+static inline int compare(int lhs, int rhs) { return (lhs > rhs) - (lhs < rhs); }
+// @end

@@ -1,0 +1,6 @@
+#include "gen/all.gen.h"
+
+int main(void)
+{
+    return ordered_equal_int(1, 2);
+}

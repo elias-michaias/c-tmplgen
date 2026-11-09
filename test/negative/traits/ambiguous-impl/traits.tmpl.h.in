@@ -1,0 +1,18 @@
+// clang-format off
+#ifndef TMPLGEN
+typedef int T;
+#endif
+
+// @trait Show(T)
+int show(T value);
+// @end
+
+// @template T
+// @impl Show(T)
+static inline int show(T value) { return (int)value; }
+// @end
+
+// @template U
+// @impl Show(U)
+static inline int show(U value) { return (int)value; }
+// @end

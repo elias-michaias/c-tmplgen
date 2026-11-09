@@ -1,0 +1,1 @@
+error: method 'compare' in @impl Ord does not match the trait signature

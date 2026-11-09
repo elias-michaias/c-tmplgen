@@ -853,6 +853,7 @@ static void template_constraint_free(TemplateConstraint *constraint)
     free(constraint->parameter_name);
     list_free(constraint->required_types, constraint->required_type_count);
     list_free(constraint->expressions, constraint->expression_count);
+    list_free(constraint->bound_traits, constraint->bound_trait_count);
     memset(constraint, 0, sizeof(*constraint));
 }
 
@@ -946,6 +947,47 @@ void template_constraint_add_expression(TemplateConstraint **constraints,
     }
 }
 
+void template_constraint_add_bound(TemplateConstraint **constraints,
+                                          size_t *constraint_count,
+                                          size_t *constraint_cap,
+                                          const char *parameter_name,
+                                          const char *trait_name,
+                                          size_t line)
+{
+    size_t i;
+    TemplateConstraint *constraint = NULL;
+    for (i = 0U; i < *constraint_count; ++i) {
+        if (str_eq((*constraints)[i].parameter_name, parameter_name)) {
+            constraint = &(*constraints)[i];
+            break;
+        }
+    }
+    if (constraint == NULL) {
+        if (*constraint_count == *constraint_cap) {
+            size_t new_cap = *constraint_cap == 0U ? 2U : *constraint_cap * 2U;
+            TemplateConstraint *next;
+            if (new_cap < *constraint_cap ||
+                new_cap > (size_t)-1 / sizeof(**constraints)) {
+                die("too many template constraints");
+            }
+            next = (TemplateConstraint *)realloc(*constraints,
+                                                  new_cap * sizeof(**constraints));
+            if (next == NULL) die("out of memory");
+            *constraints = next;
+            *constraint_cap = new_cap;
+        }
+        constraint = &(*constraints)[(*constraint_count)++];
+        memset(constraint, 0, sizeof(*constraint));
+        constraint->parameter_name = copy_string(parameter_name);
+        constraint->line = line;
+    }
+    if (!list_contains(constraint->bound_traits,
+                       constraint->bound_trait_count, trait_name)) {
+        list_add(&constraint->bound_traits, &constraint->bound_trait_count,
+                 &constraint->bound_trait_cap, trait_name);
+    }
+}
+
 void template_parameter_kind_clear(TemplateParameterKind *kind)
 {
     size_t i;
@@ -1019,6 +1061,86 @@ int function_has_explicit_parameters(const TemplateFunction *function)
     return 0;
 }
 
+static void template_function_free(TemplateFunction *function)
+{
+    size_t j;
+    free(function->name);
+    free(function->source_name);
+    free(function->trait_name);
+    list_free(function->declared_parameters,
+              function->declared_parameter_count);
+    for (j = 0U; j < function->constraint_count; ++j) {
+        template_constraint_free(&function->constraints[j]);
+    }
+    free(function->constraints);
+    for (j = 0U; j < function->parameter_count; ++j) {
+        free(function->parameters[j].type);
+        free(function->parameters[j].name);
+        free(function->parameters[j].explicit_parameter);
+        list_free(function->parameters[j].type_parameters,
+                  function->parameters[j].type_parameter_count);
+        template_application_free(&function->parameters[j].application);
+    }
+    free(function->parameters);
+    free(function->return_type);
+    list_free(function->return_parameters, function->return_parameter_count);
+    template_application_free(&function->return_application);
+    free(function->dispatch_indices);
+    list_free(function->type_parameters, function->type_parameter_count);
+    memset(function, 0, sizeof(*function));
+}
+
+static void trait_info_free(TraitInfo *trait)
+{
+    free(trait->name);
+    list_free(trait->parameters, trait->parameter_count);
+    free(trait->method_indices);
+    memset(trait, 0, sizeof(*trait));
+}
+
+static void trait_impl_free(TraitImpl *impl)
+{
+    size_t i;
+    free(impl->trait_name);
+    list_free(impl->arguments, impl->argument_count);
+    list_free(impl->type_parameters, impl->type_parameter_count);
+    template_constraint_array_free(impl->constraints, impl->constraint_count);
+    for (i = 0U; i < impl->method_count; ++i) {
+        template_function_free(&impl->methods[i]);
+    }
+    free(impl->methods);
+    memset(impl, 0, sizeof(*impl));
+}
+
+void add_trait_method_index(TraitInfo *trait, size_t function_index)
+{
+    size_t new_cap;
+    if (trait->method_count == trait->method_cap) {
+        new_cap = trait->method_cap == 0U ? 4U : trait->method_cap * 2U;
+        size_t *next = (size_t *)realloc(trait->method_indices,
+                                         new_cap * sizeof(*next));
+        if (next == NULL) die("out of memory");
+        trait->method_indices = next;
+        trait->method_cap = new_cap;
+    }
+    trait->method_indices[trait->method_count++] = function_index;
+}
+
+void add_trait_impl_method(TraitImpl *impl, TemplateFunction *function)
+{
+    size_t new_cap;
+    if (impl->method_count == impl->method_cap) {
+        new_cap = impl->method_cap == 0U ? 4U : impl->method_cap * 2U;
+        TemplateFunction *next = (TemplateFunction *)realloc(impl->methods,
+            new_cap * sizeof(*next));
+        if (next == NULL) die("out of memory");
+        impl->methods = next;
+        impl->method_cap = new_cap;
+    }
+    impl->methods[impl->method_count++] = *function;
+    memset(function, 0, sizeof(*function));
+}
+
 
 void template_info_free(TemplateInfo *ti)
 {
@@ -1026,32 +1148,17 @@ void template_info_free(TemplateInfo *ti)
     list_free(ti->parameter_names, ti->parameter_count);
     template_parameter_kinds_free(ti->parameter_kinds, ti->parameter_count);
     for (i = 0U; i < ti->function_count; ++i) {
-        size_t j;
-        free(ti->functions[i].name);
-        list_free(ti->functions[i].declared_parameters,
-                  ti->functions[i].declared_parameter_count);
-        for (j = 0U; j < ti->functions[i].constraint_count; ++j) {
-            template_constraint_free(&ti->functions[i].constraints[j]);
-        }
-        free(ti->functions[i].constraints);
-        for (j = 0U; j < ti->functions[i].parameter_count; ++j) {
-            free(ti->functions[i].parameters[j].type);
-            free(ti->functions[i].parameters[j].name);
-            free(ti->functions[i].parameters[j].explicit_parameter);
-            list_free(ti->functions[i].parameters[j].type_parameters,
-                      ti->functions[i].parameters[j].type_parameter_count);
-            template_application_free(&ti->functions[i].parameters[j].application);
-        }
-        free(ti->functions[i].parameters);
-        free(ti->functions[i].return_type);
-        list_free(ti->functions[i].return_parameters,
-                  ti->functions[i].return_parameter_count);
-        template_application_free(&ti->functions[i].return_application);
-        free(ti->functions[i].dispatch_indices);
-        list_free(ti->functions[i].type_parameters,
-                  ti->functions[i].type_parameter_count);
+        template_function_free(&ti->functions[i]);
     }
     free(ti->functions);
+    for (i = 0U; i < ti->trait_count; ++i) {
+        trait_info_free(&ti->traits[i]);
+    }
+    free(ti->traits);
+    for (i = 0U; i < ti->trait_impl_count; ++i) {
+        trait_impl_free(&ti->trait_impls[i]);
+    }
+    free(ti->trait_impls);
     for (i = 0U; i < ti->constructor_count; ++i) {
         size_t j;
         free(ti->constructors[i].name);
@@ -1150,6 +1257,11 @@ void copy_template_constraints(TemplateConstraint **target,
         for (j = 0U; j < source[i].expression_count; ++j) {
             list_add(&constraint->expressions, &constraint->expression_count,
                      &constraint->expression_cap, source[i].expressions[j]);
+        }
+        for (j = 0U; j < source[i].bound_trait_count; ++j) {
+            list_add(&constraint->bound_traits, &constraint->bound_trait_count,
+                     &constraint->bound_trait_cap,
+                     source[i].bound_traits[j]);
         }
     }
 }
@@ -1377,4 +1489,42 @@ int function_explicit_index(const TemplateFunction *function,
         }
     }
     return -1;
+}
+
+const TraitInfo *find_trait_named(const TemplateInfo *infos, size_t count,
+                                  const char *name, size_t *owner_index)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) {
+        size_t j;
+        for (j = 0U; j < infos[i].trait_count; ++j) {
+            if (str_eq(infos[i].traits[j].name, name)) {
+                if (owner_index != NULL) *owner_index = i;
+                return &infos[i].traits[j];
+            }
+        }
+    }
+    return NULL;
+}
+
+const TemplateFunction *find_trait_method(const TemplateInfo *infos,
+                                          size_t count, const char *trait_name,
+                                          const char *source_name,
+                                          size_t *owner_index)
+{
+    size_t i;
+    for (i = 0U; i < count; ++i) {
+        size_t j;
+        for (j = 0U; j < infos[i].function_count; ++j) {
+            const TemplateFunction *function = &infos[i].functions[j];
+            if (!function->is_trait_method ||
+                !str_eq(function->trait_name, trait_name)) continue;
+            if (str_eq(function->source_name != NULL ?
+                       function->source_name : function->name, source_name)) {
+                if (owner_index != NULL) *owner_index = i;
+                return function;
+            }
+        }
+    }
+    return NULL;
 }

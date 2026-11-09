@@ -1480,6 +1480,523 @@ static int bind_callee_parameter(const TemplateInfo *caller_ti,
     return 0;
 }
 
+static char *trimmed_type_text(const char *text, size_t length)
+{
+    Buf out;
+    size_t left = 0U, right = length;
+    while (left < right && isspace((unsigned char)text[left])) ++left;
+    while (right > left && isspace((unsigned char)text[right - 1U])) --right;
+    buf_init(&out);
+    buf_putn(&out, text + left, right - left);
+    return out.p != NULL ? out.p : copy_string("");
+}
+
+static char *field_declaration_type(const char *declaration, size_t length,
+                                    const char *field)
+{
+    size_t i = 0U;
+    while (i < length) {
+        if (declaration[i] == '/' && i + 1U < length &&
+            declaration[i + 1U] == '/') {
+            while (i < length && declaration[i] != '\n') ++i;
+        } else if (declaration[i] == '/' && i + 1U < length &&
+                   declaration[i + 1U] == '*') {
+            i += 2U;
+            while (i + 1U < length &&
+                   !(declaration[i] == '*' && declaration[i + 1U] == '/')) ++i;
+            if (i + 1U < length) i += 2U;
+        } else if (is_ident_start(declaration[i])) {
+            size_t start = i++;
+            char *name;
+            size_t next;
+            while (i < length && is_ident_char(declaration[i])) ++i;
+            name = copy_range(declaration + start, i - start);
+            next = i;
+            while (next < length &&
+                   isspace((unsigned char)declaration[next])) ++next;
+            if (str_eq(name, field) &&
+                (next == length || declaration[next] == ',' ||
+                 declaration[next] == ';' || declaration[next] == '[' ||
+                 declaration[next] == ':')) {
+                size_t left = 0U;
+                free(name);
+                while (left < start) {
+                    while (left < start &&
+                           isspace((unsigned char)declaration[left])) ++left;
+                    if (left + 1U < start && declaration[left] == '/' &&
+                        declaration[left + 1U] == '/') {
+                        while (left < start && declaration[left] != '\n') ++left;
+                    } else if (left + 1U < start && declaration[left] == '/' &&
+                               declaration[left + 1U] == '*') {
+                        left += 2U;
+                        while (left + 1U < start &&
+                               !(declaration[left] == '*' &&
+                                 declaration[left + 1U] == '/')) ++left;
+                        if (left + 1U < start) left += 2U;
+                    } else {
+                        break;
+                    }
+                }
+                return trimmed_type_text(declaration + left, start - left);
+            }
+            free(name);
+        } else {
+            ++i;
+        }
+    }
+    return NULL;
+}
+
+static char *template_field_type(const TemplateInfo *ti,
+                                 const TemplateType *type,
+                                 const char *field)
+{
+    const char *source = ti->body.p;
+    size_t i, end, segment_start = 0U;
+    int in_body = 0;
+    if (source == NULL || type == NULL ||
+        type->end_offset > ti->body.len ||
+        type->start_offset >= type->end_offset) return NULL;
+    i = type->start_offset;
+    end = type->end_offset;
+    while (i < end) {
+        if (source[i] == '"' || source[i] == '\'') {
+            char quote = source[i++];
+            while (i < end && source[i] != quote) {
+                if (source[i] == '\\' && i + 1U < end) i += 2U;
+                else ++i;
+            }
+            if (i < end) ++i;
+        } else if (source[i] == '/' && i + 1U < end &&
+                   source[i + 1U] == '/') {
+            while (i < end && source[i] != '\n') ++i;
+        } else if (source[i] == '/' && i + 1U < end &&
+                   source[i + 1U] == '*') {
+            i += 2U;
+            while (i + 1U < end &&
+                   !(source[i] == '*' && source[i + 1U] == '/')) ++i;
+            if (i + 1U < end) i += 2U;
+        } else if (!in_body && source[i] == '{') {
+            in_body = 1;
+            segment_start = ++i;
+        } else if (in_body && source[i] == ';') {
+            char *field_type = field_declaration_type(source + segment_start,
+                                                      i - segment_start, field);
+            if (field_type != NULL) return field_type;
+            segment_start = ++i;
+        } else {
+            ++i;
+        }
+    }
+    return NULL;
+}
+
+static char *infer_expression_type(const char *expression,
+                                   const TemplateInfo *ti,
+                                   const GenInstance *instance,
+                                   const TemplateFunction *caller)
+{
+    const char *p = expression;
+    const char *start;
+    char *name;
+    int parameter;
+    while (isspace((unsigned char)*p)) ++p;
+    while (*p == '&' || *p == '*') {
+        ++p;
+        while (isspace((unsigned char)*p)) ++p;
+    }
+    if (!is_ident_start(*p)) return NULL;
+    start = p++;
+    while (is_ident_char(*p)) ++p;
+    name = copy_range(start, (size_t)(p - start));
+    while (isspace((unsigned char)*p)) ++p;
+    if (*p == '.' || (p[0] == '-' && p[1] == '>')) {
+        const char *field_start;
+        char *field;
+        const TemplateArgument *argument;
+        const TemplateType *constructor;
+        char *field_type;
+        char *result = NULL;
+        p += *p == '.' ? 1U : 2U;
+        while (isspace((unsigned char)*p)) ++p;
+        if (!is_ident_start(*p)) {
+            free(name);
+            return NULL;
+        }
+        field_start = p++;
+        while (is_ident_char(*p)) ++p;
+        field = copy_range(field_start, (size_t)(p - field_start));
+        {
+            size_t index_depth = 0U;
+            const char *tail = p;
+            for (;;) {
+                while (isspace((unsigned char)*tail)) ++tail;
+                if (*tail != '[') break;
+                ++index_depth;
+                ++tail;
+                while (*tail != '\0' && *tail != ']') ++tail;
+                if (*tail == ']') ++tail;
+                p = tail;
+            }
+            parameter = find_function_parameter(caller, name);
+            if (parameter >= 0) {
+                argument = &caller->parameters[parameter];
+                constructor = argument->application.constructor != NULL ?
+                    find_template_type(ti, argument->application.constructor) : NULL;
+                field_type = constructor != NULL ?
+                    template_field_type(ti, constructor, field) : NULL;
+                if (field_type != NULL && index_depth != 0U) {
+                    size_t length = strlen(field_type);
+                    size_t strips = index_depth;
+                    for (;;) {
+                        while (length != 0U &&
+                               isspace((unsigned char)field_type[length - 1U])) {
+                            --length;
+                        }
+                        if (strips != 0U && length != 0U &&
+                            field_type[length - 1U] == '*') {
+                            --length;
+                            --strips;
+                        } else {
+                            break;
+                        }
+                    }
+                    {
+                        char *adjusted = trimmed_type_text(field_type, length);
+                        free(field_type);
+                        field_type = adjusted;
+                    }
+                }
+                if (field_type != NULL) {
+                    Buf rewritten;
+                    buf_init(&rewritten);
+                    rewrite(field_type, ti, instance, &rewritten);
+                    free(field_type);
+                    result = rewritten.p != NULL ? rewritten.p : copy_string("");
+                }
+            }
+        }
+        free(field);
+        free(name);
+        return result;
+    }
+    if (*p != '\0') {
+        free(name);
+        return NULL;
+    }
+    parameter = find_function_parameter(caller, name);
+    free(name);
+    if (parameter < 0) return NULL;
+    {
+        Buf rewritten;
+        buf_init(&rewritten);
+        rewrite(caller->parameters[parameter].type, ti, instance, &rewritten);
+        return rewritten.p != NULL ? rewritten.p : copy_string("");
+    }
+}
+
+static int bind_callee_concrete(const TemplateFunction *callee,
+                                const char *callee_name,
+                                const char *concrete,
+                                char **spellings, char **canonicals,
+                                unsigned char *assigned)
+{
+    size_t i;
+    for (i = 0U; i < callee->type_parameter_count; ++i) {
+        if (!str_eq(callee->type_parameters[i], callee_name)) continue;
+        return assign_template_argument(NULL, i, concrete, concrete,
+                                        spellings, canonicals, assigned);
+    }
+    return 0;
+}
+
+static int parameter_has_bound(const TemplateFunction *function,
+                               const char *parameter, const char *trait)
+{
+    size_t i, j;
+    for (i = 0U; i < function->constraint_count; ++i) {
+        const TemplateConstraint *constraint = &function->constraints[i];
+        if (!str_eq(constraint->parameter_name, parameter)) continue;
+        for (j = 0U; j < constraint->bound_trait_count; ++j) {
+            if (str_eq(constraint->bound_traits[j], trait)) return 1;
+        }
+    }
+    return 0;
+}
+
+static char *caller_bound_text(const TemplateFunction *function,
+                               const char *parameter)
+{
+    Buf out;
+    size_t i, j;
+    buf_init(&out);
+    buf_puts(&out, parameter);
+    for (i = 0U; i < function->constraint_count; ++i) {
+        const TemplateConstraint *constraint = &function->constraints[i];
+        if (!str_eq(constraint->parameter_name, parameter)) continue;
+        for (j = 0U; j < constraint->bound_trait_count; ++j) {
+            buf_puts(&out, j == 0U ? ": " : " + ");
+            buf_puts(&out, constraint->bound_traits[j]);
+        }
+    }
+    return out.p != NULL ? out.p : copy_string("");
+}
+
+static void require_caller_bound(const TemplateInfo *caller_ti,
+                                 const TemplateFunction *caller,
+                                 const TemplateFunction *callee,
+                                 const char *caller_name,
+                                 const char *callee_name, const char *trait,
+                                 StringSet *reported, int *okay)
+{
+    Buf key;
+    if (parameter_has_bound(caller, caller_name, trait)) return;
+    buf_init(&key);
+    buf_puts(&key, caller_name);
+    buf_putc(&key, '\n');
+    buf_puts(&key, callee_name);
+    buf_putc(&key, '\n');
+    buf_puts(&key, trait);
+    if (string_set_has(reported, key.p != NULL ? key.p : "")) {
+        buf_free(&key);
+        return;
+    }
+    string_set_add(reported, key.p != NULL ? key.p : "");
+    {
+        char *bound = caller_bound_text(caller, caller_name);
+        if (str_eq(bound, caller_name)) {
+            report_error(caller_ti->path, caller->start_line,
+                "call to '%s' requires '%s: %s', but '%s' has no bound on '%s'",
+                callee->name, caller_name, trait, caller->name, caller_name);
+        } else {
+            report_error(caller_ti->path, caller->start_line,
+                "call to '%s' requires '%s: %s', but '%s' only guarantees '%s'",
+                callee->name, caller_name, trait, caller->name, bound);
+        }
+        free(bound);
+    }
+    *okay = 0;
+}
+
+static void check_symbolic_bound(const TemplateInfo *caller_ti,
+                                 const TemplateFunction *caller,
+                                 const TemplateFunction *callee,
+                                 const char *caller_name,
+                                 const char *callee_name,
+                                 StringSet *reported, int *okay)
+{
+    size_t i, j;
+    if (template_parameter_index(caller_ti, caller_name) < 0) return;
+    if (!list_contains(callee->type_parameters, callee->type_parameter_count,
+                       callee_name)) return;
+    if (callee->is_trait_method) {
+        require_caller_bound(caller_ti, caller, callee, caller_name,
+                             callee_name, callee->trait_name, reported, okay);
+    }
+    for (i = 0U; i < callee->constraint_count; ++i) {
+        const TemplateConstraint *constraint = &callee->constraints[i];
+        if (!str_eq(constraint->parameter_name, callee_name)) continue;
+        for (j = 0U; j < constraint->bound_trait_count; ++j) {
+            require_caller_bound(caller_ti, caller, callee, caller_name,
+                                 callee_name, constraint->bound_traits[j],
+                                 reported, okay);
+        }
+    }
+}
+
+static void check_argument_bounds(const TemplateInfo *caller_ti,
+                                  const TemplateFunction *caller,
+                                  const TemplateFunction *callee,
+                                  const TemplateArgument *source_argument,
+                                  const TemplateArgument *target_argument,
+                                  StringSet *reported, int *okay)
+{
+    size_t j;
+    if (source_argument->application.constructor != NULL &&
+        target_argument->application.constructor != NULL &&
+        str_eq(source_argument->application.constructor,
+               target_argument->application.constructor) &&
+        source_argument->application.argument_count ==
+        target_argument->application.argument_count) {
+        for (j = 0U; j < target_argument->application.argument_count; ++j) {
+            char *source_name = normalize_spaces(
+                source_argument->application.arguments[j]);
+            char *target_name = normalize_spaces(
+                target_argument->application.arguments[j]);
+            if (valid_identifier(source_name) && valid_identifier(target_name)) {
+                check_symbolic_bound(caller_ti, caller, callee,
+                                     source_name, target_name, reported, okay);
+            }
+            free(source_name);
+            free(target_name);
+        }
+    } else if (source_argument->application.constructor == NULL &&
+               target_argument->application.constructor == NULL) {
+        for (j = 0U; j < target_argument->type_parameter_count &&
+                    j < source_argument->type_parameter_count; ++j) {
+            check_symbolic_bound(caller_ti, caller, callee,
+                                 source_argument->type_parameters[j],
+                                 target_argument->type_parameters[j],
+                                 reported, okay);
+        }
+    }
+}
+
+/* Checks bounds for every caller parameter mentioned by an argument
+ * expression, so calls like `Eq_equal(a + 0, b)` cannot bypass the check by
+ * not spelling the argument as a bare parameter. */
+static void check_expression_bounds(const TemplateInfo *caller_ti,
+                                    const TemplateFunction *caller,
+                                    const TemplateFunction *callee,
+                                    const char *expression,
+                                    const TemplateArgument *target_argument,
+                                    StringSet *reported, int *okay)
+{
+    const char *p = expression;
+    size_t seen_count = 0U, seen_cap = 0U;
+    char **seen = NULL;
+    while (*p != '\0') {
+        if (*p == '"' || *p == '\'') {
+            char quote = *p++;
+            while (*p != '\0' && *p != quote) {
+                if (*p == '\\' && p[1] != '\0') ++p;
+                ++p;
+            }
+            if (*p != '\0') ++p;
+        } else if (p[0] == '/' && p[1] == '/') {
+            while (*p != '\0' && *p != '\n') ++p;
+        } else if (p[0] == '/' && p[1] == '*') {
+            p += 2;
+            while (*p != '\0' && !(p[0] == '*' && p[1] == '/')) ++p;
+            if (*p != '\0') p += 2;
+        } else if (is_ident_start(*p)) {
+            const char *start = p++;
+            char *name;
+            int parameter;
+            while (is_ident_char(*p)) ++p;
+            name = copy_range(start, (size_t)(p - start));
+            parameter = find_function_parameter(caller, name);
+            if (parameter >= 0 && !list_contains(seen, seen_count, name)) {
+                list_add(&seen, &seen_count, &seen_cap, name);
+                check_argument_bounds(caller_ti, caller, callee,
+                                      &caller->parameters[parameter],
+                                      target_argument, reported, okay);
+            } else {
+                free(name);
+            }
+        } else {
+            ++p;
+        }
+    }
+    list_free(seen, seen_count);
+}
+
+static void check_call_bounds(const TemplateInfo *caller_ti,
+                              const TemplateFunction *caller,
+                              const TemplateFunction *callee,
+                              char **call_arguments, size_t call_argument_count,
+                              StringSet *reported, int *okay)
+{
+    size_t i;
+    for (i = 0U; i < call_argument_count && i < caller->parameter_count &&
+         i < callee->parameter_count; ++i) {
+        int caller_parameter = call_argument_parameter(caller, call_arguments[i]);
+        const TemplateArgument *target_argument = &callee->parameters[i];
+        if (caller_parameter >= 0) {
+            check_argument_bounds(caller_ti, caller, callee,
+                                  &caller->parameters[caller_parameter],
+                                  target_argument, reported, okay);
+        } else {
+            check_expression_bounds(caller_ti, caller, callee,
+                                    call_arguments[i], target_argument,
+                                    reported, okay);
+        }
+    }
+}
+
+int validate_generic_call_bounds(const TemplateInfo *infos, size_t count)
+{
+    size_t ti_index;
+    StringSet reported;
+    int okay = 1;
+    memset(&reported, 0, sizeof(reported));
+    for (ti_index = 0U; ti_index < count; ++ti_index) {
+        const TemplateInfo *ti = &infos[ti_index];
+        size_t function_index;
+        for (function_index = 0U; function_index < ti->function_count;
+             ++function_index) {
+            const TemplateFunction *caller = &ti->functions[function_index];
+            char *fragment;
+            const char *body;
+            size_t i;
+            if (caller->is_trait_method) continue;
+            if (caller->start_offset >= caller->end_offset ||
+                caller->end_offset > ti->body.len) continue;
+            fragment = copy_range(ti->body.p + caller->start_offset,
+                (size_t)(caller->end_offset - caller->start_offset));
+            body = strchr(fragment, '{');
+            if (body == NULL) {
+                free(fragment);
+                continue;
+            }
+            i = (size_t)(body - fragment) + 1U;
+            while (fragment[i] != '\0') {
+                if (fragment[i] == '/' && fragment[i + 1U] == '/') {
+                    while (fragment[i] != '\0' && fragment[i] != '\n') ++i;
+                    if (fragment[i] == '\n') ++i;
+                } else if (fragment[i] == '/' && fragment[i + 1U] == '*') {
+                    i += 2U;
+                    while (fragment[i] != '\0' &&
+                           !(fragment[i] == '*' && fragment[i + 1U] == '/')) ++i;
+                    if (fragment[i] != '\0') i += 2U;
+                } else if (fragment[i] == '"' || fragment[i] == '\'') {
+                    char quote = fragment[i++];
+                    while (fragment[i] != '\0' && fragment[i] != quote) {
+                        if (fragment[i] == '\\' && fragment[i + 1U] != '\0') i += 2U;
+                        else ++i;
+                    }
+                    if (fragment[i] != '\0') ++i;
+                } else if (is_ident_start(fragment[i])) {
+                    size_t start = i;
+                    size_t open;
+                    char *name;
+                    const TemplateFunction *callee = NULL;
+                    size_t template_index;
+                    while (is_ident_char(fragment[i])) ++i;
+                    open = i;
+                    while (isspace((unsigned char)fragment[open])) ++open;
+                    if (fragment[open] != '(') continue;
+                    name = copy_range(fragment + start, i - start);
+                    for (template_index = 0U;
+                         template_index < g_all_template_info_count;
+                         ++template_index) {
+                        callee = find_template_function(
+                            &g_all_template_infos[template_index], name);
+                        if (callee != NULL) break;
+                    }
+                    free(name);
+                    if (callee == NULL || callee->type_parameter_count == 0U) continue;
+                    {
+                        char **arguments = NULL;
+                        size_t argument_count = 0U, argument_end = 0U;
+                        if (parse_text_type_arguments(fragment, open,
+                                &arguments, &argument_count, &argument_end)) {
+                            check_call_bounds(ti, caller, callee, arguments,
+                                              argument_count, &reported, &okay);
+                        }
+                        list_free(arguments, argument_count);
+                    }
+                } else {
+                    ++i;
+                }
+            }
+            free(fragment);
+        }
+    }
+    string_set_free(&reported);
+    return okay;
+}
+
 static GenInstance *resolve_function_call_instance(const TemplateInfo *caller_ti,
                                                    const TemplateFunction *caller,
                                                    const GenInstance *caller_instance,
@@ -1512,7 +2029,28 @@ static GenInstance *resolve_function_call_instance(const TemplateInfo *caller_ti
         const TemplateArgument *source_argument;
         const TemplateArgument *target_argument;
         size_t j;
-        if (caller_parameter < 0) continue;
+        if (caller_parameter < 0) {
+            char *inferred = infer_expression_type(call_arguments[i], caller_ti,
+                                                   caller_instance, caller);
+            if (inferred != NULL && i < callee->parameter_count) {
+                target_argument = &callee->parameters[i];
+                if (target_argument->application.constructor == NULL &&
+                    target_argument->type_parameter_count == 1U) {
+                    char *target_type = normalize_spaces(target_argument->type);
+                    const char *target_name = target_argument->type_parameters[0];
+                    if (str_eq(target_type, target_name) &&
+                        list_contains(callee->type_parameters,
+                                      callee->type_parameter_count, target_name) &&
+                        !bind_callee_concrete(callee, target_name, inferred,
+                                              spellings, canonicals, assigned)) {
+                        okay = 0;
+                    }
+                    free(target_type);
+                }
+            }
+            free(inferred);
+            continue;
+        }
         source_argument = &caller->parameters[caller_parameter];
         target_argument = &callee->parameters[i];
         if (source_argument->application.constructor != NULL &&

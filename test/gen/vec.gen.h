@@ -28,7 +28,7 @@ static inline void push_int(Vec_int * v, int x) {
   v->data[v->len++] = x;
 }
 #ifndef TMPLGEN_AGGREGATING
-#line 19 "test/tmpl/vec.tmpl.h"
+#line 19 "tmpl/vec.tmpl.h"
 #undef Vec
 #define Vec(type0) Vec_##type0
 
@@ -41,7 +41,7 @@ static inline void push_int(Vec_int * v, int x) {
 #define GEN_ARG1_(arg0, arg1, ...) arg1
 #endif
 
-#line 22 "test/tmpl/vec.tmpl.h"
+#line 22 "tmpl/vec.tmpl.h"
 /// static inline void push_int(Vec_int * v, int x)
 static inline void push_int(Vec_int * v, int x);
 /* No dispatch association yet: either the argument type is wrong,
@@ -63,7 +63,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 #undef push
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline void push(Vec(T) * v, T x)
-#line 22 "test/tmpl/vec.tmpl.h"
+#line 22 "tmpl/vec.tmpl.h"
 #define push(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     Vec_int *: push_int, \
     TMPLGEN_GENERIC_push_N0_TEST_TYPES_H(__VA_ARGS__) \
@@ -72,7 +72,7 @@ extern void push__no_match_for_argument_type(struct tmplgen_no_association_for_p
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline void push(Vec(T) * v, T x)
-#line 22 "test/tmpl/vec.tmpl.h"
+#line 22 "tmpl/vec.tmpl.h"
 #define push(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), Vec_int *)), \
@@ -112,7 +112,7 @@ static inline void push_Item(Vec_Item * v, Item x) {
   }
   v->data[v->len++] = x;
 }
-#line 22 "test/tmpl/vec.tmpl.h"
+#line 22 "tmpl/vec.tmpl.h"
 /// static inline void push_Item(Vec_Item * v, Item x)
 static inline void push_Item(Vec_Item * v, Item x);
 #line 119 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"
@@ -150,7 +150,7 @@ static inline void push_TestInt(Vec_TestInt * v, TestInt x) {
   }
   v->data[v->len++] = x;
 }
-#line 22 "test/tmpl/vec.tmpl.h"
+#line 22 "tmpl/vec.tmpl.h"
 /// static inline void push_TestInt(Vec_TestInt * v, TestInt x)
 static inline void push_TestInt(Vec_TestInt * v, TestInt x);
 #line 157 "/home/elias/Projects/c-tmplgen/test/gen/vec.gen.h"

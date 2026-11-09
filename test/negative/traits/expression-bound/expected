@@ -1,0 +1,1 @@
+error: call to 'Eq_equal' requires 'T: Eq', but 'ordered_equal' only guarantees 'T: Ord'

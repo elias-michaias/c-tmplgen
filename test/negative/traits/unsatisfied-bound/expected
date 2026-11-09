@@ -1,0 +1,1 @@
+error: type 'int' does not implement trait 'Eq' (required by @impl Show(T))

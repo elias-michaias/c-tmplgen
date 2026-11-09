@@ -104,8 +104,11 @@ static int generate(GeneratedFileList *out)
         free(guard);
     }
     if (!validate_template_info(infos, gen_template_count())) goto failed;
+    if (!validate_trait_info(infos, gen_template_count())) goto failed;
+    if (!validate_generic_call_bounds(infos, gen_template_count())) goto failed;
     if (!discover_source_usages(infos, gen_template_count(), &source_files)) goto failed;
     if (!validate_structural_constraints(infos, gen_template_count())) goto failed;
+    if (!validate_trait_instances(infos, gen_template_count())) goto failed;
     if (g_error_count != 0U) goto failed;
     if (!compute_instance_requirements() || g_error_count != 0U) goto failed;
     if (g_reflect_mode == REFLECT_NONE) {

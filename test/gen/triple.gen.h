@@ -6,7 +6,7 @@
 
 
 #ifndef TMPLGEN_AGGREGATING
-#line 13 "test/tmpl/triple.tmpl.h"
+#line 13 "tmpl/triple.tmpl.h"
 #undef Triple
 #define Triple(type0, type1, type2) Triple_##type0##_##type1##_##type2
 
@@ -23,7 +23,7 @@
 #define GEN_ARG2_(arg0, arg1, arg2, ...) arg2
 #endif
 
-#line 16 "test/tmpl/triple.tmpl.h"
+#line 16 "tmpl/triple.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_triple_make_argument { int unused; };
@@ -37,14 +37,14 @@ extern void triple_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #undef triple_make
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline Triple(A, B, C) triple_make(A first, B second, C third)
-#line 16 "test/tmpl/triple.tmpl.h"
+#line 16 "tmpl/triple.tmpl.h"
 #define triple_make(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_triple_make_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: triple_make__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline Triple(A, B, C) triple_make(A first, B second, C third)
-#line 16 "test/tmpl/triple.tmpl.h"
+#line 16 "tmpl/triple.tmpl.h"
 #define triple_make(...) \
     TMPLGEN_GNU_triple_make_TEST_TYPES_H(triple_make__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -52,7 +52,7 @@ extern void triple_make__no_match_for_argument_type(struct tmplgen_no_associatio
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 23 "test/tmpl/triple.tmpl.h"
+#line 23 "tmpl/triple.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_triple_first_argument { int unused; };
@@ -66,14 +66,14 @@ extern void triple_first__no_match_for_argument_type(struct tmplgen_no_associati
 #undef triple_first
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline A triple_first(Triple(A, B, C) * value)
-#line 23 "test/tmpl/triple.tmpl.h"
+#line 23 "tmpl/triple.tmpl.h"
 #define triple_first(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_triple_first_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: triple_first__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline A triple_first(Triple(A, B, C) * value)
-#line 23 "test/tmpl/triple.tmpl.h"
+#line 23 "tmpl/triple.tmpl.h"
 #define triple_first(...) \
     TMPLGEN_GNU_triple_first_TEST_TYPES_H(triple_first__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -151,7 +151,7 @@ static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_Inferre
 
 /* ---- triple: triple_first_TestInt_ErrorCode_Tag ---- */
 static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag *value) { return value->first; }
-#line 16 "test/tmpl/triple.tmpl.h"
+#line 16 "tmpl/triple.tmpl.h"
 /// static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third)
 static inline Triple_Tag_InferredError_InferredLong triple_make_Tag_InferredError_InferredLong(Tag first, InferredError second, InferredLong third);
 /// static inline Triple_TestInt_ErrorCode_Tag triple_make_TestInt_ErrorCode_Tag(TestInt first, ErrorCode second, Tag third)
@@ -190,7 +190,7 @@ static inline Triple_double_ErrorCode_Tag triple_make_double_ErrorCode_Tag(doubl
                 triple_make_double_ErrorCode_Tag, \
                 next))) \
 
-#line 23 "test/tmpl/triple.tmpl.h"
+#line 23 "tmpl/triple.tmpl.h"
 /// static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value)
 static inline Tag triple_first_Tag_InferredError_InferredLong(Triple_Tag_InferredError_InferredLong * value);
 /// static inline TestInt triple_first_TestInt_ErrorCode_Tag(Triple_TestInt_ErrorCode_Tag * value)

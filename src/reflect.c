@@ -2119,11 +2119,31 @@ static void reflect_report_diagnostics(CXTranslationUnit tu, int *failed)
     for (i = 0U; i < count; ++i) {
         CXDiagnostic diagnostic = clang_getDiagnostic(tu, i);
         if (clang_getDiagnosticSeverity(diagnostic) >= CXDiagnostic_Error) {
-            char *text = copy_cx_string(clang_formatDiagnostic(
-                diagnostic, clang_defaultDiagnosticDisplayOptions()));
-            report_error(NULL, 0U, "reflection: project headers do not compile "
-                         "together: %s", text);
-            free(text);
+            CXSourceLocation location = clang_getDiagnosticLocation(diagnostic);
+            CXString presumed_file = { NULL, 0U };
+            unsigned presumed_line = 0U;
+            unsigned presumed_column = 0U;
+            char *path;
+            char *message;
+            clang_getPresumedLocation(location, &presumed_file, &presumed_line,
+                                      &presumed_column);
+            path = copy_cx_string(presumed_file);
+            clang_disposeString(presumed_file);
+            message = copy_cx_string(clang_getDiagnosticSpelling(diagnostic));
+            if (path[0] != '\0' && presumed_line != 0U && message[0] != '\0') {
+                report_error(path, presumed_line,
+                             "reflection: project headers do not compile "
+                             "together: %s", message);
+            } else {
+                char *text = copy_cx_string(clang_formatDiagnostic(
+                    diagnostic, clang_defaultDiagnosticDisplayOptions()));
+                report_error(NULL, 0U,
+                             "reflection: project headers do not compile "
+                             "together: %s", text);
+                free(text);
+            }
+            free(message);
+            free(path);
             *failed = 1;
         }
         clang_disposeDiagnostic(diagnostic);

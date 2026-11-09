@@ -32,7 +32,7 @@ static inline double clamp_double(double x, double lo, double hi) { return max_d
 #define GEN_ARG2_(arg0, arg1, arg2, ...) arg2
 #endif
 
-#line 12 "test/tmpl/math.tmpl.h"
+#line 12 "tmpl/math.tmpl.h"
 /// static inline double max_double(double a, double b)
 static inline double max_double(double a, double b);
 /// static inline char * max_char_ptr(char * a, char * b)
@@ -50,7 +50,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 #undef max
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T max(T a, T b)
-#line 12 "test/tmpl/math.tmpl.h"
+#line 12 "tmpl/math.tmpl.h"
 #define max(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     double: max_double, \
     char *: max_char_ptr, \
@@ -59,7 +59,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T max(T a, T b)
-#line 12 "test/tmpl/math.tmpl.h"
+#line 12 "tmpl/math.tmpl.h"
 #define max(...) \
     __builtin_choose_expr( \
         (__builtin_types_compatible_p(__typeof__(GEN_ARG0(__VA_ARGS__)), double)), \
@@ -73,7 +73,7 @@ extern void max__no_match_for_argument_type(struct tmplgen_no_association_for_ma
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 27 "test/tmpl/math.tmpl.h"
+#line 27 "tmpl/math.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_chain_root_argument { int unused; };
@@ -87,14 +87,14 @@ extern void chain_root__no_match_for_argument_type(struct tmplgen_no_association
 #undef chain_root
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T chain_root(T value)
-#line 27 "test/tmpl/math.tmpl.h"
+#line 27 "tmpl/math.tmpl.h"
 #define chain_root(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_chain_root_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: chain_root__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T chain_root(T value)
-#line 27 "test/tmpl/math.tmpl.h"
+#line 27 "tmpl/math.tmpl.h"
 #define chain_root(...) \
     TMPLGEN_GNU_chain_root_TEST_TYPES_H(chain_root__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -102,7 +102,7 @@ extern void chain_root__no_match_for_argument_type(struct tmplgen_no_association
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 29 "test/tmpl/math.tmpl.h"
+#line 29 "tmpl/math.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_recursive_value_argument { int unused; };
@@ -116,14 +116,14 @@ extern void recursive_value__no_match_for_argument_type(struct tmplgen_no_associ
 #undef recursive_value
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T recursive_value(T value, unsigned int count)
-#line 29 "test/tmpl/math.tmpl.h"
+#line 29 "tmpl/math.tmpl.h"
 #define recursive_value(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_recursive_value_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: recursive_value__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T recursive_value(T value, unsigned int count)
-#line 29 "test/tmpl/math.tmpl.h"
+#line 29 "tmpl/math.tmpl.h"
 #define recursive_value(...) \
     TMPLGEN_GNU_recursive_value_TEST_TYPES_H(recursive_value__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -131,7 +131,7 @@ extern void recursive_value__no_match_for_argument_type(struct tmplgen_no_associ
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 37 "test/tmpl/math.tmpl.h"
+#line 37 "tmpl/math.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_mutual_first_argument { int unused; };
@@ -145,14 +145,14 @@ extern void mutual_first__no_match_for_argument_type(struct tmplgen_no_associati
 #undef mutual_first
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T mutual_first(T value, unsigned int count)
-#line 37 "test/tmpl/math.tmpl.h"
+#line 37 "tmpl/math.tmpl.h"
 #define mutual_first(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_mutual_first_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: mutual_first__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T mutual_first(T value, unsigned int count)
-#line 37 "test/tmpl/math.tmpl.h"
+#line 37 "tmpl/math.tmpl.h"
 #define mutual_first(...) \
     TMPLGEN_GNU_mutual_first_TEST_TYPES_H(mutual_first__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -160,7 +160,7 @@ extern void mutual_first__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 55 "test/tmpl/math.tmpl.h"
+#line 55 "tmpl/math.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_reorder_call_argument { int unused; };
@@ -174,14 +174,14 @@ extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_associati
 #undef reorder_call
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline void reorder_call(T first, U second)
-#line 55 "test/tmpl/math.tmpl.h"
+#line 55 "tmpl/math.tmpl.h"
 #define reorder_call(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_reorder_call_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: reorder_call__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline void reorder_call(T first, U second)
-#line 55 "test/tmpl/math.tmpl.h"
+#line 55 "tmpl/math.tmpl.h"
 #define reorder_call(...) \
     TMPLGEN_GNU_reorder_call_TEST_TYPES_H(reorder_call__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -189,7 +189,7 @@ extern void reorder_call__no_match_for_argument_type(struct tmplgen_no_associati
 #error "GEN_DISPATCH_AUTO requires C11 or GNU-compatible C"
 #endif
 
-#line 60 "test/tmpl/math.tmpl.h"
+#line 60 "tmpl/math.tmpl.h"
 /* No dispatch association yet: either the argument type is wrong,
    or generated headers need regeneration after requesting this type. */
 struct tmplgen_no_association_for_cross_root_argument { int unused; };
@@ -203,14 +203,14 @@ extern void cross_root__no_match_for_argument_type(struct tmplgen_no_association
 #undef cross_root
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 /// static inline T cross_root(T value)
-#line 60 "test/tmpl/math.tmpl.h"
+#line 60 "tmpl/math.tmpl.h"
 #define cross_root(...) _Generic((GEN_ARG0(__VA_ARGS__)), \
     TMPLGEN_GENERIC_cross_root_N0_TEST_TYPES_H(__VA_ARGS__) \
     default: cross_root__no_match_for_argument_type)(__VA_ARGS__)
 
 #elif defined(__GNUC__) || defined(__clang__)
 /// static inline T cross_root(T value)
-#line 60 "test/tmpl/math.tmpl.h"
+#line 60 "tmpl/math.tmpl.h"
 #define cross_root(...) \
     TMPLGEN_GNU_cross_root_TEST_TYPES_H(cross_root__no_match_for_argument_type, __VA_ARGS__)(__VA_ARGS__)
 
@@ -296,7 +296,7 @@ static inline TestInt cross_root_TestInt(TestInt value)
 {
     return cross_helper_TestInt(value);
 }
-#line 12 "test/tmpl/math.tmpl.h"
+#line 12 "tmpl/math.tmpl.h"
 /// static inline TestInt max_TestInt(TestInt a, TestInt b)
 static inline TestInt max_TestInt(TestInt a, TestInt b);
 #line 303 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
@@ -311,7 +311,7 @@ static inline TestInt max_TestInt(TestInt a, TestInt b);
         max_TestInt, \
         next) \
 
-#line 27 "test/tmpl/math.tmpl.h"
+#line 27 "tmpl/math.tmpl.h"
 /// static inline TestInt chain_root_TestInt(TestInt value)
 static inline TestInt chain_root_TestInt(TestInt value);
 #line 318 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
@@ -326,7 +326,7 @@ static inline TestInt chain_root_TestInt(TestInt value);
         chain_root_TestInt, \
         next) \
 
-#line 29 "test/tmpl/math.tmpl.h"
+#line 29 "tmpl/math.tmpl.h"
 /// static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count)
 static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count);
 #line 333 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
@@ -341,7 +341,7 @@ static inline TestInt recursive_value_TestInt(TestInt value, unsigned int count)
         recursive_value_TestInt, \
         next) \
 
-#line 37 "test/tmpl/math.tmpl.h"
+#line 37 "tmpl/math.tmpl.h"
 /// static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count)
 static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count);
 #line 348 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
@@ -356,7 +356,7 @@ static inline TestInt mutual_first_TestInt(TestInt value, unsigned int count);
         mutual_first_TestInt, \
         next) \
 
-#line 55 "test/tmpl/math.tmpl.h"
+#line 55 "tmpl/math.tmpl.h"
 /// static inline void reorder_call_TestInt_double(TestInt first, double second)
 static inline void reorder_call_TestInt_double(TestInt first, double second);
 #line 363 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
@@ -373,7 +373,7 @@ static inline void reorder_call_TestInt_double(TestInt first, double second);
         reorder_call_TestInt_double, \
         next) \
 
-#line 60 "test/tmpl/math.tmpl.h"
+#line 60 "tmpl/math.tmpl.h"
 /// static inline TestInt cross_root_TestInt(TestInt value)
 static inline TestInt cross_root_TestInt(TestInt value);
 #line 380 "/home/elias/Projects/c-tmplgen/test/gen/math.gen.h"
